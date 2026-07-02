@@ -85,6 +85,39 @@ restarts — without it, a restart re-prefills pi's full context from zero
 (measured: ~10 min cold prefill for a 146K-token pi prompt at ~250 t/s avg;
 warm same-session turns only prefill new tokens either way).
 
+## Local branch: server-enhancements (2026-07-02)
+
+Nine commits implementing the review findings below (all except: engine frontier
+snapshots, incremental snapshot storage, eviction rescoring, Anthropic
+stop_sequence stop_reason, stop-string rewind — the last two were judged too
+invasive for the finish-string plumbing). Highlights: tool-visible live
+checkpoint for chat/Anthropic tool turns (eliminates the per-turn 650 MiB
+evict+disk-restore for pi), prefill cancellation on disconnect/Ctrl-C,
+threshold-based snapshot cadence, deferred consume-unlink, GET /health +
+/stats, --max-queue. Verified with `make` + `./ds4_test --server` +
+`./ds4_agent_test` + `./ds4-eval --self-test-extractors` (full `make test`
+long-context part needs the GPU the production server holds).
+**Verified live 2026-07-02 17:05-17:10** after server restart: every pi turn
+continues in memory (memory_token hits — the raw-DSML separator fix makes
+replays token-exact, so the tool-visible key sits unused as safety net).
+Turn overhead dropped from ~80-100 s (evict store + disk load + 25K re-prefill)
+to ~2-3 s; decode 25-27.9 t/s; unaligned continued snapshots firing (73728).
+/health + /stats live on port 8000. Remaining tune: snapshots are ~1 GB at
+76K+ ctx, so raise --kv-disk-space-mb to 16-32 GB on next restart.
+
+**ROOT CAUSE FOUND 17:23 (via --trace)**: the recurring token-mismatch at
+33,126 is **pi's "pi-lens" automated-check feature**: it re-sends the whole
+conversation with the user message at that turn replaced by
+"[pi-lens automated check — not a...". Two interleaved clients (main + lens)
+ping-pong the single live session; each lens check costs a ~69K-token prefill
+(~4 min) since it genuinely diverges 56K tokens back. NOT tool-result trimming
+(earlier hypothesis wrong), NOT a server bug. Fix in pi: disable pi-lens or
+route it off this backend. Server-side mitigation already in place: 32 GB disk
+budget keeps the main thread's 1.2 GB evict snapshots, so main-thread recovery
+after a lens check is snapshot-load + tail prefill, not re-prefill. Still
+worth doing: eviction-scoring fix (recent zero-hit waypoints were evicted
+first under the old 8 GB budget, cost ~12K extra tokens once).
+
 ## Server review findings (2026-07-02, 4-agent code review)
 
 Top enhancement candidates, verified with file:line evidence (full details in session notes):
