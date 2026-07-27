@@ -15487,7 +15487,13 @@ static void test_production_txn_terminalizes_queued_disconnect(void) {
     memset(&j, 0, sizeof(j));
     j.fd = sv[0];
 
-    server_txn_outcome outcome = server_txn_run(&s, &j);
+    server_slot slot;
+    memset(&slot, 0, sizeof(slot));
+    slot.srv = &s;
+    s.slots = &slot;
+    s.slot_count = 1;
+
+    server_txn_outcome outcome = server_txn_run(&s, &slot, &j);
     TEST_ASSERT(outcome.class == SERVER_TXN_CANCELLED);
     TEST_ASSERT(outcome.reason == SERVER_TXN_REASON_CLIENT_GONE);
     TEST_ASSERT(outcome.session == SERVER_SESSION_UNCHANGED);
@@ -15517,9 +15523,15 @@ static void test_production_txn_shutdown_beats_queued_disconnect(void) {
     memset(&j, 0, sizeof(j));
     j.fd = sv[0];
 
+    server_slot slot;
+    memset(&slot, 0, sizeof(slot));
+    slot.srv = &s;
+    s.slots = &slot;
+    s.slot_count = 1;
+
     const sig_atomic_t saved_stop = g_stop_requested;
     g_stop_requested = 1;
-    server_txn_outcome outcome = server_txn_run(&s, &j);
+    server_txn_outcome outcome = server_txn_run(&s, &slot, &j);
     g_stop_requested = saved_stop;
 
     TEST_ASSERT(outcome.class == SERVER_TXN_CANCELLED);
@@ -15536,13 +15548,19 @@ static void test_production_settle_rollback_clears_live_bindings(void) {
     memset(&s, 0, sizeof(s));
     pthread_mutex_init(&s.mu, NULL);
     pthread_mutex_init(&s.tool_mu, NULL);
-    s.responses_live.visible_text = xstrdup("turn");
-    s.responses_live.visible_len = 4;
-    s.responses_live.valid = true;
-    s.thinking_live.visible_text = xstrdup("turn");
-    s.thinking_live.visible_len = 4;
-    s.thinking_live.valid = true;
-    s.anthropic_live.valid = true;
+    server_slot slot;
+    memset(&slot, 0, sizeof(slot));
+    slot.srv = &s;
+    s.slots = &slot;
+    s.slot_count = 1;
+
+    slot.responses_live.visible_text = xstrdup("turn");
+    slot.responses_live.visible_len = 4;
+    slot.responses_live.valid = true;
+    slot.thinking_live.visible_text = xstrdup("turn");
+    slot.thinking_live.visible_len = 4;
+    slot.thinking_live.valid = true;
+    slot.anthropic_live.valid = true;
 
     job j;
     memset(&j, 0, sizeof(j));
@@ -15550,6 +15568,7 @@ static void test_production_settle_rollback_clears_live_bindings(void) {
     production_txn p;
     memset(&p, 0, sizeof(p));
     p.srv = &s;
+    p.slot = &slot;
     p.job = &j;
     p.normal_ready = true;
     p.wire = SERVER_WIRE_UNTOUCHED;
@@ -15562,14 +15581,14 @@ static void test_production_settle_rollback_clears_live_bindings(void) {
     server_txn_settle_result r = production_session_settle(&p, &outcome, false);
     TEST_ASSERT(r.ok);
     TEST_ASSERT(r.session == SERVER_SESSION_VALID_PREFIX);
-    TEST_ASSERT(!s.responses_live.valid);
-    TEST_ASSERT(!s.thinking_live.valid);
-    TEST_ASSERT(s.anthropic_live.valid);
+    TEST_ASSERT(!slot.responses_live.valid);
+    TEST_ASSERT(!slot.thinking_live.valid);
+    TEST_ASSERT(slot.anthropic_live.valid);
 
     j.req.api = API_ANTHROPIC;
     r = production_session_settle(&p, &outcome, false);
     TEST_ASSERT(r.ok);
-    TEST_ASSERT(!s.anthropic_live.valid);
+    TEST_ASSERT(!slot.anthropic_live.valid);
 
     pthread_mutex_destroy(&s.tool_mu);
     pthread_mutex_destroy(&s.mu);
