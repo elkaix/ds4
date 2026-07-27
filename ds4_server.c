@@ -12179,6 +12179,9 @@ static server_txn_step_result production_restore(
             p, SERVER_TXN_CANCELLED, reason, SERVER_TXN_FINISH_ERROR,
             SERVER_SESSION_UNCHANGED, detail);
     }
+    /* Only worker_main() binds ownership, and it runs solely in non-batched
+     * mode; batched serving has one slot_worker_main() thread per slot, each
+     * owning its own session, so this guard is inert there by design. */
     if (s->worker_bound && !pthread_equal(s->worker_thread, pthread_self())) {
         die("worker ownership violation while executing a session transaction");
     }
@@ -13350,7 +13353,8 @@ static bool live_state_contains_all(const live_tool_state *state,
 
 /* Return the only slot eligible for an explicit live continuation, or -1 when
  * the request has no resident binding. A missing binding is intentionally not
- * treated as ineligible: generate_job() then emits the existing 409 response. */
+ * treated as ineligible: the transaction's restore phase then latches
+ * PRODUCTION_REPLY_{RESPONSES,ANTHROPIC}_CONFLICT and emits the 409. */
 static int job_required_slot_locked(server *s, const job *j) {
     if (!s || !j) return -1;
     const request *r = &j->req;
