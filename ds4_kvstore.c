@@ -1341,37 +1341,19 @@ int ds4_kvstore_try_load_text(ds4_kvstore *kc,
         const double load_ms = (kv_now_sec() - load_t0) * 1000.0;
         kc->continued_last_store_tokens = loaded;
         const char *key_kind = ds4_kvstore_key_kind(hdr.ext_flags);
-        bool consumed = false;
-        if (kc->opt.cold_max_tokens > 0 && loaded > kc->opt.cold_max_tokens) {
-            /* This entry is superseded once the caller extends the restored
-             * state, but unlinking it here would lose the only recoverable
-             * copy if the tail prefill then fails or is cancelled.  Report it
-             * as consumed and let the caller unlink after the extension
-             * succeeds; without a result struct nobody could, so delete. */
-            if (!result) unlink(path);
-            consumed = true;
-            kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
-                    "%s: kv cache hit text%s%s tokens=%d text=%u quant=%u key=%s load=%.1f ms consumed file=%s",
-                    kv_log_name(kc),
-                    responses_protocol ? " " : "",
-                    responses_protocol ? "RESPPROTO" : "",
-                    loaded, text_bytes, hdr.quant_bits, key_kind, load_ms, path);
-        } else {
-            ds4_kvstore_touch_file(path, hdr.hits + 1);
-            kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
-                    "%s: kv cache hit text%s%s tokens=%d text=%u quant=%u key=%s load=%.1f ms file=%s",
-                    kv_log_name(kc),
-                    responses_protocol ? " " : "",
-                    responses_protocol ? "RESPPROTO" : "",
-                    loaded, text_bytes, hdr.quant_bits, key_kind, load_ms, path);
-        }
+        ds4_kvstore_touch_file(path, hdr.hits + 1);
+        kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
+                "%s: kv cache hit text%s%s tokens=%d text=%u quant=%u key=%s load=%.1f ms file=%s",
+                kv_log_name(kc),
+                responses_protocol ? " " : "",
+                responses_protocol ? "RESPPROTO" : "",
+                loaded, text_bytes, hdr.quant_bits, key_kind, load_ms, path);
         if (result) {
             result->tokens = loaded;
             result->text_bytes = text_bytes;
             result->quant_bits = hdr.quant_bits;
             result->ext_flags = hdr.ext_flags;
             result->load_ms = load_ms;
-            result->consumed = consumed;
             result->path = kv_xstrdup(path);
         }
     }
