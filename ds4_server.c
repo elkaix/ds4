@@ -13284,7 +13284,7 @@ decode_again:
     if (thinking_gates_tool_markers && thinking.inside &&
         partial_tool_inside_thinking) {
         saw_tool_start = true;
-        trace_event(s, trace_id,
+        production_observe_trace_event(p,
                     "found unterminated tool call inside unclosed reasoning after %d generated tokens",
                     completion);
     }
