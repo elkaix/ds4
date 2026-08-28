@@ -3,7 +3,16 @@
 #include "ds4_gpu_args.h"
 #include "ds4_help.h"
 #include "ds4_kvstore.h"
+/* LOCAL PATCH (not upstream): /health, /stats and the embedded /dashboard
+ * page live in the top commit "Add local /health, /stats and embedded React
+ * dashboard (LOCAL PATCH)". Before pulling upstream glm-5.3-flash, park it:
+ *   git reset --soft HEAD~1 && git stash && git pull --rebase && git stash pop
+ * Every hunk of that patch is marked with "LOCAL PATCH" for easy resolution. */
+#include "dashboard_html.h"
 #include "rax.h"
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 /* OpenAI/Anthropic compatible local server.
  *
@@ -9043,6 +9052,21 @@ typedef struct {
     size_t visible_len;
 } visible_live_state;
 
+/* LOCAL PATCH */
+/* Operational counters for GET /stats.  Guarded by server.mu; every field
+ * piggybacks on decisions the request path already makes. */
+typedef struct {
+    uint64_t requests;
+    uint64_t prefill_cancelled;
+    uint64_t cache_hits;
+    uint64_t cache_cold;
+    uint64_t prompt_tokens;
+    uint64_t cached_tokens;
+    uint64_t generated_tokens;
+    double last_prefill_tps;
+    double last_decode_tps;
+} server_stats;
+
 struct server_slot {
     server *srv;
     int id;
@@ -9099,6 +9123,10 @@ struct server {
     job *tail;
     bool stopping;
     int clients;
+    /* LOCAL PATCH */
+    double started_at;
+    const char *model_path;
+    server_stats stats;
     uint64_t seq;
     FILE *trace;
     pthread_mutex_t trace_mu;
@@ -12041,6 +12069,13 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         j->req.responses_requires_live_reasoning &&
         !responses_reasoning_state_preserved;
     const int prompt_tokens = prompt_for_sync->len;
+    /* LOCAL PATCH */
+    pthread_mutex_lock(&s->mu);
+    s->stats.requests++;
+    if (cached > 0) s->stats.cache_hits++; else s->stats.cache_cold++;
+    s->stats.prompt_tokens += (uint64_t)prompt_tokens;
+    s->stats.cached_tokens += (uint64_t)(cached > 0 ? cached : 0);
+    pthread_mutex_unlock(&s->mu);
     /* OpenAI usage details: the reusable prefix is a cache read, while the
      * effective prompt suffix evaluated by ds4_session_sync() is written into
      * the live KV cache and can be reused by the next request. */
@@ -12157,6 +12192,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             free(disk_cache_path);
             if (job_cancelled(j)) {
                 request_live_state_clear(s, slot);
+                pthread_mutex_lock(&s->mu);
+                s->stats.prefill_cancelled++;
+                pthread_mutex_unlock(&s->mu);
                 trace_event(s, trace_id, "cancelled during prefill");
                 return;
             }
@@ -12191,6 +12229,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         free(disk_cache_path);
         if (job_cancelled(j)) {
             request_live_state_clear(s, slot);
+            pthread_mutex_lock(&s->mu);
+            s->stats.prefill_cancelled++;
+            pthread_mutex_unlock(&s->mu);
             trace_event(s, trace_id, "cancelled during prefill");
             return;
         }
@@ -12215,6 +12256,15 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     ds4_session_set_progress(slot->session, NULL, NULL);
     ds4_session_set_display_progress(slot->session, NULL, NULL);
     if (!multimodal) kv_cache_maybe_store_continued(s, slot);
+    /* LOCAL PATCH */
+    {
+        const double prefill_sec = now_sec() - t0;
+        if (prompt_tokens > cached && prefill_sec > 0.0) {
+            pthread_mutex_lock(&s->mu);
+            s->stats.last_prefill_tps = (double)(prompt_tokens - cached) / prefill_sec;
+            pthread_mutex_unlock(&s->mu);
+        }
+    }
     server_log(DS4_LOG_PREFILL,
                "ds4-server: %s ctx=%s%s%s prompt done %.3fs",
                j->req.kind == REQ_CHAT ? "chat" : "completion",
@@ -12699,6 +12749,15 @@ decode_again:
                             &last_decode_log_t,
                             &last_decode_log_completion);
     }
+    /* LOCAL PATCH */
+    {
+        const double decode_sec = now_sec() - decode_t0;
+        pthread_mutex_lock(&s->mu);
+        s->stats.generated_tokens += (uint64_t)(completion > 0 ? completion : 0);
+        if (completion > 0 && decode_sec > 0.0)
+            s->stats.last_decode_tps = (double)completion / decode_sec;
+        pthread_mutex_unlock(&s->mu);
+    }
 
     if (j->req.stream && !structured_stream && text.len > plain_stream_pos) {
         char *tail = xstrndup(text.ptr + plain_stream_pos, text.len - plain_stream_pos);
@@ -13160,6 +13219,121 @@ static void dispatch_jobs_locked(server *s) {
     }
 }
 
+/* LOCAL PATCH */
+static double process_rss_mb(void) {
+#ifdef __APPLE__
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS)
+        return (double)info.resident_size / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
+static bool send_health(server *s, int fd) {
+    buf b = {0};
+    buf_puts(&b, "{\"status\":\"ok\",\"model\":");
+    json_escape(&b, ds4_engine_model_name(s->engine));
+    buf_printf(&b, ",\"uptime_s\":%.0f}\n", now_sec() - s->started_at);
+    bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
+    buf_free(&b);
+    return ok;
+}
+
+static bool send_stats(server *s, int fd) {
+    buf slots = {0};
+    pthread_mutex_lock(&s->mu);
+    server_stats st = s->stats;
+    int queue_depth = 0;
+    for (job *j = s->head; j; j = j->next) queue_depth++;
+    bool busy = false;
+    int live_tokens = 0;
+    int ctx_size = s->ctx_size;
+    buf_puts(&slots, "[");
+    for (int i = 0; i < s->slot_count; i++) {
+        const server_slot *sl = &s->slots[i];
+        const bool sl_busy = sl->busy || sl->running != NULL;
+        const int pos = sl->session ? ds4_session_pos(sl->session) : 0;
+        if (sl_busy) busy = true;
+        live_tokens += pos;
+        buf_printf(&slots, "%s{\"id\":%d,\"busy\":%s,\"live_tokens\":%d,\"ctx\":%d}",
+                   i ? "," : "", sl->id, sl_busy ? "true" : "false", pos,
+                   sl->session ? ds4_session_ctx(sl->session) : ctx_size);
+    }
+    buf_puts(&slots, "]");
+    const int clients = s->clients;
+    pthread_mutex_unlock(&s->mu);
+    uint64_t kv_used = 0, kv_budget = 0;
+    int kv_files = 0;
+    bool kv_enabled = false;
+    char *kv_dir = NULL;
+    pthread_mutex_lock(&s->kv_mu);
+    kv_enabled = s->kv.enabled;
+    if (kv_enabled) {
+        kv_budget = s->kv.budget_bytes;
+        kv_files = s->kv.len;
+        for (int i = 0; i < s->kv.len; i++) kv_used += s->kv.entry[i].file_size;
+        if (s->kv.dir) kv_dir = xstrdup(s->kv.dir);
+    }
+    pthread_mutex_unlock(&s->kv_mu);
+    buf b = {0};
+    buf_puts(&b, "{\"model\":");
+    json_escape(&b, ds4_engine_model_name(s->engine));
+    buf_puts(&b, ",\"model_path\":");
+    json_escape(&b, s->model_path ? s->model_path : "");
+    buf_puts(&b, ",\"kv_disk\":{\"enabled\":");
+    buf_puts(&b, kv_enabled ? "true" : "false");
+    buf_puts(&b, ",\"dir\":");
+    json_escape(&b, kv_dir ? kv_dir : "");
+    buf_printf(&b, ",\"used_mb\":%.1f,\"budget_mb\":%.1f,\"files\":%d}",
+               (double)kv_used / (1024.0 * 1024.0),
+               (double)kv_budget / (1024.0 * 1024.0), kv_files);
+    free(kv_dir);
+    buf_printf(&b,
+        ",\"uptime_s\":%.0f,"
+        "\"busy\":%s,"
+        "\"queue_depth\":%d,"
+        "\"clients\":%d,"
+        "\"live_tokens\":%d,"
+        "\"ctx_size\":%d,"
+        "\"slot_count\":%d,"
+        "\"rss_mb\":%.1f,"
+        "\"requests\":%llu,"
+        "\"queue_rejected\":0,"
+        "\"queue_dropped_disconnected\":0,"
+        "\"prefill_cancelled\":%llu,"
+        "\"prompt_tokens\":%llu,"
+        "\"cached_tokens\":%llu,"
+        "\"generated_tokens\":%llu,"
+        "\"last_prefill_tps\":%.2f,"
+        "\"last_decode_tps\":%.2f,"
+        "\"cache\":{\"hits\":%llu,\"cold\":%llu},"
+        "\"slots\":%s}\n",
+        now_sec() - s->started_at,
+        busy ? "true" : "false",
+        queue_depth,
+        clients,
+        live_tokens,
+        ctx_size,
+        s->slot_count,
+        process_rss_mb(),
+        (unsigned long long)st.requests,
+        (unsigned long long)st.prefill_cancelled,
+        (unsigned long long)st.prompt_tokens,
+        (unsigned long long)st.cached_tokens,
+        (unsigned long long)st.generated_tokens,
+        st.last_prefill_tps,
+        st.last_decode_tps,
+        (unsigned long long)st.cache_hits,
+        (unsigned long long)st.cache_cold,
+        slots.ptr ? slots.ptr : "[]");
+    buf_free(&slots);
+    bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
+    buf_free(&b);
+    return ok;
+}
+
 static bool enqueue(server *s, job *j) {
     pthread_mutex_lock(&s->mu);
     if (s->stopping) {
@@ -13519,6 +13693,31 @@ static void *client_main(void *arg) {
 
     if (!strcmp(hr.method, "GET") && !strcmp(hr.path, "/v1/models")) {
         send_models(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    /* LOCAL PATCH */
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/health") || !strcmp(hr.path, "/v1/health")))
+    {
+        send_health(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/stats") || !strcmp(hr.path, "/v1/stats")))
+    {
+        send_stats(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/dashboard") || !strcmp(hr.path, "/dashboard/")))
+    {
+        /* Live stats page embedded at build time from dashboard.html; served
+         * same-origin so it can poll /stats without --cors. */
+        http_response(fd, s->enable_cors, 200, "text/html; charset=utf-8",
+                      dashboard_html);
         http_request_free(&hr);
         goto done;
     }
@@ -14096,6 +14295,9 @@ int main(int argc, char **argv) {
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
     s.tool_mem.max_entries = cfg.tool_memory_max_ids;
     s.enable_cors = cfg.enable_cors;
+    /* LOCAL PATCH */
+    s.started_at = now_sec();
+    s.model_path = cfg.engine.model_path;
     s.slots = xmalloc((size_t)slot_count * sizeof(*s.slots));
     memset(s.slots, 0, (size_t)slot_count * sizeof(*s.slots));
     if (s.batched_mode) {
