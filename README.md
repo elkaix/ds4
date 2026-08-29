@@ -206,9 +206,9 @@ layers, hyper-connections, and built-in MTP block. The release GGUFs were made
 from the official FP8 checkpoint:
 
 ```sh
-./download_model.sh glm53-q2  # about 90 GiB
-./download_model.sh glm53-q4  # about 178 GiB
-./download_model.sh glm53-fp8 # about 305 GiB; packaged weights only
+./download_model.sh glm-53-flash-antirez-q2  # about 90 GiB
+./download_model.sh glm-53-flash-antirez-q4  # about 178 GiB
+./download_model.sh glm-53-flash-antirez-fp8 # about 305 GiB; packaged weights only
 ```
 
 The Q2 file uses imatrix-guided IQ2_XXS gate/up experts and Q2_K down experts.
