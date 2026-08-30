@@ -1646,7 +1646,8 @@ builds for this model layout.
 The cache stores checkpoints at four moments:
 
 - `cold`: after a long first prompt reaches a stable prefix, before generation.
-- `continued`: when prefill or generation reaches the next absolute aligned frontier.
+- `continued`: at the first valid live checkpoint that reaches or passes the
+  next absolute interval frontier.
 - `evict`: before an unrelated request replaces the live in-memory session.
 - `shutdown`: when the server exits cleanly.
 
@@ -1656,11 +1657,11 @@ future request appends text to the same prompt. The defaults are conservative:
 store prefixes of at least 512 tokens, cold-save prompts up to 30000 tokens,
 trim 32 tail tokens, and align to 2048-token chunks. The important knobs are:
 
-Continued saves use the same alignment and are written only when the live graph
-naturally reaches an absolute frontier. With the defaults this means roughly
-every 10k tokens, independent of where the first cold checkpoint landed, so long
-generations leave restart points behind without persisting the fragile final few
-tokens.
+Continued-save intervals are rounded up to the cold-boundary alignment. The
+cache writes the first valid live checkpoint at or beyond each absolute
+frontier. This matters when a restored cold checkpoint itself is unaligned:
+fixed-size prefill chunks may step over every exact frontier, but they still
+leave restart points roughly every 10k tokens instead of silently leaving none.
 
 - `--kv-cache-min-tokens`
 - `--kv-cache-cold-max-tokens`

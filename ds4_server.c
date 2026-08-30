@@ -18373,7 +18373,7 @@ static void test_kv_cache_chat_anchor_ignores_multiturn_tail(void) {
     ds4_tokens_free(&prompt);
 }
 
-static void test_kv_cache_continued_uses_aligned_frontiers(void) {
+static void test_kv_cache_continued_crosses_interval_frontiers(void) {
     kv_disk_cache kc = {0};
     kc.enabled = true;
     kc.opt = kv_cache_default_options();
@@ -18395,6 +18395,29 @@ static void test_kv_cache_continued_uses_aligned_frontiers(void) {
     kc.continued_last_store_tokens = 20480;
     TEST_ASSERT(kv_cache_continued_store_target(&kc, 29999) == 0);
     TEST_ASSERT(kv_cache_continued_store_target(&kc, 30000) == 30000);
+
+    /* Regression for a real Pi miss: loading a 9703-token cold anchor and
+     * advancing in 2048-token GLM prefill chunks never lands on an exact
+     * 16384-token multiple.  The first live point past each absolute frontier
+     * must still become a continued checkpoint. */
+    kc.opt.continued_interval_tokens = 16384;
+    kc.opt.boundary_align_tokens = 2048;
+    kc.continued_last_store_tokens = 9703;
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 15847) == 0);
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 17895) == 17895);
+    kc.continued_last_store_tokens = 17895;
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 32231) == 0);
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 34279) == 34279);
+    kc.continued_last_store_tokens = 34279;
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 34279) == 0);
+
+    /* A large prefill step may cross several frontiers.  Persist the exact
+     * live state once; the following interval is then based on that state. */
+    kc.continued_last_store_tokens = 9703;
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 65536) == 65536);
+    kc.continued_last_store_tokens = 65536;
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 81919) == 0);
+    TEST_ASSERT(kv_cache_continued_store_target(&kc, 81920) == 81920);
 }
 
 static void test_kv_cache_cold_store_suppresses_duplicate_continued_boundary(void) {
@@ -19518,7 +19541,7 @@ static void ds4_server_unit_tests_run(void) {
     test_kv_cache_store_len_uses_configured_boundary();
     test_kv_cache_chat_anchor_uses_last_user_before_assistant();
     test_kv_cache_chat_anchor_ignores_multiturn_tail();
-    test_kv_cache_continued_uses_aligned_frontiers();
+    test_kv_cache_continued_crosses_interval_frontiers();
     test_kv_cache_cold_store_suppresses_duplicate_continued_boundary();
     test_kv_cache_file_size_must_fit_budget();
     test_sha1_bytes_hex_matches_known_vector();

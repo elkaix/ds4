@@ -742,8 +742,20 @@ int ds4_kvstore_continued_store_target(const ds4_kvstore *kc, int live_tokens) {
     const int step = kv_cache_continued_step(kc);
     if (step <= 0) return 0;
     if (live_tokens < kc->opt.min_tokens) return 0;
-    if (live_tokens % step != 0) return 0;
     if (live_tokens <= kc->continued_last_store_tokens) return 0;
+
+    /* A restored cold/text checkpoint is not guaranteed to land on an exact
+     * multiple of step.  Prefill normally advances in fixed-size chunks from
+     * that restored position, so requiring live_tokens % step == 0 can make
+     * the progression miss every absolute frontier forever.  Save the first
+     * real live checkpoint at or beyond the next frontier instead.  Session
+     * payloads already support arbitrary positions (evict/shutdown snapshots
+     * routinely use them), and returning live_tokens keeps the saved graph
+     * state and token vector at the same exact frontier. */
+    int64_t last = kc->continued_last_store_tokens;
+    if (last < 0) last = 0;
+    const int64_t next = (last / step + 1) * (int64_t)step;
+    if ((int64_t)live_tokens < next) return 0;
     return live_tokens;
 }
 
