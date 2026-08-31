@@ -21,6 +21,9 @@ KV_DIR="$HOME/.ds4/server-kv/glm-5.3-flash-q2"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
+# Model-embedded GLM 5.3 MTP speculation. Required for the Metal width-2
+# verify fast path; set GLM_DS4_MTP=0 to fall back to plain decode.
+MTP="${GLM_DS4_MTP:-1}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
 THERMALFORGE="$HOME/.mtplx/bin/thermalforge"
@@ -623,6 +626,11 @@ except OSError:
     monitor_pid=$!
 }
 
+MTP_ARGS=()
+if [[ $MTP != 0 ]]; then
+    MTP_ARGS+=(--mtp)
+fi
+
 cat <<EOF
 Starting monitored ds4-server (GLM 5.3 Flash, branch glm-5.3-flash)
   model:      $MODEL
@@ -630,6 +638,7 @@ Starting monitored ds4-server (GLM 5.3 Flash, branch glm-5.3-flash)
   context:    $CTX
   max tokens: $TOKENS
   KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)
+  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp)"; else echo "disabled"; fi)
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
   fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB
@@ -646,6 +655,7 @@ os.chdir(sys.argv[1])
 os.execv(sys.argv[2], sys.argv[2:])
 ' "$GLM_DIR" "$SERVER_BIN" --metal \
     --model "$MODEL" \
+    ${MTP_ARGS[@]+"${MTP_ARGS[@]}"} \
     --ctx "$CTX" --tokens "$TOKENS" \
     --power 100 \
     --host "$HOST" --port "$PORT" \
