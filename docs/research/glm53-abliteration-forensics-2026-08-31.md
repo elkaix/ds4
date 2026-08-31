@@ -105,9 +105,29 @@ is rank-1 dominant and not inside L44's subspace. L44 remains an isolated
 exception. `|u_43 . u_MTP| = 0.387` places L43 with L38-42 in leaning toward
 MTP geometry.
 
-Routed experts: after removing `r_g^E`, `rho1 = 0.036` and `F(A_l)` sits on the
-random-orthogonal control (2.4e-4). No detectable Dealign low-rank edit in the
-16 expert x layer cells sampled.
+Routed experts: **192 cells** (24 clean trunk layers x 8 experts spread across
+the 288 slots). `r_g^E` was estimated from a **disjoint** held-out expert set,
+so the test set is independent of the direction being removed.
+
+| statistic | min | median | max |
+|---|---:|---:|---:|
+| `rho1(Y)` | 0.0033 | 0.0041 | **0.0086** |
+| `F(A_l)` | 2.15e-4 | 2.45e-4 | **3.09e-4** |
+| `F(random, perp r_g^E)` | 2.37e-4 | 2.44e-4 | 2.50e-4 |
+
+The strongest cell of 192 reaches 1.27x the random-orthogonal control; **zero**
+cells exceed 3x. Peak `|u_1 . A_l|` is 0.088. After removing `r_g^E` the routed
+deltas retain no low-rank structure in any direction, not merely none along
+`A_l`.
+
+Positive control, same test and same estimator on the shared expert:
+`rho1(Y)` = 0.0062 (L12, outside the S band), **0.5258** (L25), 0.2899 (L32),
+0.0699 (L42). The test detects structure where structure exists, 60x above the
+routed-expert ceiling.
+
+Note: stripping `r_g^E` rather than `r_g^A` drops routed-expert `rho1(Y)` from
+0.036 to 0.004, an independent confirmation that the expert-family direction is
+genuinely distinct from the attention one.
 
 L44: neither projection-form (`|v.q| = 0.753` vs Orca's 0.995) nor explained by
 rank <= 8 down to the noise floor (eps 0.312 vs 0.12 noise).
@@ -221,3 +241,5 @@ predicting behavioural aggressiveness.
   normalization (measured 0.0476); recorded as a metric-definition discrepancy.
 - The capability comparison is underpowered at 100 cases and cannot separate
   the two interventions.
+- The routed-expert negative rests on 192 of 12,384 cells (1.6%), sampled
+  across all 24 clean trunk layers and 8 of 288 expert slots.
