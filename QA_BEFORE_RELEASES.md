@@ -37,6 +37,10 @@ in this system.
 
 - Start from a clean tree except intentional release notes:
   `git status --short`.
+- After fetching a bundle, rewriting commits, or resetting a remote test tree,
+  force a clean build. Do not trust incremental `make`: restored source mtimes
+  can be older than a stale executable. Record the tested binary's commit or
+  verify it was rebuilt from the selected tree before running remote QA.
 - Build the normal local target:
   `make clean && make`.
 - Build CPU-only binaries as a compile check only:
@@ -670,8 +674,48 @@ SSD streaming is a capacity path, so test both correctness and user experience.
   or impossible slowdown.
 - Confirm startup reports cache budget and that generation does not stall on
   repeated expert misses for a small interactive prompt.
+- After changing model-map or memory accounting, test automatic sizing, an
+  impossible large target such as `--ssd-streaming-cache-experts 500GB`, and
+  `--ssd-streaming-cache-experts 1`. The large target must be reduced below
+  the final memory-guard budget instead of failing or pressuring the machine
+  into swap. The one-slot run must select direct per-layer reads and complete
+  correctly without pretending that the selected-expert cache can hold one
+  token's routed set. Preserve the startup lines showing the effective cache,
+  global or per-layer decode map, and total planned memory.
 - If streaming cache internals changed, test the same prompt twice and compare
   first-token/logprob sanity between runs.
+- On an idle M5 Max, run the full GLM 5.3 Q2 SSD-streaming regression with the
+  16 GiB expert budget. Use the release GGUF and verify its checksum before
+  comparing results. The current reference file is
+  `GLM-5.3-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K.gguf`, SHA-256
+  `059b36accd4c9acf73099da9f703b574d627869d619b7c4c316aa856e33d472e`.
+  Discard one warm-up run, then take the median of three runs of each command:
+
+  ```sh
+  GLM_SSD_MODEL=/path/to/GLM-5.3-UD-IQ2_XXS_RoutedIQ2XXS_blk78Q2K.gguf
+
+  ./ds4 -m "$GLM_SSD_MODEL" --ssd-streaming \
+    --ssd-streaming-cache-experts 16GB --ctx 1024 --tokens 16 \
+    --nothink --temp 0 --seed 1 \
+    -p "$(head -c 2500 tests/test-vectors/glm-openrouter/prompts/long_memory_archive.txt)"
+
+  ./ds4 -m "$GLM_SSD_MODEL" --ssd-streaming \
+    --ssd-streaming-cache-experts 16GB --ctx 1024 --tokens 64 \
+    --nothink --temp 0 --seed 1 \
+    -p "Write the word apple exactly 100 times, separated by one space. Do not stop early and output nothing else."
+  ```
+
+  The first command must report 463 input tokens, produce a coherent answer
+  about component gamma, and keep median prefill at or above 11.3 t/s. The
+  second must emit all 64 requested output tokens and keep median generation at
+  or above 5.5 t/s. The M5 Max reference medians are 12.59 and 6.14 t/s. Startup
+  should plan about 18.03 GiB at this context and initially restrict the model
+  map to the token embedding. GLM must demand-fill its expert cache by default;
+  an ordinary run and `--ssd-streaming-cold` should have comparable cache-miss
+  counts and speed unless an explicit preload count or diagnostic cap is used.
+  A memory guard or static decode map that accounts nearly the full 196.58 GiB
+  GGUF, a Metal OOM, repeated garbage tokens, or a compact-attention result
+  that omits the RoPE score is a release blocker.
 
 ## 8. CUDA / DGX Spark
 
@@ -796,6 +840,11 @@ a substitute for CUDA or Metal release testing.
   `./ds4 --rocm -m gguf/GLM-5.2-UD-Q2_K_RoutedQ2K.gguf --ssd-streaming --ctx 4096 --nothink --tokens 4 -p "Reply with exactly: OK"`.
   Startup must select a cache budget that passes the memory guard without an
   override, and both compact indexed prefill and decode must complete.
+- Repeat the ROCm GLM smoke with an overlarge byte target and with a one-expert
+  target. The byte target is a hint and must be reduced using current Linux
+  `MemAvailable` as well as the backend limit. The one-expert target must use
+  the per-layer fallback. After each run, confirm SSH remains responsive and
+  no OOM kill, GPU reset, or reboot was recorded.
 - Run one longer GLM prompt with the release-advertised Strix context after
   changes to GLM attention, typed quantized projections, streaming expert
   caches, or memory budgeting. Record the context, cache split, and whether
@@ -966,6 +1015,7 @@ claims across different models or contexts.
 | Two M5 Max 128 GB Macs, Metal TP over TB5 RDMA | GLM 5.2 IQ2_XXS, 4,096-token prefill and 256-token teacher-forced decode | about 214 t/s | about 16.7 t/s |
 | MacBook Pro M5 Max 128 GB, Metal | GLM 5.3 Flash Q2, resident short prompt | 86.68 t/s | 34.45 t/s; 41.97 t/s greedy MTP |
 | MacBook Pro M5 Max 128 GB, Metal | GLM 5.3 Flash Q2, 8,192-token compact-attention prompt | 479.09 t/s | 29.89 t/s steady |
+| MacBook Pro M5 Max 128 GB, Metal | GLM 5.3 full Q2, SSD streaming with 16 GiB expert budget; 463-token prefill / forced 64-token decode | 12.59 t/s median | 6.14 t/s median |
 | Two M5 Max 128 GB Macs, Metal TP over TB5 RDMA | GLM 5.3 Flash Q2, short prompt | 29.06 t/s | 32.70 t/s |
 | MacBook Pro M5 Max 128 GB, Metal | GLM 5.3 Flash Q2, 24,988/49,948-token long prompts | 424.80 / 421.75 t/s | 29.50 / 28.10 t/s |
 | Two M5 Max 128 GB Macs, Metal TP over TB5 RDMA | GLM 5.3 Flash Q2, 10,819-token prompt | 468.97 t/s | 22.85 t/s |
