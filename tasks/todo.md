@@ -15,12 +15,12 @@ quality, <=2% context decay, and <=2% 60-minute drift.
 - [ ] Phase 9-12: four real 200K workloads, consecutive growing-context blocks,
       60 minutes, <=2% decay; repeat measured largest-component loop until pass.
 
-Current blocker: Claude still owns the live server PID 69987. Do not attach a
-profiler, issue inference, rebuild its binary, stop it, or start a competing
-Metal process until that lease is explicitly released.
+Current blocker: Claude still owns the live `ds4-server` and `attrib200.py`
+processes. Do not attach a profiler, issue inference, rebuild its binary, stop
+it, or start a competing Metal process until that lease is explicitly released.
 
 Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
-2K-to-200K decay. Research and two independent Sol-max audits are consolidated
+2K-to-200K decay. Research and three max-effort Sol review passes are consolidated
 in `docs/research/`; no theoretical or correlated metric receives S55 credit.
 
 Phase 0 gap: the old executable is frozen by SHA-256 and its source head was
