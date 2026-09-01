@@ -38,6 +38,10 @@ A fresh GPT-5.6 Sol max review rejected Claude's live ablation diff and
 between arms; the diff also breaks the CPU link, races across slots, and adds
 ungated hot-path instrumentation. See `docs/research/claude-ablation-review.md`.
 
+The untracked `competition/` C++/`metal-cpp` engine is also rejected. It is not
+integrated into DS4, lacks real KDA/DSA and IQ2_XXS/Q2_K execution, and contains
+fatal graph mismatches. See `docs/research/competition-greenfield-review.md`.
+
 ## Prior Investigation — 4K Boundary Work
 
 ## Established (source-verified)
