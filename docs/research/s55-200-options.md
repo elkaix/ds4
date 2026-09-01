@@ -12,11 +12,13 @@ none count as speedup until a controlled DS4/M5 Max/GLM-5.3 A/B passes.
    target M5 Max reports `dispatch=false`, `stage=true`, and exposes only the
    public `timestamp/GPUTimestamp` counter set. The viable local macro
    profiler cannot sample individual dispatches through the runtime API. Test
-   Xcode's installed Metal System Trace first; if its exported trace cannot
+   the installed Xcode 26.6 `Metal System Trace` template first; if its export cannot
    close the macro ledger, use compute-encoder start/end timestamps inside one
    command buffer and resolve once after normal completion. Whole-command-buffer
    `GPUStartTime`/`GPUEndTime` remains the control, and OFF/ON overhead must be
-   no more than 3%.
+   no more than 3%. DS4 already reads those command-buffer timestamps inside
+   its unconditional normal completion wait under `DS4_METAL_GPU_BUSY_PROFILE`;
+   that control needs no new synchronization or inference harness.
 2. Apple documents ordered `enqueue()` plus parallel command-buffer encoding.
    DS4 should test coarse command-buffer splits only if wall time materially
    exceeds GPU span; otherwise host/GPU overlap has no useful ceiling.
