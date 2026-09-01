@@ -47132,6 +47132,35 @@ typedef enum {
     GLM_VERIFY_HEAD_LAST,
 } glm_verify_head_request;
 
+/* A/B lever for the eligibility gate below.  Set to 1 to restore the old
+ * behaviour: attempt the row verifier unconditionally, discover the refusal
+ * inside it, and pay a full KDA rollback for a pass that changed nothing.
+ * Default off; kept so both arms can be measured from one build. */
+static bool glm53_graph_mtp_rows_eager_attempt(void) {
+    static int cached = -1;
+    static unsigned long chop_seq = 0;
+    if (cached < 0) {
+        const char *env = getenv("DS4_GLM_MTP_ROWS_EAGER_ATTEMPT");
+        cached = (env && env[0] && env[0] != '0') ? 1 : 0;
+        /* "chop" mode alternates the treatment on every speculative cycle so
+         * both arms interleave inside one process, one request, adjacent in
+         * time.  Comparing whole processes cannot resolve this effect: the
+         * cost being measured is ~1.8% of a verify step, while run-to-run
+         * drift on this machine is 14-25% and between-run spread of the
+         * above-boundary median is ~3 ms.  Alternating per cycle cancels
+         * drift exactly instead of modelling it.  The verify[batch+rows] vs
+         * verify[batch] label records which arm each cycle took, so the log
+         * stays self-describing and the split can be verified, not assumed.
+         * Measurement only -- never a serving default. */
+        if (cached == 0) {
+            const char *chop = getenv("DS4_GLM_MTP_ROWS_EAGER_CHOP");
+            if (chop && chop[0] && chop[0] != '0') cached = 2;
+        }
+    }
+    if (cached == 2) return (chop_seq++ & 1ul) != 0ul;
+    return cached == 1;
+}
+
 /* Position/geometry gate for the decode-style row verifier.  Shared by
  * glm_graph_verify_rows and its MTP caller so the two cannot disagree: above
  * the dense window the row pass can only fail, and letting the caller find
@@ -64732,7 +64761,8 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
         getenv("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD") == NULL;
     if (logits_ready) *logits_ready = (glm53_spec_logits_ready){0};
     if (glm53_graph_mtp_fast_verify_enabled() &&
-        glm_graph_verify_rows_eligible(g, tx->pos, 2u)) {
+        (glm_graph_verify_rows_eligible(g, tx->pos, 2u) ||
+         glm53_graph_mtp_rows_eager_attempt())) {
         attempted_rows = true;
         verified = glm_graph_verify_rows(g, &e->model, &e->weights,
                                          tokens, tx->pos, 2u,
@@ -64752,8 +64782,34 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
         if (path_out) *path_out = "rows";
         return true;
     }
-    if (attempted_rows && !glm53_spec_transaction_restore_base(tx)) {
-        return false;
+    if (attempted_rows) {
+        /* Time the exact operation P0 removes.  Above the dense window the row
+         * verifier can only refuse, so this restore returns the KDA state to a
+         * value it never left -- 68 tensor copies (145.6 MiB) plus a command
+         * drain, for a pass that changed nothing.  Accumulated in memory and
+         * summarised every 256 occurrences: at a ~1% effect size, per-cycle
+         * fprintf/token-text work would be a larger perturbation than the
+         * thing being measured. */
+        static unsigned long n_restore = 0;
+        static double ms_total = 0.0, ms_min = 1e9, ms_max = 0.0;
+        const bool want = tx->session->engine->glm_mtp_timing;
+        const double r_t0 = want ? now_sec() : 0.0;
+        const bool restored = glm53_spec_transaction_restore_base(tx);
+        if (want) {
+            const double ms = (now_sec() - r_t0) * 1000.0;
+            n_restore++;
+            ms_total += ms;
+            if (ms < ms_min) ms_min = ms;
+            if (ms > ms_max) ms_max = ms;
+            if ((n_restore & 255ul) == 0ul) {
+                fprintf(stderr,
+                        "ds4: glm mtp prebatch restore: n=%lu mean=%.3f ms "
+                        "min=%.3f ms max=%.3f ms total=%.1f ms\n",
+                        n_restore, ms_total / (double)n_restore,
+                        ms_min, ms_max, ms_total);
+            }
+        }
+        if (!restored) return false;
     }
     g->mtp_kda_snapshot_rows = tx->prefix_count;
     if (!glm53_graph_use_indexed_prefill(g) &&
@@ -64794,7 +64850,11 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
     }
     glm53_spec_transaction_disarm(tx);
     if (verified && logits_ready) logits_ready->last = true;
-    if (path_out) *path_out = "batch";
+    /* Distinguish a plain batch verify from one that first paid a guaranteed-
+     * fail row attempt plus its KDA base restore.  Without this the A/B that
+     * prices that waste has no way to assert its toggle took effect: both arms
+     * would log an identical "batch" and a dead flag would look like noise. */
+    if (path_out) *path_out = attempted_rows ? "batch+rows" : "batch";
     return verified;
 }
 
@@ -65153,10 +65213,11 @@ static int ds4_session_glm_spec_cycle_impl(
         char *dt = ds4_token_text(e, d, NULL);
         char *nt = ds4_token_text(e, n1, NULL);
         fprintf(stderr,
-                "ds4: glm mtp utility: width=2 setup=%.1f ms verify[%s]=%.1f ms "
+                "ds4: glm mtp utility: width=2 pos=%u setup=%.1f ms verify[%s]=%.1f ms "
                 "rollback=%.1f ms draft=%.1f ms other=%.1f ms result=%s "
                 "committed=%d total=%.1f ms utility=%.2f tok/s-cycle "
                 "(draft %d '%s' vs true %d '%s')\n",
+                pos,
                 (verify_t0 - t0) * 1000.0,
                 verify_path,
                 (t1 - verify_t0) * 1000.0,
