@@ -47132,6 +47132,22 @@ typedef enum {
     GLM_VERIFY_HEAD_LAST,
 } glm_verify_head_request;
 
+/* Position/geometry gate for the decode-style row verifier.  Shared by
+ * glm_graph_verify_rows and its MTP caller so the two cannot disagree: above
+ * the dense window the row pass can only fail, and letting the caller find
+ * that out costs a full KDA state rollback for nothing. */
+static bool glm_graph_verify_rows_eligible(const ds4_glm_gpu_graph *g,
+                                           uint32_t pos,
+                                           uint32_t n) {
+    if (!g || n == 0 || g->compact_cache_cap == 0) return false;
+    /* Expressed as a subtraction so the bound cannot be defeated by a pos+n
+     * that wraps; the shared predicate should not depend on the caller's
+     * range being sane. */
+    const uint32_t dense = glm_graph_dense_compact_attention_limit(g);
+    return pos <= g->compact_cache_cap && n <= g->compact_cache_cap - pos &&
+           pos <= dense && n <= dense - pos;
+}
+
 /* Decode-style verify pass for tiny row counts (MTP): the indexed batch
  * fn measures ~1.4ms/layer at n=2 (gate-profile: gpu-wait 1.22ms/layer)
  * while decode does the same math in 0.79ms. This pass mirrors the
@@ -47161,9 +47177,7 @@ static bool glm_graph_verify_rows(
         ((head_request == GLM_VERIFY_HEAD_NONE) !=
          (head_logits_out == NULL)) ||
         (head_request == GLM_VERIFY_HEAD_FIRST && !g->glm53) ||
-        g->compact_cache_cap == 0 ||
-        pos + n > g->compact_cache_cap ||
-        pos + n > glm_graph_dense_compact_attention_limit(g) ||
+        !glm_graph_verify_rows_eligible(g, pos, n) ||
         !g->batch_cur || !g->batch_next || !g->prefill_tokens) {
         return false;
     }
@@ -64717,7 +64731,8 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
     const bool defer_row1_head =
         getenv("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD") == NULL;
     if (logits_ready) *logits_ready = (glm53_spec_logits_ready){0};
-    if (glm53_graph_mtp_fast_verify_enabled()) {
+    if (glm53_graph_mtp_fast_verify_enabled() &&
+        glm_graph_verify_rows_eligible(g, tx->pos, 2u)) {
         attempted_rows = true;
         verified = glm_graph_verify_rows(g, &e->model, &e->weights,
                                          tokens, tx->pos, 2u,
