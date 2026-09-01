@@ -174,6 +174,7 @@ remove the full S55 deficit.
 | R6 | Multi-branch/tree block speculation with adaptive fallback | Only structural same-checkpoint class identified as potentially large enough; no local timing ceiling | Research only after `a200`, n-row scaling, route-union, and M1; exact branch KDA/DSA semantics and four-workload 200K gate required |
 | R7 | Skip the unused first draft output head on accepted cycles | 2K ABBA +2.256% (30.448 -> 29.761 ms/token); 65K +1.789% (34.013 -> 33.404); identical 512-token text in every arm; no 200K or sustained credit | Committed as `b265e22`; paired observable-state benchmark still required. Small retained cleanup, not the next large S55 target |
 | R8 | Add an exact-order Q2 direct-down reduction for 8 selected experts | Removes one sum8 dispatch per routed layer and 22.0 MB/cycle of scratch write/read; selected-expert weight reads remain | Do not merely widen the existing host guard: that kernel combines experts before one SIMD reduction, unlike production's per-expert SIMD reductions followed by sum8. After M1, retain only a bit-identical variant with >=5% whole-cycle projection |
+| R9 | Specialized width-2 Q4_K KDA q/k matvec preserving each row's reduction order | One full q/k sweep across 34 layers is 1,283,457,024 logical bytes; a two-row kernel can at most amortize one sweep, not proven traffic or time | Measure production q/k GPU time and 2-row/1-row ratio at 200K. Reject if the priced whole-cycle ceiling is below 5% or the ratio is already <=1.3; require bit-identical rows |
 
 The 2K diagnostic makes the local floor concrete: baseline 30.352 ms/token,
 S55 budget 18.182 ms/token, deficit 12.170 ms/token. Impossible deletion of all
@@ -203,6 +204,13 @@ two-row Q8 path. A valid H6 prototype must preserve those exact two-row PSOs,
 argument layouts, and outputs while changing only the encoder dependency graph.
 Price RG/SG/RD/SD first; reject immediately if the maximum measured overlap is
 below 5% of the 200K cycle or if concurrent dispatch only contends for memory.
+
+R9 is similarly measurement-gated. Metal currently routes Q4_K batches of up
+to eight rows through the classic matvec with `n_tok` as grid Y, while the
+alternative `mul_mv_ext` family has a two-row form but is documented in this
+tree as slower for the GLM dense shapes. Do not flip that selector. Timestamp
+the real q/k projections and compare one versus two rows first; only a new
+exact-order pair kernel with a >=5% measured whole-cycle ceiling is eligible.
 
 H16 is likewise not a predicate-removal patch. `glm_graph_verify_rows` is
 eligible only while the requested positions fit its dense compact-attention
