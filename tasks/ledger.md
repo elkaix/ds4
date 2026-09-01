@@ -1386,3 +1386,183 @@ Predicted from bytes: 0.674 GB of 11.82 GB per cycle x acceptance 0.721 = 4.1%
 of traffic. Measured 1.8-2.3%. The gap is expected — the head is one of the
 better-coalesced reads in the model, so removing it saves less than its byte
 share.
+
+---
+
+## F29 — the ablation flags now prove they fired, and F28's diagnosis is confirmed directly
+
+Status: CONFIRMED. Method fix required by F28 ("a treatment is invalid unless the
+measured execution proves the altered path was exercised").
+
+Every ablatable gate in the GLM decode path now routes through `glm_ablate_take()`,
+which records a *site visit* and, separately, a *skip*. `DS4_GLM_ABLATE_COUNTERS=1`
+prints `skips/visits` per mask on each decode-progress line. An arm with zero skips
+is rejected by the harness, not interpreted.
+
+The first steady-state line at 2K with MTP on settles F28 empirically:
+
+```text
+ds4: ablate gen=64 routed=0/294 | cycles=7 ms/cycle=41.108 commit/cycle=2.0000
+```
+
+Only `routed` appears at all. `kda`, `shared`, `qpath`, `indexer`, `attn_core`,
+`qklow`, `attn_out` reach **no gate whatsoever** on the timed 2K path — exactly
+Codex's coverage table, now measured rather than read off the source. 294 visits
+over 7 cycles is 42 per cycle: one gate per MoE layer, once per `verify_rows`
+call. F25/F26 stay retracted.
+
+With MTP off the same lines show full coverage, and the per-token visit counts are
+the architecture: `routed` 42, `shared` 42, `kda` 34, `qpath` 22, and
+`attn_out`/`attn_core`/`indexer`/`qklow` 11 each — 42 MoE layers, 34 KDA layers,
+11 DSA layers, two q projections per DSA layer.
+
+Two harness rules follow, both now enforced in code:
+
+- **Score ms/token (MTP off) or ms/cycle (MTP on), never t/s.** An ablated arm has
+  a corrupted hidden state, which moves MTP acceptance in either direction;
+  committed-tokens-per-second folds that unmeasured denominator into the answer.
+  The 2K `kda` arm measured `commit/cycle` 1.00 against a control's 1.50 — a 33%
+  swing in the denominator alone.
+- **Attribute with MTP disabled** (`GLM_DS4_MTP=0`). A cycle is then one token with
+  a fixed dispatch count and no acceptance term at all. MTP's own share is a
+  separate measurement, not a confound inside every stage number.
+
+## F30 — stage ranking at 11K, MTP off, ABBA with interleaved controls
+
+`attrib200.py`, one warm session, 17 controls interleaved between 16 treated arms
+(8 masks, forward then reverse). Control series spread **1.32%**, monotone with the
+context growth the sweep itself causes — flat enough to read the deltas.
+
+```text
+mask        ms/tok    ctrl     delta   %ofcycle   visits/token
+       kda   25.453   34.729    9.276    26.71%     34
+    routed   28.209   34.700    6.492    18.71%     42
+ attn_core   29.011   34.831    5.820    16.71%     11
+    shared   32.599   34.804    2.205     6.34%     42
+  attn_out   33.401   34.771    1.370     3.94%     11
+   indexer   33.682   34.817    1.135     3.26%     11
+     qpath   34.058   34.791    0.734     2.11%     22
+     qklow   34.959   34.752   -0.206    -0.59%     11
+```
+
+KDA leads, and it leads by the same margin the byte inventory predicts: KDA
+projections are 3.845 GB of the 9.635 GB trunk sweep (39.9%), and KDA is the
+largest single delta here. Routed experts follow at 18.7% against a 24.7% byte
+share. `qklow` is inside noise, consistent with it being subsumed by `attn_core`.
+
+**These deltas rank; they do not partition.** Removing a stage changes DRAM
+locality for its neighbours, so they will not sum to the cycle and the residue is
+not attributable. Ranked, not partitioned, is the only claim this method supports.
+
+Caveat, stated before the 200K result lands: this is 11K with MTP off. Only long
+context scores under S55-200, and the 200K ladder is where the DSA sparse path and
+the F23 verify-path fallback change the mix.
+
+## F31 — 200K stage ranking, path-valid, single request, ABBA (the P0 the roadmap asked for)
+
+`attribseg.py`: the mask program is a file the server steps once per decode-log
+interval, so a 33-arm ABBA sweep is **one request on one warm 200K context**. No
+re-prefill between arms, no chat-template retokenisation, no thermal gap, and the
+same KV cache throughout. ctx 199,872, MTP off, 64 tokens/arm, 2112 tokens total.
+
+Control series: 16 controls, mean 38.474 ms/token, end-to-end drift 2.07%, worst
+control-to-control step **1.53%**. Each arm is scored against its two adjacent
+controls, which absorbs the monotone drift.
+
+```text
+mask        ms/tok    ctrl     delta   %ofcycle  skips/visits   fwd     rev
+       kda   29.163   38.380    9.217    24.02%   4352/4352   29.104  29.223
+    routed   31.883   38.351    6.468    16.87%   5376/5376   31.928  31.837
+ attn_core   32.701   38.428    5.727    14.90%   1408/1408   32.787  32.616
+   indexer   33.563   38.458    4.895    12.73%   1408/1408   33.625  33.501
+    shared   36.246   38.414    2.168     5.64%   5376/5376   36.403  36.088
+  attn_out   37.010   38.675    1.666     4.31%   1408/1408   37.064  36.955
+     qpath   37.779   38.454    0.676     1.76%   2816/2816   37.750  37.807
+     qklow   38.016   38.627    0.612     1.58%   1408/1408   38.037  37.994
+```
+
+Every arm skipped a gate on the timed path, and every arm reproduces between its
+forward and reverse placement to within 0.4%. The deltas cover 82% of the cycle;
+the 18% residue is **not** attributable, because removing a stage changes DRAM
+locality for its neighbours. This ranks stages. It does not partition the cycle.
+
+Same sweep at ctx 2,947 (control mean 36.583 ms/token) for contrast:
+
+```text
+             2K      200K    change
+       kda   9.13     9.22    flat
+    routed   6.70     6.47    flat
+    shared   2.43     2.17    flat
+ attn_core   9.93     5.73    -4.20   dense window -> sparse indexed
+   indexer   0.26     4.90    +4.64   the context term
+  attn_out   0.47     1.67    +1.20
+     qpath   0.73     0.68    flat
+     qklow   0.54     0.61    flat
+```
+
+## F32 — with MTP off, there is almost no context decay (screening result)
+
+Control ms/token, same build, same corpus, same harness:
+
+```text
+ctx   2,947   36.583 ms/token   27.34 t/s
+ctx 199,872   38.474 ms/token   25.99 t/s      -4.9% over 68x the context
+```
+
+The DSA design is doing exactly what it is for: the indexer costs +4.64 ms as
+context grows and the attention core gives back -4.20 ms as it leaves the dense
+window. Net decode decay across 2K -> 200K is about 5%.
+
+The S55-200 baseline, MTP **on**, decays 33.01 -> 22.48 t/s: **-31.9%**. Those two
+facts cannot both be about the trunk. Almost the entire measured context decay
+lives in the speculation layer, not the decode path.
+
+Arithmetic, provisional until the in-process A/B lands:
+
+```text
+             MTP off        MTP on (S55-200 baseline)
+ctx   2,947  36.58 ms/tok   30.45 ms/tok    MTP is +20% faster
+ctx 199,872  38.47 ms/tok   44.48 ms/tok    MTP is -13.5% SLOWER
+```
+
+If that holds, MTP is a net *loss* at long context and simply gating it off above
+some context raises S55-200 from 22.48 to ~26.0 t/s — the largest single change
+available, with no kernel work and no quality risk.
+
+Not yet claimed. The MTP-on figure is from the earlier baseline run, and a
+cross-restart comparison is explicitly inadmissible under contract 19. The
+screening measurement (MTP on, same script, same context) is running; a
+contract-grade result needs an in-process per-segment MTP toggle.
+
+## Per-layer byte inventory, read from the GGUF header
+
+Exact, from the tensor table. A KDA layer (blk.4) and a DSA layer (blk.3):
+
+```text
+KDA layer, active bytes per token          DSA layer, active bytes per token
+  kda_q        Q4_K    18.87 MB              attn_q_a      Q8_0     6.68 MB
+  kda_k        Q4_K    18.87 MB              attn_q_b      Q8_0    26.74 MB
+  kda_v        Q8_0    35.65 MB              attn_kv_a_mqa Q8_0     2.23 MB
+  kda_output   Q8_0    35.65 MB              attn_output   Q8_0    71.30 MB
+  gates/convs/lowrank   4.03 MB              attn_k_b      Q8_0     8.91 MB
+                      -------                attn_v_b      Q8_0     8.91 MB
+  KDA total           113.07 MB              indexer (BF16)        14.94 MB
+                                                                 --------
+                                             DSA total           139.71 MB
+
+  8 routed experts       56.62 MB   (2 x IQ2_XXS + 1 x Q2_K, 2.25 bpw)
+  shared expert          26.73 MB
+  ffn_gate_inp (router)   4.72 MB
+```
+
+`kda_v` and `kda_output` are **63% of a KDA layer's bytes** and they are the only
+two large KDA tensors still at Q8_0 — the quantizer already took q and k to Q4_K.
+Q8_0 -> Q4_K on both saves 33.56 MB per layer x 34 layers = **1.141 GB/token**,
+11.8% of the 9.635 GB trunk sweep. (The earlier 1.51 GB figure was wrong; the
+exact saving is 16.78 MB per tensor.) `attn_output` at Q8_0 is 71.30 MB and the
+largest single non-expert tensor in the model: 11 layers x 71.30 = 784 MB/token,
+another 430 MB if it goes to Q4_K.
+
+These are checkpoint changes and cannot be claimed until the predeclared quality
+gate runs first (contract 13) — and KDA is recurrent, where value/output error
+compounds through the state.

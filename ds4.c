@@ -44160,27 +44160,144 @@ static double glm_graph_streaming_async_profile_ms(void) {
  * everywhere else, which is the whole point of this family of flags. */
 #define DS4_GLM_ABLATE_KDA       (1u << 7)
 
-static uint32_t glm_decode_ablate_mask(void) {
-    static int cached = -1;
-    if (cached < 0) {
-        uint32_t mask = 0;
-        const char *env = getenv("DS4_GLM_DECODE_ABLATE");
-        if (env) {
-            if (strstr(env, "attn_out")) mask |= DS4_GLM_ABLATE_ATTN_OUT;
-            if (strstr(env, "attn_core")) mask |= DS4_GLM_ABLATE_ATTN_CORE;
-            if (strstr(env, "qpath")) mask |= DS4_GLM_ABLATE_QPATH;
-            if (strstr(env, "indexer")) mask |= DS4_GLM_ABLATE_INDEXER;
-            if (strstr(env, "routed")) mask |= DS4_GLM_ABLATE_ROUTED;
-            if (strstr(env, "shared")) mask |= DS4_GLM_ABLATE_SHARED;
-            if (strstr(env, "qklow")) mask |= DS4_GLM_ABLATE_QKLOW;
-            if (strstr(env, "kda")) mask |= DS4_GLM_ABLATE_KDA;
-            if (mask) {
-                fprintf(stderr, "ds4: GLM decode ablation active (mask 0x%x) — output is garbage, timing only\n", mask);
-            }
-        }
-        cached = (int)mask;
+static uint32_t glm_ablate_parse(const char *env) {
+    uint32_t mask = 0;
+    if (!env) return 0;
+    if (strstr(env, "attn_out")) mask |= DS4_GLM_ABLATE_ATTN_OUT;
+    if (strstr(env, "attn_core")) mask |= DS4_GLM_ABLATE_ATTN_CORE;
+    if (strstr(env, "qpath")) mask |= DS4_GLM_ABLATE_QPATH;
+    if (strstr(env, "indexer")) mask |= DS4_GLM_ABLATE_INDEXER;
+    if (strstr(env, "routed")) mask |= DS4_GLM_ABLATE_ROUTED;
+    if (strstr(env, "shared")) mask |= DS4_GLM_ABLATE_SHARED;
+    if (strstr(env, "qklow")) mask |= DS4_GLM_ABLATE_QKLOW;
+    if (strstr(env, "kda")) mask |= DS4_GLM_ABLATE_KDA;
+    return mask;
+}
+
+static uint32_t glm_ablate_mask_cur = 0;
+static int glm_ablate_mask_inited = 0;
+
+/* Re-read the ablation selection at a request boundary.  DS4_GLM_DECODE_ABLATE
+ * is fixed for the life of the process, but DS4_GLM_ABLATE_FILE names a file
+ * that is re-read here, so a single warm 200K context can serve every arm of an
+ * ABBA sweep -- instead of one server restart and one five-minute re-prefill
+ * per arm, which is how thermal drift gets mistaken for a stage cost. */
+/* DS4_GLM_ABLATE_FILE may hold a *program*: one mask spec per line, advanced one
+ * line at a time by ds4_glm_ablate_advance().  A whole ABBA sweep then runs
+ * inside a single generation on one warm context -- no request per arm, so no
+ * chat-template retokenisation off-by-one, no live-frontier miss, and no
+ * re-prefill between arms.  At 200K that is a ten-minute sweep instead of a
+ * five-hour one, and every arm sees the same context and the same thermal state.
+ *
+ * DS4_GLM_DECODE_ABLATE, if set, is OR-ed into every line -- so leave it unset
+ * or the sweep has no control arm at all. */
+#define DS4_GLM_ABLATE_MAX_STEPS 256
+static char  glm_ablate_program[DS4_GLM_ABLATE_MAX_STEPS][64];
+static int   glm_ablate_steps = 0;
+static int   glm_ablate_step = 0;
+
+static void glm_ablate_apply(void) {
+    uint32_t mask = glm_ablate_parse(getenv("DS4_GLM_DECODE_ABLATE"));
+    if (glm_ablate_steps > 0) {
+        const int i = glm_ablate_step < glm_ablate_steps ?
+                      glm_ablate_step : glm_ablate_steps - 1;
+        mask |= glm_ablate_parse(glm_ablate_program[i]);
     }
-    return (uint32_t)cached;
+    if (!glm_ablate_mask_inited || mask != glm_ablate_mask_cur) {
+        fprintf(stderr, "ds4: GLM decode ablation step %d mask 0x%x%s\n",
+                glm_ablate_step, mask,
+                mask ? " -- output is garbage, timing only" : " (control)");
+    }
+    glm_ablate_mask_cur = mask;
+    glm_ablate_mask_inited = 1;
+}
+
+/* Request boundary: reload the program and rewind it. */
+void ds4_glm_ablate_refresh(void) {
+    const char *path = getenv("DS4_GLM_ABLATE_FILE");
+    glm_ablate_steps = 0;
+    glm_ablate_step = 0;
+    if (path) {
+        FILE *fp = fopen(path, "r");
+        if (fp) {
+            char line[64];
+            while (glm_ablate_steps < DS4_GLM_ABLATE_MAX_STEPS &&
+                   fgets(line, sizeof(line), fp)) {
+                line[strcspn(line, "\r\n")] = 0;
+                if (!line[0]) continue;
+                snprintf(glm_ablate_program[glm_ablate_steps],
+                         sizeof(glm_ablate_program[0]), "%s", line);
+                glm_ablate_steps++;
+            }
+            fclose(fp);
+        }
+    }
+    glm_ablate_apply();
+}
+
+/* Segment boundary: step to the next arm. */
+void ds4_glm_ablate_advance(void) {
+    if (glm_ablate_steps > 0 && glm_ablate_step < glm_ablate_steps - 1) {
+        glm_ablate_step++;
+    }
+    glm_ablate_apply();
+}
+
+static uint32_t glm_decode_ablate_mask(void) {
+    if (!glm_ablate_mask_inited) ds4_glm_ablate_refresh();
+    return glm_ablate_mask_cur;
+}
+
+/* Path-valid ablation accounting (ledger F28).  A mask that parses is not a
+ * mask that fired: at 2K the steady cycle runs glm_graph_verify_rows(), where
+ * only ROUTED is ever consulted, so every `kda`/`qpath`/`attn_out` arm timed a
+ * run in which the flag reached no dispatch at all -- while the startup banner
+ * still announced the ablation as active.  Every gate below now goes through
+ * glm_ablate_take(), which records that the site was reached and whether it
+ * skipped.  An arm whose skip count is zero on the timed path measured nothing
+ * and must be rejected, not interpreted.
+ *
+ * Counts are site visits, not layers: a stage gated in more than one place
+ * (the fast row verifier and the n=1 decoder, say) contributes once per gate. */
+#define DS4_GLM_ABLATE_NBITS 8
+static uint64_t glm_ablate_visits[DS4_GLM_ABLATE_NBITS];
+static uint64_t glm_ablate_skips[DS4_GLM_ABLATE_NBITS];
+static const char *const glm_ablate_names[DS4_GLM_ABLATE_NBITS] = {
+    "attn_out", "attn_core", "qpath", "indexer",
+    "routed", "shared", "qklow", "kda"
+};
+
+/* True when this call site must skip its work; records the visit either way. */
+static bool glm_ablate_take(uint32_t bit) {
+    unsigned idx = 0;
+    while (idx < DS4_GLM_ABLATE_NBITS && !(bit & (1u << idx))) idx++;
+    if (idx >= DS4_GLM_ABLATE_NBITS) return false;
+    const bool skip = (glm_decode_ablate_mask() & bit) != 0;
+    glm_ablate_visits[idx]++;
+    if (skip) glm_ablate_skips[idx]++;
+    return skip;
+}
+
+/* "routed=42/42 kda=0/0" -- skips/visits since the last call, then reset, so a
+ * per-request line describes that request only.  NULL when nothing was reached. */
+const char *ds4_glm_ablate_counters_str(void) {
+    static char buf[512];
+    size_t off = 0;
+    bool any = false;
+    for (unsigned i = 0; i < DS4_GLM_ABLATE_NBITS; i++) {
+        const unsigned long long v = (unsigned long long)glm_ablate_visits[i];
+        const unsigned long long k = (unsigned long long)glm_ablate_skips[i];
+        glm_ablate_visits[i] = 0;
+        glm_ablate_skips[i] = 0;
+        if (!v) continue;
+        any = true;
+        int n = snprintf(buf + off, sizeof(buf) - off, "%s%s=%llu/%llu",
+                         off ? " " : "", glm_ablate_names[i], k, v);
+        if (n < 0 || (size_t)n >= sizeof(buf) - off) break;
+        off += (size_t)n;
+    }
+    if (!any) return NULL;
+    return buf;
 }
 
 static bool glm_graph_encode_shared_swiglu_one(
@@ -44491,7 +44608,7 @@ static bool glm_graph_encode_sparse_ffn_one(
     if (!ok && tp_split_ffn && getenv("DS4_GLM_TP_DEBUG")) {
         fprintf(stderr, "ds4: glm sparse ffn: failed before routed dispatch (layer %u)\n", il);
     }
-    if (ok && !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_ROUTED)) {
+    if (ok && !glm_ablate_take(DS4_GLM_ABLATE_ROUTED)) {
         ok = glm_graph_routed_moe_one_dispatch(
             g,
             model,
@@ -44511,7 +44628,7 @@ static bool glm_graph_encode_sparse_ffn_one(
             g->ssd_streaming && !streaming_selected_cache) != 0;
     }
     if (ok && g->imatrix &&
-        !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_ROUTED)) {
+        !glm_ablate_take(DS4_GLM_ABLATE_ROUTED)) {
         ok = imatrix_collect_glm_one(g->imatrix, g, il);
     }
     if (ok && tp_split_ffn) {
@@ -44543,7 +44660,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                          1,
                                          stage_t0);
     if (ok && !shared_first &&
-        !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_SHARED)) {
+        !glm_ablate_take(DS4_GLM_ABLATE_SHARED)) {
         ok = glm_graph_encode_shared_swiglu_one(ffn_mid,
                                                 ffn_gate,
                                                 ffn_up,
@@ -46350,7 +46467,7 @@ static bool glm_graph_encode_ffn_batch(
         if (!finish_ok) rocm_batch_selected_async_started = false;
     }
 #endif
-    if (n_tokens <= 8u && (glm_decode_ablate_mask() & DS4_GLM_ABLATE_ROUTED)) { /* ablate: keep the gate */ } else
+    if (n_tokens <= 8u && glm_ablate_take(DS4_GLM_ABLATE_ROUTED)) { /* ablate: keep the gate */ } else
     if (ok) ok = glm_graph_routed_moe_batch_dispatch(
             g,
             model,
@@ -49483,7 +49600,7 @@ static bool glm_graph_forward_indexed_tokens(
         DS4_GLM_PROFILE_INDEXED_STAGE("glm_indexed_attn", "attn_norm");
         if (ok && glm53_kda) {
             if (n_tokens > 8u ||
-                !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_KDA)) {
+                !glm_ablate_take(DS4_GLM_ABLATE_KDA)) {
                 ok = glm53_graph_kda_attention_rows(g,
                                                     model,
                                                     l,
@@ -49495,7 +49612,7 @@ static bool glm_graph_forward_indexed_tokens(
             goto glm53_indexed_attention_done;
         }
         if (ok) {
-            if (n_tokens <= 8u && (glm_decode_ablate_mask() & DS4_GLM_ABLATE_QPATH)) { /* ablate */ } else
+            if (n_tokens <= 8u && glm_ablate_take(DS4_GLM_ABLATE_QPATH)) { /* ablate */ } else
             ok = (use_batch_q_rank_proj ?
                   glm_graph_matmul_q8_0_tensor(g->batch_q_rank,
                                                model,
@@ -49931,7 +50048,7 @@ static bool glm_graph_forward_indexed_tokens(
                                       il,
                                       pos0);
         if (use_batch_qk_low) {
-            if (n_tokens <= 8u && (glm_decode_ablate_mask() & DS4_GLM_ABLATE_ATTN_CORE)) { /* ablate */ } else
+            if (n_tokens <= 8u && glm_ablate_take(DS4_GLM_ABLATE_ATTN_CORE)) { /* ablate */ } else
             if (ok) ok = ds4_gpu_glm_qk_lowrank_typed_batch_tensor(g->batch_qk_low,
                                                                    g->batch_q,
                                                                    model->map,
@@ -50026,7 +50143,7 @@ static bool glm_graph_forward_indexed_tokens(
                 if (!ok) {
                     fprintf(stderr, "ds4: GLM sliced indexed prefill failed to create attention views at layer %u token %u\n", il, t0);
                 }
-                if (n_tokens <= 8u && (glm_decode_ablate_mask() & DS4_GLM_ABLATE_ATTN_CORE)) { /* ablate */ } else if (ok && use_split_value_proj) {
+                if (n_tokens <= 8u && glm_ablate_take(DS4_GLM_ABLATE_ATTN_CORE)) { /* ablate */ } else if (ok && use_split_value_proj) {
                     int rc = 0;
 #if defined(__APPLE__) || (!defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU))
                     if (slice_causal &&
@@ -50248,7 +50365,7 @@ static bool glm_graph_forward_indexed_tokens(
              * it must land in the shared bounce tensor for the exchange. */
             ds4_gpu_tensor *attn_out_dst =
                 tp_attn_head_split ? g->tp_bounce_out : g->batch_attn_out;
-            if (n_tokens <= 8u && (glm_decode_ablate_mask() & DS4_GLM_ABLATE_ATTN_OUT)) { /* ablate */ } else
+            if (n_tokens <= 8u && glm_ablate_take(DS4_GLM_ABLATE_ATTN_OUT)) { /* ablate */ } else
             if (tp_attn_head_split &&
                 !g->quality &&
                 ds4_gpu_device_is_m5_apple_silicon() &&
@@ -51376,14 +51493,14 @@ static bool glm_graph_forward_token(
         DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_attn", "attn_norm");
         if (ok && glm53_kda) {
             DS4_GLM_FT_STAGE("KDA attention");
-            if (!(glm_decode_ablate_mask() & DS4_GLM_ABLATE_KDA)) {
+            if (!glm_ablate_take(DS4_GLM_ABLATE_KDA)) {
                 ok = glm53_graph_kda_attention(g, model, l, il);
             }
             goto glm53_attention_done;
         }
         const uint32_t decode_ablate = glm_decode_ablate_mask();
         DS4_GLM_FT_STAGE("DSA q_a projection");
-        if (ok && !(decode_ablate & DS4_GLM_ABLATE_QPATH)) {
+        if (ok && !glm_ablate_take(DS4_GLM_ABLATE_QPATH)) {
             ok = glm_graph_matmul_q8_0_decode_profiled_tensor(g->q_rank,
                                                               model,
                                                               l->attn_q_a->abs_offset,
@@ -51471,7 +51588,7 @@ static bool glm_graph_forward_token(
         const bool tp_split_layer_heads =
             tp_split_indexed_heads && il >= DS4_N_LEADING_DENSE &&
             l->attn_q_b->type == DS4_TENSOR_Q8_0;
-        if (ok && !(decode_ablate & DS4_GLM_ABLATE_QPATH)) {
+        if (ok && !glm_ablate_take(DS4_GLM_ABLATE_QPATH)) {
             DS4_GLM_FT_STAGE("DSA q_b projection");
             uint64_t q_weight_offset = l->attn_q_b->abs_offset;
             uint64_t q_row_bytes = 0;
@@ -51518,7 +51635,7 @@ static bool glm_graph_forward_token(
                                               il,
                                               pos);
         if (ok && g->compact_cache_cap != 0 && glm_graph_layer_uses_full_indexer(il) &&
-            !(decode_ablate & DS4_GLM_ABLATE_INDEXER)) {
+            !glm_ablate_take(DS4_GLM_ABLATE_INDEXER)) {
             DS4_GLM_FT_STAGE("DSA indexer key projection");
             ok = g->glm53 ?
                 glm53_graph_matmul_rows(g->indexer_k,
@@ -51764,7 +51881,10 @@ static bool glm_graph_forward_token(
                 ok = false;
             }
             DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_attn", "indexer_select");
-            if (ok && !(decode_ablate & (DS4_GLM_ABLATE_ATTN_CORE | DS4_GLM_ABLATE_QKLOW))) {
+            /* Both gates must run: each records its own site visit. */
+            const bool skip_core = glm_ablate_take(DS4_GLM_ABLATE_ATTN_CORE);
+            const bool skip_qklow = glm_ablate_take(DS4_GLM_ABLATE_QKLOW);
+            if (ok && !skip_core && !skip_qklow) {
                 uint64_t k_weight_offset = l->attn_k_b->abs_offset;
                 uint64_t k_row_bytes = 0;
                 if (tp_split_layer_heads) {
@@ -51951,7 +52071,7 @@ static bool glm_graph_forward_token(
                                               g->heads_dim,
                                               il,
                                               pos);
-        if (ok && !(decode_ablate & DS4_GLM_ABLATE_ATTN_OUT)) {
+        if (ok && !glm_ablate_take(DS4_GLM_ABLATE_ATTN_OUT)) {
             const bool tp_split_attn =
                 g->tp_world == 2 && g->tp_out && g->tp_in &&
                 il >= DS4_N_LEADING_DENSE && !g->ssd_streaming;
@@ -65022,7 +65142,68 @@ static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
     free(lg);
 }
 
+/* Per-request MTP cycle accounting.  An ablation arm is scored in ms/cycle,
+ * never t/s: a corrupted hidden state moves acceptance in either direction, so
+ * committed-tokens-per-second folds an unmeasured denominator into the result.
+ * Acceptance is reported alongside so an arm whose acceptance moved can be
+ * rejected the same way an arm with zero skips is. */
+static uint64_t glm_spec_cycles = 0;
+static uint64_t glm_spec_committed = 0;
+static double   glm_spec_ms = 0.0;
+
+const char *ds4_glm_spec_cycle_stats_str(void) {
+    static char buf[160];
+    if (!glm_spec_cycles) return NULL;
+    snprintf(buf, sizeof(buf), "cycles=%llu ms/cycle=%.3f commit/cycle=%.4f",
+             (unsigned long long)glm_spec_cycles,
+             glm_spec_ms / (double)glm_spec_cycles,
+             (double)glm_spec_committed / (double)glm_spec_cycles);
+    glm_spec_cycles = 0;
+    glm_spec_committed = 0;
+    glm_spec_ms = 0.0;
+    return buf;
+}
+
+static int ds4_session_glm_spec_cycle_inner(
+        ds4_session *s,
+        int          first_token,
+        int          eos_token,
+        float        temperature,
+        int          top_k,
+        float        top_p,
+        float        min_p,
+        uint64_t    *rng,
+        bool         exact_sampling,
+        int         *accepted,
+        int          accepted_cap,
+        char        *err,
+        size_t       errlen);
+
 static int ds4_session_glm_spec_cycle_impl(
+        ds4_session *s,
+        int          first_token,
+        int          eos_token,
+        float        temperature,
+        int          top_k,
+        float        top_p,
+        float        min_p,
+        uint64_t    *rng,
+        bool         exact_sampling,
+        int         *accepted,
+        int          accepted_cap,
+        char        *err,
+        size_t       errlen) {
+    const double t0 = now_sec();
+    const int rc = ds4_session_glm_spec_cycle_inner(
+            s, first_token, eos_token, temperature, top_k, top_p, min_p,
+            rng, exact_sampling, accepted, accepted_cap, err, errlen);
+    glm_spec_ms += (now_sec() - t0) * 1000.0;
+    glm_spec_cycles++;
+    if (rc > 0) glm_spec_committed += (uint64_t)rc;
+    return rc;
+}
+
+static int ds4_session_glm_spec_cycle_inner(
         ds4_session *s,
         int          first_token,
         int          eos_token,

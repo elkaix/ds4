@@ -10941,6 +10941,17 @@ static void log_decode_progress(req_kind kind, int prompt_tokens, int completion
                chunk_tps,
                avg_tps,
                elapsed);
+    /* An ablation arm is only valid if the mask reached a dispatch on the path
+     * that was timed; parsing the env var proves nothing (ledger F28). */
+    if (getenv("DS4_GLM_ABLATE_COUNTERS")) {
+        const char *counters = ds4_glm_ablate_counters_str();
+        const char *spec = ds4_glm_spec_cycle_stats_str();
+        fprintf(stderr, "ds4: ablate gen=%d %s | %s\n",
+                completion,
+                counters ? counters : "NO GATE REACHED",
+                spec ? spec : "no spec cycles");
+    }
+    if (getenv("DS4_GLM_ABLATE_COUNTERS")) ds4_glm_ablate_advance();
     *last_t = now;
     *last_completion = completion;
 }
@@ -11938,6 +11949,7 @@ static uint64_t server_next_sequence(server *s) {
  * immediately continue to the real prompt.  The live graph therefore always
  * moves forward. */
 static void generate_job_inner(server *s, server_slot *slot, job *j) {
+    ds4_glm_ablate_refresh();
     char err[160];
     err[0] = '\0';
     const bool multimodal = j->req.image_count != 0;
@@ -12420,7 +12432,13 @@ decode_again:
     bool saw_orphan_tool_end = false;
     size_t tool_scan_from = 0;
     int next_tool_progress = 128;
-    int next_decode_log = 50;
+    /* Ablation sweeps drive one arm per decode-log interval, so the interval is
+     * the arm length. */
+    const char *decode_log_every_env = getenv("DS4_DECODE_LOG_EVERY");
+    const int decode_log_every =
+        (decode_log_every_env && atoi(decode_log_every_env) > 0) ?
+            atoi(decode_log_every_env) : 50;
+    int next_decode_log = decode_log_every;
     if (max_tokens < 0) max_tokens = 0;
     if (max_tokens > room) max_tokens = room;
     trace_event(s, trace_id, "prefill done; decode_max=%d ctx_room=%d", max_tokens, room);
@@ -12678,7 +12696,7 @@ decode_again:
                                     decode_t0,
                                     &last_decode_log_t,
                                     &last_decode_log_completion);
-                next_decode_log += 50;
+                next_decode_log += decode_log_every;
             }
 
             if (hit_stop) {
