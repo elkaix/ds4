@@ -19,6 +19,8 @@ silently counted as passes.
 | Discarded draft head A/B | `make glm53-mtp-head-bench && speed-bench/glm53_mtp_head_bench "$MODEL" DS4_GLM_MTP_DISCARDED_HEAD` | Separate-process ABBA observed +2.256% at 2K and +1.789% at 65K with identical text. Paired exact IDs, cycle shapes, positions, counters, and logits still pending; report all three blocks and aggregate |
 | Quantizer unit suite | `python3 gguf-tools/tests/test_glm53_quantize.py` | Pass: 14 tests |
 | Vision target compile | `make tests/test_glm53_vision_engine tests/test_glm53_vision_prompt` | Pending; execution blocked by missing vision sidecar |
+| S55 MTP analyzer | `PYTHONDONTWRITEBYTECODE=1 python3 speed-bench/test_analyze_glm53_mtp.py` | Pass: 4 tests; historical fixture reproduces 297 cycles, 214 accepts, 83 rejects, 511 committed |
+| Frozen S55 corpus | `PYTHONDONTWRITEBYTECODE=1 python3 speed-bench/build_s55_corpus.py --verify-only` | Pass: 1,157,096 bytes; SHA-256 `78493835239cb7a3b35228bf7304f72d3f293d9b99c4a7ef10e0aca206c7150b` |
 | Python syntax | AST parse over every tracked Python file | Pass: 39 files; no bytecode or generated files written |
 | Shell syntax | `sh -n` / `bash -n` selected by each tracked script's shebang | Pass: 7 tracked scripts |
 | Whitespace | `git diff --check` | Pass |
