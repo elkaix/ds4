@@ -1,0 +1,10 @@
+
+ctx~2033
+  control  [30.215, 30.68]  mean 30.447 ms/token
+  treated  [29.777, 29.744]  mean 29.761 ms/token
+  effect   +2.26%   (0) text identical across all four arms: True
+
+ctx~65578
+  control  [33.988, 34.037]  mean 34.013 ms/token
+  treated  [33.408, 33.4]  mean 33.404 ms/token
+  effect   +1.79%   (0) text identical across all four arms: True

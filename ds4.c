@@ -46713,7 +46713,14 @@ static bool glm_graph_mtp_step(
         uint32_t           pos,
         uint32_t           min_pos,
         int               *draft_out) {
-    if (!g || !model || !weights || !draft_out) return false;
+    /* draft_out == NULL means "advance the nextn layer's state through this
+     * position, but do not produce a draft token".  The accepted MTP cycle
+     * needs exactly that for its first step: the second step attends to this
+     * position, so the state update is required, but the first step's logits
+     * are discarded.  Skipping the head there removes a full 4096 x 154880
+     * output matmul (~0.67 GB, about 4% of all bytes a cycle moves) and its
+     * 620 KB host readback and argmax, for a value nothing reads. */
+    if (!g || !model || !weights) return false;
     if (DS4_N_NEXTN_PREDICT == 0) return false;
     const uint32_t cache_cap = glm_graph_mtp_cache_cap(g);
     if (pos >= cache_cap || min_pos > pos) {
@@ -47074,9 +47081,11 @@ static bool glm_graph_mtp_step(
                                      g->ffn_out,
                                      g->ffn_sum,
                                      DS4_N_EMBD) != 0;
-    /* Shared output head behind the nextn head norm. */
+    /* Shared output head behind the nextn head norm.  Skipped entirely when
+     * the caller wants only the state advance. */
+    const bool want_draft = draft_out != NULL;
     DS4_GLM_MTP_STAGE("head_norm");
-    if (ok) ok = ds4_gpu_rms_norm_weight_tensor(g->output_norm,
+    if (ok && want_draft) ok = ds4_gpu_rms_norm_weight_tensor(g->output_norm,
                                                 g->next,
                                                 model->map,
                                                 model->size,
@@ -47084,7 +47093,7 @@ static bool glm_graph_mtp_step(
                                                 DS4_N_EMBD,
                                                 DS4_RMS_EPS) != 0;
     DS4_GLM_MTP_STAGE("head");
-    if (ok) ok = glm_graph_mtp_matmul(g,
+    if (ok && want_draft) ok = glm_graph_mtp_matmul(g,
                                       g->logits,
                                       model,
                                       weights->output,
@@ -47094,7 +47103,7 @@ static bool glm_graph_mtp_step(
     DS4_GLM_MTP_STAGE("end");
     if (ok) ok = ds4_gpu_end_commands() != 0;
     else (void)ds4_gpu_synchronize();
-    if (ok) {
+    if (ok && want_draft) {
         ok = ds4_gpu_tensor_read(g->logits,
                                  0,
                                  g->mtp_logits_host,
@@ -47108,6 +47117,7 @@ static bool glm_graph_mtp_step(
         return false;
     }
 #undef DS4_GLM_MTP_STAGE
+    if (!want_draft) return true;
     int best = 0;
     float best_v = g->mtp_logits_host[0];
     for (uint32_t i = 1; i < DS4_N_VOCAB; i++) {
@@ -65250,14 +65260,21 @@ static int ds4_session_glm_spec_cycle_impl(
         n_committed = 2;
         /* s->logits already holds row1 (position pos+1) logits. */
         const int n2 = glm_session_logits_argmax(s->logits);
-        int dummy = -1, nd = -1;
+        int nd = -1;
+        /* Kill switch: the first draft step's token was previously computed
+         * into a variable named `dummy` and never read.  Set this to 0 to
+         * restore the old behaviour for an A/B. */
+        const char *keep_env = getenv("DS4_GLM_MTP_DISCARDED_HEAD");
+        const bool keep_discarded_head = keep_env && keep_env[0] == '1';
+        int discarded = -1;
         ds4_gpu_tensor *target_hidden = g->glm53 ? g->hc_cur : g->cur;
         const double draft_t0 = timing ? now_sec() : 0.0;
         const bool cu =
             ds4_gpu_tensor_write(target_hidden, 0, s->glm_mtp_hc,
                                  hc_row_bytes) != 0 &&
             glm_graph_mtp_step(g, &e->model, &e->weights, d, pos,
-                               s->glm_mtp_min_pos, &dummy) &&
+                               s->glm_mtp_min_pos,
+                               keep_discarded_head ? &discarded : NULL) &&
             ds4_gpu_tensor_write(target_hidden,
                                  0,
                                  s->glm_mtp_hc + hc_row_values,

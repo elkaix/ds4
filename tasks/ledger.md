@@ -1344,3 +1344,45 @@ Every future ablation arm must assert that the mask reached a dispatch **on the
 path actually being timed**, not merely that the env var parsed. The cheapest
 form: a per-mask counter incremented at the skip site and printed at exit, with
 the arm rejected if the count is zero.
+
+---
+
+## SHIPPED — the discarded MTP draft head is gone (+2.3% / +1.8%)
+
+On an accepted MTP cycle the code ran two full draft steps. The first one's
+token went into a local named `dummy` and was never read; only its *state*
+advance was needed, because the second step attends to that position. But the
+step still ran the nextn head norm, a 4096 x 154,880 output matmul, a 620 KB
+host readback and a CPU argmax to produce it.
+
+`glm_graph_mtp_step` now accepts `draft_out == NULL` meaning "advance the state,
+produce no draft", and the accepted path passes NULL for the first step.
+`DS4_GLM_MTP_DISCARDED_HEAD=1` restores the old behaviour for A/B.
+
+ABBA, four arms per context, one process per arm, decode-only append path,
+512 generated tokens:
+
+```text
+ctx 2033    control [30.215, 30.680]  mean 30.447 ms/token
+            treated [29.777, 29.744]  mean 29.761 ms/token     +2.26%
+
+ctx 65578   control [33.988, 34.037]  mean 34.013 ms/token
+            treated [33.408, 33.400]  mean 33.404 ms/token     +1.79%
+
+generated text identical across all four arms at both contexts: True
+```
+
+The two treated arms agree to 0.1% and the effect is larger than the
+control-arm spread at both contexts. Text is character-identical, which is the
+correctness gate this change has to pass: it removes a computation whose result
+was already unused, so anything other than identical output would have meant the
+value was load-bearing after all.
+
+`./ds4_test`: the same 2 pre-existing failures (tests/ds4_test.c:5446, present
+at HEAD before this branch), no new ones. `metal-tensor-equivalence` passes with
+0 top-1 mismatches.
+
+Predicted from bytes: 0.674 GB of 11.82 GB per cycle x acceptance 0.721 = 4.1%
+of traffic. Measured 1.8-2.3%. The gap is expected — the head is one of the
+better-coalesced reads in the model, so removing it saves less than its byte
+share.
