@@ -1,4 +1,29 @@
-# GLM-5.3 long-context decode: 4K boundary work
+# S55-200 Active Plan
+
+Success: the minimum sustained generated decode rate at real 2K, 32K, 64K,
+128K, and ~200K context is at least 55.0 t/s, with MTP, unchanged semantics and
+quality, <=2% context decay, and <=2% 60-minute drift.
+
+- [ ] Phase 0-1: freeze source/binary/model/config and preserve the measured
+      2K/32K/64K/128K/200K decode ladder.
+- [ ] Phase 2: measure `a200`, tokens/cycle, non-instrumented cycle budget, and
+      the remaining milliseconds to 55 t/s.
+- [ ] Phase 3-4: accept a <=3%-overhead macro profiler; run equal-byte
+      sequential/pattern/one-row-MoE/width-2-MoE M1.
+- [ ] Phase 5-8: optimize only the largest measured 200K component with a
+      plausible >=5% end-to-end ceiling; exact-output balanced A/B.
+- [ ] Phase 9-12: four real 200K workloads, consecutive growing-context blocks,
+      60 minutes, <=2% decay; repeat measured largest-component loop until pass.
+
+Current blocker: Claude still owns the live server PID 69987. Do not attach a
+profiler, issue inference, rebuild its binary, stop it, or start a competing
+Metal process until that lease is explicitly released.
+
+Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
+2K-to-200K decay. Research and two independent Sol-max audits are consolidated
+in `docs/research/`; no theoretical or correlated metric receives S55 credit.
+
+## Prior Investigation — 4K Boundary Work
 
 ## Established (source-verified)
 - `glm_graph_dense_compact_attention_limit()` (ds4.c:41212) returns `g->ctx_cap`

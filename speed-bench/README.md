@@ -66,7 +66,7 @@ make glm53-mtp-head-bench
 
 The harness uses one engine and two synchronized sessions. It runs three
 512-token blocks, reverses arm order every 64 tokens, and uses
-`DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD=1` as the rollback control. It aborts
+`DS4_GLM_MTP_DISCARDED_HEAD=1` as the rollback control. It aborts
 unless token IDs, acceptance schedules, positions, and full-vocabulary logits
 are bit-identical after every chunk.
 
@@ -95,6 +95,33 @@ Two complete 2026-08-31 M4 Max runs recorded:
 
 See `docs/research/glm53_kda_verify2_snapshot.md` for the exact model,
 runtime revision, confidence calculation, whole-stack control, and Metal trace.
+
+### GLM-5.3 MTP cycle-budget analysis
+
+Parse one contiguous `--mtp-timing` request and combine its acceptance with the
+matched profiler-OFF decode rate:
+
+```
+python3 speed-bench/analyze_glm53_mtp.py server.log \
+  --min-pos 190000 \
+  --expect-committed 511 \
+  --decode-tps 25.00  # replace with the matched timing-OFF rate
+```
+
+The parser reports acceptance, tokens/cycle, a Wilson interval, diagnostic
+stage timing, and the measured cycle-time deficit to 55 t/s. If a log contains
+multiple contiguous requests it fails closed and requires `--run N`. The timing
+means themselves receive zero S55 credit because per-cycle logging perturbs
+runtime; `--decode-tps` must come from the matched timing-OFF arm. After the
+first parse, use `--expect-cycles N` to lock the recorded cycle count. For a
+512-token generation, `--expect-committed 511` accounts for the initial token
+outside the speculative-cycle log and rejects early-stop evidence.
+
+Run its standard-library tests with:
+
+```
+PYTHONDONTWRITEBYTECODE=1 python3 speed-bench/test_analyze_glm53_mtp.py
+```
 
 ### Metal prefill variant A/B
 
