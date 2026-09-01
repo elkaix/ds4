@@ -23,6 +23,11 @@ Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
 2K-to-200K decay. Research and two independent Sol-max audits are consolidated
 in `docs/research/`; no theoretical or correlated metric receives S55 credit.
 
+Lease-safe validation completed on this branch: all 39 tracked Python files
+AST-parse, all 7 tracked shell scripts pass their declared shell's syntax
+check, and `git diff --check` passes. These are correctness gates only and add
+0 t/s to S55.
+
 ## Prior Investigation — 4K Boundary Work
 
 ## Established (source-verified)
