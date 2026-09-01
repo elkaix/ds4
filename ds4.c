@@ -44154,6 +44154,11 @@ static double glm_graph_streaming_async_profile_ms(void) {
 #define DS4_GLM_ABLATE_ROUTED    (1u << 4)
 #define DS4_GLM_ABLATE_SHARED    (1u << 5)
 #define DS4_GLM_ABLATE_QKLOW     (1u << 6)
+/* KDA is 34 of the 45 trunk layers and no mask covered it, which left 60% of
+ * the measured pass unattributed (ledger F25).  Skipping the recurrence leaves
+ * attn_out stale for those layers -- garbage text, same dispatch count
+ * everywhere else, which is the whole point of this family of flags. */
+#define DS4_GLM_ABLATE_KDA       (1u << 7)
 
 static uint32_t glm_decode_ablate_mask(void) {
     static int cached = -1;
@@ -44168,6 +44173,7 @@ static uint32_t glm_decode_ablate_mask(void) {
             if (strstr(env, "routed")) mask |= DS4_GLM_ABLATE_ROUTED;
             if (strstr(env, "shared")) mask |= DS4_GLM_ABLATE_SHARED;
             if (strstr(env, "qklow")) mask |= DS4_GLM_ABLATE_QKLOW;
+            if (strstr(env, "kda")) mask |= DS4_GLM_ABLATE_KDA;
             if (mask) {
                 fprintf(stderr, "ds4: GLM decode ablation active (mask 0x%x) — output is garbage, timing only\n", mask);
             }
@@ -49466,13 +49472,16 @@ static bool glm_graph_forward_indexed_tokens(
         }
         DS4_GLM_PROFILE_INDEXED_STAGE("glm_indexed_attn", "attn_norm");
         if (ok && glm53_kda) {
-            ok = glm53_graph_kda_attention_rows(g,
-                                                model,
-                                                l,
-                                                il,
-                                                pos0,
-                                                n_tokens,
-                                                g->batch_attn_out);
+            if (n_tokens > 8u ||
+                !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_KDA)) {
+                ok = glm53_graph_kda_attention_rows(g,
+                                                    model,
+                                                    l,
+                                                    il,
+                                                    pos0,
+                                                    n_tokens,
+                                                    g->batch_attn_out);
+            }
             goto glm53_indexed_attention_done;
         }
         if (ok) {
@@ -51357,7 +51366,9 @@ static bool glm_graph_forward_token(
         DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_attn", "attn_norm");
         if (ok && glm53_kda) {
             DS4_GLM_FT_STAGE("KDA attention");
-            ok = glm53_graph_kda_attention(g, model, l, il);
+            if (!(glm_decode_ablate_mask() & DS4_GLM_ABLATE_KDA)) {
+                ok = glm53_graph_kda_attention(g, model, l, il);
+            }
             goto glm53_attention_done;
         }
         const uint32_t decode_ablate = glm_decode_ablate_mask();

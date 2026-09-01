@@ -1,0 +1,12 @@
+ds4: glm verify scan pos=2651 reps=40 dense_limit=4096
+  n=1 ok=40 mean=44.843 ms min=43.442 ms max=49.986 ms mean_per_row=44.843 ms
+  n=2 ok=40 mean=57.456 ms min=52.908 ms max=59.051 ms mean_per_row=28.728 ms
+  n=3 ok=40 mean=72.184 ms min=69.997 ms max=74.726 ms mean_per_row=24.061 ms
+  n=4 ok=40 mean=85.538 ms min=82.283 ms max=87.154 ms mean_per_row=21.385 ms
+ds4: glm verify scan done
+0901 01:35:24 ds4-server: chat ctx=2651..2701:50 gen=50 decoding chunk=3.89 t/s avg=3.89 t/s 12.843s
+0901 01:35:25 ds4-server: chat ctx=2701..2715:14 gen=64 decoding chunk=27.11 t/s avg=4.79 t/s 13.359s
+0901 01:35:25 ds4-server: chat ctx=0..2651:2651 gen=64 finish=length 21.452s
+0901 01:37:13 ds4-server: shutdown requested, draining requests
+0901 01:37:13 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=2715
+0901 01:37:14 ds4-server: kv cache stored tokens=2715 trimmed=0 reason=shutdown key=token-text size=208.19 MiB save=398.4 ms

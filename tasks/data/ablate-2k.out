@@ -1,0 +1,20 @@
+    baseline  33.06 t/s  30.248 ms/token
+      routed  49.56 t/s  20.178 ms/token
+      shared  33.65 t/s  29.719 ms/token
+   attn_core  34.0 t/s  29.412 ms/token
+     indexer  32.97 t/s  30.328 ms/token
+       qpath  33.01 t/s  30.293 ms/token
+       qklow  31.76 t/s  31.482 ms/token
+    attn_out  32.59 t/s  30.68 ms/token
+    baseline  32.73 t/s  30.553 ms/token
+
+baseline 30.248 -> 30.553 ms/token, drift +1.0%; ref 30.401
+
+     stage   ms/token    saved  % of pass
+    routed     20.178   10.223      33.6%
+    shared     29.719    0.681       2.2%
+ attn_core     29.412    0.989       3.3%
+   indexer     30.328    0.073       0.2%
+     qpath     30.293    0.108       0.4%
+     qklow     31.482   -1.081      -3.6%
+  attn_out     30.680   -0.279      -0.9%

@@ -1,0 +1,122 @@
+[
+ {
+  "phase": 0,
+  "target": 2048,
+  "ptok": 2033,
+  "decode_tps": 21.38,
+  "decode_s": 23.95,
+  "gen": 512,
+  "wall_s": 33.99,
+  "free_mb": 4112,
+  "d_pageins": 55415,
+  "swapins": 72
+ },
+ {
+  "phase": 1,
+  "target": 32768,
+  "ptok": 32150,
+  "decode_tps": 26.64,
+  "decode_s": 19.217,
+  "gen": 512,
+  "wall_s": 60.22,
+  "free_mb": 64,
+  "d_pageins": 290009,
+  "swapins": 729
+ },
+ {
+  "phase": 2,
+  "target": 65536,
+  "ptok": 65093,
+  "decode_tps": 24.15,
+  "decode_s": 21.197,
+  "gen": 512,
+  "wall_s": 155.95,
+  "free_mb": 1001,
+  "d_pageins": 510463,
+  "swapins": 171916
+ },
+ {
+  "phase": 3,
+  "target": 131072,
+  "ptok": 130506,
+  "decode_tps": 23.67,
+  "decode_s": 21.631,
+  "gen": 512,
+  "wall_s": 360.22,
+  "free_mb": 694,
+  "d_pageins": 836544,
+  "swapins": 16982
+ },
+ {
+  "phase": 4,
+  "target": 200000,
+  "ptok": 197395,
+  "decode_tps": 22.75,
+  "decode_s": 22.505,
+  "gen": 512,
+  "wall_s": 566.08,
+  "free_mb": 776,
+  "d_pageins": 837226,
+  "swapins": 2255
+ },
+ {
+  "phase": 5,
+  "target": 200000,
+  "ptok": 197395,
+  "decode_tps": 22.48,
+  "decode_s": 22.778,
+  "gen": 512,
+  "wall_s": 564.75,
+  "free_mb": 293,
+  "d_pageins": 704694,
+  "swapins": 38383
+ },
+ {
+  "phase": 6,
+  "target": 131072,
+  "ptok": 130506,
+  "decode_tps": 24.84,
+  "decode_s": 20.608,
+  "gen": 512,
+  "wall_s": 337.5,
+  "free_mb": 190,
+  "d_pageins": 425873,
+  "swapins": 543
+ },
+ {
+  "phase": 7,
+  "target": 65536,
+  "ptok": 65093,
+  "decode_tps": 27.19,
+  "decode_s": 18.83,
+  "gen": 512,
+  "wall_s": 139.65,
+  "free_mb": 840,
+  "d_pageins": 125413,
+  "swapins": 218
+ },
+ {
+  "phase": 8,
+  "target": 32768,
+  "ptok": 32150,
+  "decode_tps": 32.38,
+  "decode_s": 15.81,
+  "gen": 512,
+  "wall_s": 46.82,
+  "free_mb": 773,
+  "d_pageins": 27529,
+  "swapins": 116
+ },
+ {
+  "phase": 9,
+  "target": 2048,
+  "ptok": 2033,
+  "decode_tps": 33.01,
+  "decode_s": 15.511,
+  "gen": 512,
+  "wall_s": 20.48,
+  "free_mb": 760,
+  "d_pageins": 11202,
+  "swapins": 170
+ }
+]
