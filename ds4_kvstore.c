@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -732,8 +733,12 @@ static int kv_cache_continued_step(const ds4_kvstore *kc) {
     int step = kc->opt.continued_interval_tokens;
     const int align = kc->opt.boundary_align_tokens;
     if (align > 0) {
-        step = ((step + align - 1) / align) * align;
-        if (step <= 0) step = align;
+        const int64_t rounded =
+            (((int64_t)step + align - 1) / align) * align;
+        /* live_tokens is an int, so a rounded frontier above INT_MAX can
+         * never be reached.  Avoid signed overflow and disable that schedule. */
+        if (rounded > INT_MAX) return 0;
+        step = (int)rounded;
     }
     return step;
 }
