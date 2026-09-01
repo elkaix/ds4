@@ -64865,6 +64865,68 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
  * draft as a point-mass proposal and uses stochastic p/q acceptance.  Returns
  * one or two committed tokens with s->logits at the last committed position,
  * or -1 on error. */
+/* Measurement-only: time glm_graph_verify_rows() at n = 1..4 in one process,
+ * from a real session at a real position, each rep bracketed by the same KDA
+ * snapshot/restore transaction the MTP cycle uses so the model state is left
+ * exactly as found.  Answers "what does row 3 actually cost" without first
+ * implementing width-3 speculation -- the marginal row cost is the whole
+ * decision, and it has only ever been extrapolated from a code comment that
+ * compares two different kernels.  Gated on DS4_GLM_VERIFY_SCAN=<reps>, runs
+ * once, off by default.  Valid only while pos + n stays inside the dense
+ * window, so run it at short context. */
+static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
+    ds4_engine *e = s->engine;
+    ds4_glm_gpu_graph *g = &s->glm_graph;
+    const uint32_t pos = (uint32_t)s->checkpoint.len;
+    if (reps <= 0) reps = 20;
+    const size_t hc_values = (size_t)4 * DS4_N_EMBD * DS4_N_HC;
+    float *hc = malloc(hc_values * sizeof(float));
+    float *lg = malloc((size_t)DS4_N_VOCAB * sizeof(float));
+    if (!hc || !lg) { free(hc); free(lg); return; }
+    int toks[4] = { first_token, first_token, first_token, first_token };
+    fprintf(stderr, "ds4: glm verify scan pos=%u reps=%d dense_limit=%u\n",
+            pos, reps, glm_graph_dense_compact_attention_limit(g));
+    for (uint32_t n = 1; n <= 4; n++) {
+        double tot = 0.0, best = 1e9, worst = 0.0;
+        int ok_count = 0;
+        /* One unmeasured rep per n: the first call sizes the verify workspace
+         * for that row count, which is not part of the steady-state cost. */
+        for (int r = -1; r < reps; r++) {
+            glm53_spec_transaction tx = {0};
+            if (!glm53_spec_transaction_begin(&tx, s, pos)) {
+                fprintf(stderr, "  n=%u transaction_begin refused\n", n);
+                break;
+            }
+            const double t0 = now_sec();
+            const bool ok = glm_graph_verify_rows(g, &e->model, &e->weights,
+                                                  toks, pos, n, hc,
+                                                  GLM_VERIFY_HEAD_LAST, lg);
+            const double ms = (now_sec() - t0) * 1000.0;
+            (void)glm53_spec_transaction_restore_base(&tx);
+            if (!ok) {
+                fprintf(stderr, "  n=%u verify_rows refused (eligible=%d)\n",
+                        n, (int)glm_graph_verify_rows_eligible(g, pos, n));
+                break;
+            }
+            if (r < 0) continue;
+            ok_count++;
+            tot += ms;
+            if (ms < best) best = ms;
+            if (ms > worst) worst = ms;
+        }
+        if (ok_count) {
+            fprintf(stderr,
+                    "  n=%u ok=%d mean=%.3f ms min=%.3f ms max=%.3f ms "
+                    "mean_per_row=%.3f ms\n",
+                    n, ok_count, tot / ok_count, best, worst,
+                    (tot / ok_count) / (double)n);
+        }
+    }
+    fprintf(stderr, "ds4: glm verify scan done\n");
+    free(hc);
+    free(lg);
+}
+
 static int ds4_session_glm_spec_cycle_impl(
         ds4_session *s,
         int          first_token,
@@ -64893,6 +64955,19 @@ static int ds4_session_glm_spec_cycle_impl(
         if (!s->glm_mtp_hc || !s->glm_mtp_logits0) {
             if (errlen) snprintf(err, errlen, "glm mtp: out of memory");
             return -1;
+        }
+    }
+    {
+        static bool scan_done = false;
+        const char *scan = getenv("DS4_GLM_VERIFY_SCAN");
+        const char *scan_pos = getenv("DS4_GLM_VERIFY_SCAN_POS");
+        /* Defer the scan until the process is warm: taken on the very first
+         * spec cycle of a fresh server it measures cold kernels and a cold
+         * residency, and the marginal row cost is the whole point. */
+        if (scan && scan[0] && !scan_done && g->glm53 &&
+            (!scan_pos || !scan_pos[0] || pos >= (uint32_t)atoi(scan_pos))) {
+            scan_done = true;
+            glm53_verify_scan(s, first_token, atoi(scan));
         }
     }
     s->glm_mtp_rollback_valid = false;
