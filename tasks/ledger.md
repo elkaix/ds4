@@ -1235,3 +1235,112 @@ must run before the throughput claim, not after.
   non-expert path is larger than the expert path in bytes as well as in time,
   which was the correct half of that finding.
 - The F26 ranking table is void. Bytes, not kernels, is the top item.
+
+---
+
+## F28 — two corrections from the second review, one of them retracts F27's headline
+
+### Correction 1: F25/F26 are not a stage decomposition. Relabel them invalid.
+
+At 2K in steady state the cycle runs `glm_graph_verify_rows` (the fast n=2 row
+verifier), and **only the `routed` mask is checked inside it** — via the FFN
+helper at ds4.c:46353. `glm_graph_verify_rows` itself (ds4.c:47201) contains no
+KDA, DSA, qpath, indexer, qklow or attn_out ablation checks at all.
+
+Mask coverage, by execution path:
+
+| Mask | n=1 decode | **fast n=2 verify (the 2K steady path)** | indexed n=2 (long ctx) | MTP draft |
+|---|---|---|---|---|
+| `routed` | yes | **yes** | yes | no |
+| `kda` | yes | **nothing** | yes | no |
+| `shared` | yes | **nothing** | nothing | no |
+| `qpath` | yes | **nothing** | partial | no |
+| `indexer` | yes | **nothing** | nothing | no |
+| `attn_core` | yes | **nothing** | yes | no |
+| `qklow` | yes | **nothing** | nothing | no |
+| `attn_out` | yes | **nothing** | yes | no |
+
+So the 8.8% I attributed to KDA is not steady KDA cost. That mask fires once in
+the seed cycle and thereafter only changes the generated token stream — which
+changes acceptance, expert routing and therefore workload. **The non-additivity
+of `kda` and `routed` has a dull explanation: `kda` was doing nothing.** The
+negative `qklow` and `attn_out` results have the same cause.
+
+Baseline stability (0.7-1.0%) measured noise. It never validated the
+intervention. My own `assert-the-toggle-took-effect` rule was satisfied
+literally — the "ablation active" line printed — while the flag reached no
+dispatch on the measured path. **The lesson is that confirming a flag was
+*parsed* is not confirming it was *applied*.**
+
+F25 and F26 are relabelled **INVALID — fast-verifier coverage mismatch**. What
+survives: the `routed` number itself (33.7%), because that mask does apply, and
+F26's GPU-busy measurement (94.0% baseline, 99.3% ablated), because that is
+independent of the mask semantics.
+
+### Correction 2: F27's "S55 is above the roofline" is WRONG. Retracted.
+
+F27 divided a **one-row** byte count by **committed-token** time. Speculation is
+precisely the mechanism that breaks that identity: the verify pass sweeps the
+trunk once and commits 1.721 tokens from it.
+
+Corrected per-cycle accounting:
+
+```text
+verify pass, 2 rows, trunk weights read once        9.635 GB
+output head                                         0.674 GB
+                                                   ---------
+                                                   10.309 GB
+draft steps (1.721/cycle: nextn block + full head)  ~1.51 GB
+                                                   ---------
+per cycle                                          ~11.82 GB
+committed per cycle                                  1.721 tokens
+per committed token                                  6.87 GB
+```
+
+```text
+roofline per committed token   6.87 GB / 546 GB/s  =  12.58 ms  ->  79.5 t/s
+measured at 2K                                        30.38 ms  ->  33.0 t/s
+                                                   effective 226 GB/s = 41% of peak
+
+S55 needs 18.18 ms/committed token = 378 GB/s = 69% of peak
+```
+
+**S55 at short context requires 69% of peak bandwidth, not 97%.** It is above
+what DS4 does today (41%) and below the hardware bound. It is hard, not
+impossible. F27's ceiling of 56.7 t/s applied to *unspeculated* decode and
+should never have been compared against a speculative measurement.
+
+The one thing F27 got right and keeps: the byte inventory. 9.635 GB of trunk
+weights per row, KDA projections 39.9% of it, is measured from the GGUF and
+stands. So does the observation that the earlier 4.56 GB figure — and every
+"% of peak" derived from it in F24/F25/F26 — was wrong by 2.1x.
+
+### Revised pick, in order of confidence
+
+1. **Delete the wasted second draft head.** On an accepted cycle the code runs
+   two full draft steps, each ending with a 154,880-row output head and a host
+   readback, and the first result is stored in `dummy` (ds4.c:65252). That is
+   0.674 GB x 0.721 = 0.486 GB per cycle, **~4% of all traffic**, for a value
+   that is discarded. Exact, no quality risk, small but free.
+2. **`kda_v` + `kda_output` Q8_0 -> Q4_K.** 1.51 GB off the 9.635 GB trunk
+   sweep, 16% fewer bytes per cycle. Changes the checkpoint, so it needs the
+   predeclared quality gate first (contract §13); these are the value and output
+   projections of a linear-attention layer, where recurrent-state error
+   compounds.
+3. **A sum8 / 8-of-288 routed path.** Confirmed missing: `pack2` requires
+   6-of-256 and the direct sum requires six experts, or eight only under TP=2
+   (ds4_metal.m:38507, 41623). Single-process n=2 therefore runs fused IQ2
+   pair-SwiGLU, then a *generic* Q2 down plus a separate expert sum. Kernel
+   scale, not structural.
+4. **Tree / multi-branch speculation.** At the current 76.56 ms 200K cycle,
+   55 t/s needs 4.211 committed tokens per cycle, while an infinitely deep
+   *linear* chain at a = 0.721 caps at 1/(1-0.721) = 3.584. Widening the linear
+   draft cannot reach it; branching plus a verifier that stays sparse at 200K
+   could. Largest, least certain, most work.
+
+### Method fix required before any further ablation
+
+Every future ablation arm must assert that the mask reached a dispatch **on the
+path actually being timed**, not merely that the env var parsed. The cheapest
+form: a per-mask counter incremented at the skip site and printed at exit, with
+the arm rejected if the count is zero.
