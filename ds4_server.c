@@ -12021,10 +12021,22 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         const int rewind_to = live_prefix_rewind_target(
             ds4_engine_is_glm_dsa(s->engine), old_pos,
             j->req.prompt.len, common);
+        /* The engine-level predicate above only says the model family supports
+         * prefix rewind at all.  GLM-5.3 keeps recurrent KDA state that can be
+         * restored to just the two positions snapshotted by the last MTP
+         * cycle, so ask the session whether this particular target is
+         * reachable -- under the inference lock, together with the rewind, so
+         * the answer cannot go stale in between.  Claiming a memory-rewind hit
+         * the backend then refuses costs a full re-prefill while the request
+         * is accounted as a cache hit. */
+        bool rewound = false;
         if (rewind_to >= 0) {
             pthread_mutex_lock(&s->inference_mu);
-            ds4_session_rewind(slot->session, rewind_to);
+            rewound = ds4_session_can_rewind(slot->session, rewind_to);
+            if (rewound) ds4_session_rewind(slot->session, rewind_to);
             pthread_mutex_unlock(&s->inference_mu);
+        }
+        if (rewound) {
             cached = rewind_to;
             cache_source = "memory-rewind";
             cache_diag.rewind_to = rewind_to;
@@ -12032,6 +12044,11 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                        "ds4-server: rewound GLM live prefix from %d to %d; final prompt token will be reevaluated",
                        old_pos, rewind_to);
         } else {
+            if (rewind_to >= 0) {
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: GLM live prefix rewind from %d to %d is not restorable; falling back to the prefill path",
+                           old_pos, rewind_to);
+            }
             cached = common == old_pos && j->req.prompt.len >= old_pos ? common : 0;
             cache_source = cached > 0 ? "memory-token" : "none";
         }
@@ -17995,6 +18012,9 @@ static void test_model_metadata_clamps_completion_to_context(void) {
     buf_free(&b);
 }
 
+/* Pure eligibility only: whether the GLM backend can actually restore a given
+ * target is asked separately via ds4_session_can_rewind() at the call site,
+ * which needs a live session and is covered by the server integration tests. */
 static void test_live_prefix_rewind_target(void) {
     TEST_ASSERT(live_prefix_rewind_target(true, 17, 8, 8) == 7);
     TEST_ASSERT(live_prefix_rewind_target(true, 49826, 48379, 48379) == 48378);

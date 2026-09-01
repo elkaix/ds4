@@ -518,6 +518,7 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
 int ds4_session_tp_spec_cycle(ds4_session *s, const int *drafts, int draft_n,
                               char *err, size_t errlen);
 void ds4_session_invalidate(ds4_session *s);
+bool ds4_session_can_rewind(ds4_session *s, int pos);
 void ds4_session_rewind(ds4_session *s, int pos);
 int ds4_session_pos(ds4_session *s);
 int ds4_session_ctx(ds4_session *s);

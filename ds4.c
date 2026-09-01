@@ -65245,13 +65245,15 @@ static int ds4_session_glm_spec_cycle_impl(
 /* Restore the state immediately before the last two-token GLM-5.3 MTP cycle,
  * then replay the retained first row when the caller keeps it.  ds4-agent uses
  * this when a speculative block crosses into or out of greedy tool syntax. */
+static bool ds4_session_glm_mtp_rewind_available(const ds4_session *s, int pos) {
+    return s && s->glm_mtp_rollback_valid && s->glm_graph.glm53 &&
+           s->checkpoint.len == (int)s->glm_mtp_rollback_pos + 2 &&
+           (pos == (int)s->glm_mtp_rollback_pos ||
+            pos == (int)s->glm_mtp_rollback_pos + 1);
+}
+
 static bool ds4_session_glm_mtp_rewind(ds4_session *s, int pos) {
-    if (!s || !s->glm_mtp_rollback_valid || !s->glm_graph.glm53 ||
-        s->checkpoint.len != (int)s->glm_mtp_rollback_pos + 2 ||
-        (pos != (int)s->glm_mtp_rollback_pos &&
-         pos != (int)s->glm_mtp_rollback_pos + 1)) {
-        return false;
-    }
+    if (!ds4_session_glm_mtp_rewind_available(s, pos)) return false;
     const uint32_t start = s->glm_mtp_rollback_pos;
     bool ok = glm53_graph_copy_kda_state(&s->glm_graph, false);
     s->glm_dense_cache_len = s->glm_mtp_rollback_dense_len;
@@ -74413,6 +74415,26 @@ void ds4_session_invalidate(ds4_session *s) {
 #ifndef DS4_NO_GPU
     ds4_session_glm_reset_dense_cache(s);
 #endif
+}
+
+/* Report whether ds4_session_rewind() can actually restore the model state at
+ * `pos` without discarding the checkpoint.  Conventional KV caches truncate
+ * freely, but GLM-5.3 carries recurrent KDA state across 34 of its 45 trunk
+ * layers: the only restorable points are the two snapshotted by the last MTP
+ * cycle.  Callers that treat a rewind as a cache hit must ask first, otherwise
+ * they report a hit for a rewind the backend will reject and silently pay a
+ * full re-prefill. */
+bool ds4_session_can_rewind(ds4_session *s, int pos) {
+    if (!s) return false;
+    if (pos < 0) pos = 0;
+    if (pos > s->checkpoint.len) pos = s->checkpoint.len;
+#ifndef DS4_NO_GPU
+    if (ds4_session_is_glm(s) && s->glm_graph.glm53 &&
+        pos < s->checkpoint.len) {
+        return ds4_session_glm_mtp_rewind_available(s, pos);
+    }
+#endif
+    return true;
 }
 
 void ds4_session_rewind(ds4_session *s, int pos) {
