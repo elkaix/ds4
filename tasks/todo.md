@@ -15,9 +15,10 @@ quality, <=2% context decay, and <=2% 60-minute drift.
 - [ ] Phase 9-12: four real 200K workloads, consecutive growing-context blocks,
       60 minutes, <=2% decay; repeat measured largest-component loop until pass.
 
-Current blocker: Claude still owns the live `ds4-server` and `attrib200.py`
-processes. Do not attach a profiler, issue inference, rebuild its binary, stop
-it, or start a competing Metal process until that lease is explicitly released.
+Current blocker: Claude's orchestrator still owns the machine lease. Its
+`ds4-server` and `attrib200.py` processes exited after a Metal out-of-memory
+restart failure, but absence of child PIDs is not an explicit lease release.
+Do not build or start a competing Metal process until release.
 
 Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
 2K-to-200K decay. Research and three max-effort Sol review passes are consolidated
