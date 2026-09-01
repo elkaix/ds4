@@ -47161,6 +47161,8 @@ static bool glm53_graph_mtp_rows_eager_attempt(void) {
     return cached == 1;
 }
 
+static uint32_t glm_verify_layer_cap = 0;
+
 /* Position/geometry gate for the decode-style row verifier.  Shared by
  * glm_graph_verify_rows and its MTP caller so the two cannot disagree: above
  * the dense window the row pass can only fail, and letting the caller find
@@ -47221,7 +47223,17 @@ static bool glm_graph_verify_rows(
             return false;
         }
     }
-    const uint32_t executable = glm_graph_normal_layer_count();
+    uint32_t executable = glm_graph_normal_layer_count();
+    /* Measurement-only (glm53_verify_scan): stop the layer loop early so the
+     * cost of a layer range can be read off the difference between two whole
+     * passes.  One host sync per measurement, unlike the stage profiler, which
+     * drains the queue at every boundary and so is ~84% its own overhead.  The
+     * truncated pass computes nonsense -- the head reads a hidden state that
+     * never finished -- which is why only the scan sets this, inside a
+     * snapshot/restore transaction, and never during real decode. */
+    if (glm_verify_layer_cap != 0 && glm_verify_layer_cap < executable) {
+        executable = glm_verify_layer_cap;
+    }
     ds4_gpu_tensor *cur = g->batch_cur;
     ds4_gpu_tensor *nxt = g->batch_next;
     if (!ds4_gpu_tensor_write(g->prefill_tokens, 0, tokens,
@@ -64883,9 +64895,21 @@ static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
     float *hc = malloc(hc_values * sizeof(float));
     float *lg = malloc((size_t)DS4_N_VOCAB * sizeof(float));
     if (!hc || !lg) { free(hc); free(lg); return; }
+    /* Distinct tokens, not one token repeated.  Repeating a token routes every
+     * row to the same 8-of-288 experts, so row 2 reuses row 1's expert weights
+     * and the marginal row looks far cheaper than it is in a real MTP cycle,
+     * where the rows are different tokens with different routes.  Take real
+     * tokens from the tail of the live checkpoint. */
     int toks[4] = { first_token, first_token, first_token, first_token };
+    for (int i = 1; i < 4; i++) {
+        const int back = s->checkpoint.len - i;
+        if (back >= 0 && back < s->checkpoint.len) toks[i] = s->checkpoint.v[back];
+    }
+    fprintf(stderr, "ds4: glm verify scan tokens %d %d %d %d\n",
+            toks[0], toks[1], toks[2], toks[3]);
     fprintf(stderr, "ds4: glm verify scan pos=%u reps=%d dense_limit=%u\n",
             pos, reps, glm_graph_dense_compact_attention_limit(g));
+    for (uint32_t pass = 0; pass < 2; pass++)
     for (uint32_t n = 1; n <= 4; n++) {
         double tot = 0.0, best = 1e9, worst = 0.0;
         int ok_count = 0;
@@ -64916,10 +64940,60 @@ static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
         }
         if (ok_count) {
             fprintf(stderr,
-                    "  n=%u ok=%d mean=%.3f ms min=%.3f ms max=%.3f ms "
+                    "  pass=%u n=%u ok=%d mean=%.3f ms min=%.3f ms max=%.3f ms "
                     "mean_per_row=%.3f ms\n",
-                    n, ok_count, tot / ok_count, best, worst,
+                    pass, n, ok_count, tot / ok_count, best, worst,
                     (tot / ok_count) / (double)n);
+        }
+    }
+    /* Layer sweep at fixed n: cost(k layers) - cost(k-step layers) attributes
+     * time to a layer range without a single extra synchronization.  The head
+     * and the embed/repeat prologue run in every pass, so they cancel in the
+     * differences. */
+    const char *lsweep = getenv("DS4_GLM_VERIFY_SCAN_LAYERS");
+    if (lsweep && lsweep[0]) {
+        const uint32_t total = glm_graph_normal_layer_count();
+        uint32_t step = (uint32_t)atoi(lsweep);
+        if (step == 0) step = 5;
+        for (uint32_t nn = 1; nn <= 2; nn++) {
+            fprintf(stderr, "ds4: glm verify layer sweep n=%u total_layers=%u step=%u\n",
+                    nn, total, step);
+            double prev = 0.0;
+            uint32_t prev_k = 0;
+            for (uint32_t k = 1; k <= total; k = (k == 1 && step > 1) ? step : k + step) {
+                const uint32_t cap = k > total ? total : k;
+                double tot = 0.0;
+                int cnt = 0;
+                for (int r = -1; r < reps; r++) {
+                    glm53_spec_transaction tx = {0};
+                    if (!glm53_spec_transaction_begin(&tx, s, pos)) break;
+                    /* cap==0 must mean "no layers", not "no cap". */
+                    glm_verify_layer_cap = cap;
+                    const double t0 = now_sec();
+                    const bool ok = glm_graph_verify_rows(g, &e->model,
+                                                          &e->weights, toks,
+                                                          pos, nn, hc,
+                                                          GLM_VERIFY_HEAD_LAST,
+                                                          lg);
+                    const double ms = (now_sec() - t0) * 1000.0;
+                    glm_verify_layer_cap = 0;
+                    (void)glm53_spec_transaction_restore_base(&tx);
+                    if (!ok) break;
+                    if (r < 0) continue;
+                    tot += ms;
+                    cnt++;
+                }
+                if (!cnt) { fprintf(stderr, "  layers<=%u refused\n", cap); break; }
+                const double mean = tot / cnt;
+                const uint32_t span = cap - prev_k;
+                fprintf(stderr,
+                        "  layers=%u mean=%.3f ms delta=%.3f ms per_layer=%.4f ms\n",
+                        cap, mean, prev_k == 0 ? 0.0 : mean - prev,
+                        (prev_k == 0 || span == 0) ? 0.0 :
+                            (mean - prev) / (double)span);
+                prev = mean;
+                prev_k = cap;
+            }
         }
     }
     fprintf(stderr, "ds4: glm verify scan done\n");
