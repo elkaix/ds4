@@ -8,11 +8,21 @@ credit.
 
 ## Provenance
 
-- Source family: `c2175e01e7c9cd8b1eedc4e7ca5898ac71d62876`
+- Source head recorded with the run: `535d6bd230a679dd801cef4a09dd772860097d53`.
+  The binary has since been replaced, so the source-to-binary match cannot be
+  re-attested; the binary hash below is the exact executable provenance.
 - Runtime binary SHA-256: `33214637a2c2876eebdc801c2208a65619a12e6e51f364c76a4af0bfe3e52b13`
-- Model: `GLM-5.3-Flash-UNCEN-Q2.gguf`, 96,505,818,432 bytes
-- Hardware: M5 Max, 40-core GPU, 128 GB
-- Runtime: Metal, native width-2 MTP, context ceiling 262,144, one slot
+- Model: `GLM-5.3-Flash-UNCEN-Q2.gguf`, 96,505,818,432 bytes, inode
+  `273408410`, mtime `2026-08-31T18:40:44-0400`; full SHA-256 is pending the
+  idle-I/O lease and must be frozen before this becomes a complete Phase 0.
+- Hardware/OS: Apple M5 Max, 40-core GPU, 128 GiB; macOS 26.6.2 (`25G83`),
+  `arm64`; `iogpu.wired_limit_mb=118000`.
+- Runtime: Metal, native width-2 MTP, context ceiling 262,144, one slot,
+  `--tokens 32768`, `--power 100`, disk KV budget 131,072 MiB, minimum 2,048
+  tokens, cold maximum 65,536 tokens, reject-different-quant enabled.
+- Current host toolchain record: Xcode 26.6 (`17F113`), Apple clang 21.0.0,
+  Apple Metal 32023.883. The old binary does not embed a verifiable compiler
+  identity, so this is environment evidence rather than binary attestation.
 - Sampling: temperature 0, `ignore_eos=true`, 512 generated tokens per rung
 - Prompt corpus: 1,157,096 bytes, SHA-256
   `78493835239cb7a3b35228bf7304f72d3f293d9b99c4a7ef10e0aca206c7150b`;
@@ -54,6 +64,7 @@ context-independent stability.
 
 ## Missing Canonical Evidence
 
+- Full model SHA-256 and reproducible source-to-binary attestation
 - Width-2 acceptance, committed tokens/cycle, cycle/draft/verify milliseconds at 200K
 - Whole-command-buffer GPU span with profiler ON/OFF equivalence
 - GPU power/temperature and wired/compressor/swap telemetry

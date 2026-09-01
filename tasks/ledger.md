@@ -1333,8 +1333,11 @@ stands. So does the observation that the earlier 4.56 GB figure — and every
    (ds4_metal.m:38507, 41623). Single-process n=2 therefore runs fused IQ2
    pair-SwiGLU, then a *generic* Q2 down plus a separate expert sum. Kernel
    scale, not structural.
-4. **Tree / multi-branch speculation.** At the current 76.56 ms 200K cycle,
-   55 t/s needs 4.211 committed tokens per cycle, while an infinitely deep
+4. **Tree / multi-branch speculation.** Using the scored 200K rate plus old
+   short-context `a=0.721` only as a sensitivity gives 76.56 ms/cycle; this is
+   not the current 200K cycle, which remains unknown until `a200` is measured.
+   Under that sensitivity, 55 t/s needs 4.211 committed tokens per cycle,
+   while an infinitely deep
    *linear* chain at a = 0.721 caps at 1/(1-0.721) = 3.584. Widening the linear
    draft cannot reach it; branching plus a verifier that stays sparse at 200K
    could. Largest, least certain, most work.

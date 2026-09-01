@@ -23,6 +23,10 @@ Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
 2K-to-200K decay. Research and two independent Sol-max audits are consolidated
 in `docs/research/`; no theoretical or correlated metric receives S55 credit.
 
+Phase 0 gap: the old executable is frozen by SHA-256 and its source head was
+recorded, but the binary has since been replaced, so their exact match cannot
+be re-attested. The 96.5 GB model SHA-256 waits for idle I/O after lease release.
+
 Lease-safe validation completed on this branch: all 39 tracked Python files
 AST-parse, all 7 tracked shell scripts pass their declared shell's syntax
 check, and `git diff --check` passes. These are correctness gates only and add
