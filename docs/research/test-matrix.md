@@ -17,7 +17,7 @@ silently counted as passes.
 | GLM53 Metal primitives | `make test-glm53-kda` | Pending |
 | Metal MXFP4 primitives | `make test-mxfp4-metal` | Pending; unrelated format but applicable backend regression |
 | Discarded draft head A/B | `make glm53-mtp-head-bench && speed-bench/glm53_mtp_head_bench "$MODEL" DS4_GLM_MTP_DISCARDED_HEAD` | Separate-process ABBA observed +2.256% at 2K and +1.789% at 65K with identical text. Paired exact IDs, cycle shapes, positions, counters, and logits still pending; report all three blocks and aggregate |
-| Quantizer unit suite | `python3 gguf-tools/tests/test_glm53_quantize.py` | Pending |
+| Quantizer unit suite | `python3 gguf-tools/tests/test_glm53_quantize.py` | Pass: 14 tests |
 | Vision target compile | `make tests/test_glm53_vision_engine tests/test_glm53_vision_prompt` | Pending; execution blocked by missing vision sidecar |
 | Python syntax | AST parse over every tracked Python file | Pass: 39 files; no bytecode or generated files written |
 | Shell syntax | `sh -n` / `bash -n` selected by each tracked script's shebang | Pass: 7 tracked scripts |

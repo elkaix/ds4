@@ -27,10 +27,10 @@ Phase 0 gap: the old executable is frozen by SHA-256 and its source head was
 recorded, but the binary has since been replaced, so their exact match cannot
 be re-attested. The 96.5 GB model SHA-256 waits for idle I/O after lease release.
 
-Lease-safe validation completed on this branch: all 39 tracked Python files
-AST-parse, all 7 tracked shell scripts pass their declared shell's syntax
-check, and `git diff --check` passes. These are correctness gates only and add
-0 t/s to S55.
+Lease-safe validation completed on this branch: the GLM quantizer suite passes
+14/14; all 39 tracked Python files AST-parse; all 7 tracked shell scripts pass
+their declared shell's syntax check; and `git diff --check` passes. These are
+correctness gates only and add 0 t/s to S55.
 
 ## Prior Investigation — 4K Boundary Work
 
