@@ -19,14 +19,12 @@ credit.
   actual prompt-token count comes from the server response. No sliding or
   truncation is accepted.
 
-The corpus reproduces byte-for-byte by concatenating, in lexical path order,
-the repository Markdown files while excluding `.git`, `node_modules`, `tasks`,
-`docs/architecture`, the later untracked `competition` scaffold, and the later
-untracked `roadmap.md`; then appending a blank line, `# Engine README`, another
-copy of `README.md`, a blank line, `# Server source`, and `ds4_server.c`. The
-duplication is part of the frozen baseline input and is retained for exactness;
-the content itself is natural repository prose/source rather than repeated
-synthetic filler.
+`python3 speed-bench/build_s55_corpus.py OUTPUT` reproduces the corpus
+byte-for-byte from the frozen `b265e22` Git objects. It preserves the original
+`en_US.UTF-8` path order and excludes the later untracked `competition` scaffold
+and `roadmap.md`. The second copy of `README.md` is part of the frozen input and
+is retained for exactness; the content itself is natural repository prose/source
+rather than repeated synthetic filler.
 
 ## Palindromic Run
 

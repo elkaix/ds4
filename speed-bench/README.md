@@ -98,6 +98,16 @@ runtime revision, confidence calculation, whole-stack control, and Metal trace.
 
 ### GLM-5.3 MTP cycle-budget analysis
 
+Rebuild and verify the exact 1,157,096-byte natural corpus used by the measured
+S55-200 ladder:
+
+```
+python3 speed-bench/build_s55_corpus.py /tmp/s55-corpus.md
+```
+
+The builder reads the frozen Git objects, not the mutable working tree, and
+rejects any byte-count or SHA-256 mismatch.
+
 Parse one contiguous `--mtp-timing` request and combine its acceptance with the
 matched profiler-OFF decode rate:
 
