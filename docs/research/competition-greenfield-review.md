@@ -15,6 +15,12 @@ harness, not an optimization of antirez/ds4. They neither implement the exact
 GLM-5.3 execution graph nor form a runnable engine. Their theoretical numbers
 receive zero S55 credit.
 
+The related untracked `roadmap.md`, frozen at SHA-256
+`1e6d845f25d519dcd56e602142e22417d8eb045fc586a14e2705e8cf7034b2f5`, is
+also not the execution contract. It scores only through 85K, reuses 2K/32K
+acceptance, and prioritizes rewind/TTFT work that contributes zero decode t/s.
+The user's S55-200 contract and `tasks/todo.md` supersede it.
+
 ## Critical Findings
 
 - **G1 — Wrong stack and no integration.** `inference_engine.cpp` includes the
