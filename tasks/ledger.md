@@ -1139,3 +1139,99 @@ It is the first lever measured in this investigation that is large enough.
    the draft runs an unablated stack, part of the floor is the draft and the
    "routed = 33.7%" figure is really "33.7% of verify". Delegated to review.
 3. All of this is at ctx = 2033. Only long-context numbers score under S55-200.
+
+---
+
+## F27 — the active-bytes figure was wrong by 2.1x, and it settles the target
+
+Every roofline in this file, including mine in F24 and F26, used **4.56 GB of
+active weights per token**. That number comes from the model card's 14.6 B
+active parameters times the whole-file average of 0.312 bytes/parameter. It is
+wrong, because the average is dominated by the 87 GB of 2-bit expert tensors
+while the tensors that are actually read *every* token are not 2-bit at all.
+
+Measured from the GGUF header, per token, 45 trunk layers, counting 8 of 288
+experts as active:
+
+```text
+  KDA projections      3.845 GB    39.9%     Q8_0 (8.5 bpw) and Q4_K (4.5 bpw)
+  routed experts       2.378 GB    24.7%     IQ2_XXS / Q2_K (2.06 / 2.63 bpw)
+  DSA attention        1.373 GB    14.2%
+  shared expert        1.123 GB    11.7%     Q8_0
+  dense FFN            0.482 GB     5.0%
+  norms / mHC          0.236 GB     2.4%
+  router               0.198 GB     2.1%
+  ------------------------------------
+  trunk total          9.635 GB
+  + output head etc    1.348 GB
+```
+
+Per MoE layer the split is **146 MB non-expert against 56 MB of experts**. A
+single `kda_v` or `kda_output` tensor is 35.65 MB at Q8_0 — each one on its own
+is *two thirds* of that layer's entire routed-expert traffic.
+
+### What this does to every conclusion so far
+
+```text
+                        old (4.56 GB)      corrected (9.635 GB)
+roofline per token          8.35 ms             17.65 ms
+bus ceiling                  120 t/s              56.7 t/s   (53.0 with the head)
+measured 28.555 ms GPU     17% of peak          61.8% of peak
+```
+
+**The engine is not running at 17% of the bus. It is running at 62%.** DS4 is
+far better than this investigation has been assuming, and the "3.5x headroom in
+the kernels" premise behind F24, F25 and F26's rankings is gone. The routed-MoE
+"42% of peak" figure in F25/F26 is likewise wrong in the same direction.
+
+### The decisive consequence
+
+```text
+S55 cycle budget      31.29 ms for 1.721 tokens  =  18.18 ms/token
+bytes that must move                                 9.635 GB
+required bandwidth                                     530 GB/s
+                                                   = 97% of the 546 GB/s peak
+```
+
+**S55-200 is not reachable with this checkpoint on this hardware.** A perfect
+engine at 100% of theoretical bus bandwidth tops out at 56.7 t/s at short
+context, 53.0 with the output head, and long context adds KV and indexer traffic
+on top of that. 55 t/s sustained at 200K sits above the ceiling, not below it.
+
+This is not a statement that the work is impossible. It is a statement that **no
+scheduling change and no kernel rewrite can get there, because the target is
+above the roofline.** The remaining 38% of peak that DS4 leaves on the table is
+worth at most 28.555 -> 17.65 ms/token, i.e. 2K throughput from 33 t/s to ~53,
+and that is the absolute ceiling of all kernel work combined.
+
+### THE PICK — reduce bytes per token, starting with the KDA projections
+
+The only lever that moves the ceiling itself:
+
+| Change | Bytes saved | New total | New ceiling | Risk |
+|---|---|---|---|---|
+| `kda_v` + `kda_output` Q8_0 -> Q4_K | 1.51 GB | 8.13 GB | 67.2 t/s | quality |
+| + `*_shexp` Q8_0 -> Q4_K | 0.59 GB | 7.54 GB | 72.4 t/s | quality |
+| + `kda_q`/`kda_k` Q4_K -> Q2_K | 0.55 GB | 6.99 GB | 78.1 t/s | high |
+
+The first row alone takes the ceiling from 56.7 to 67.2 t/s, which is the first
+time in this investigation that 55 has been on the reachable side of a bound.
+At the *current* 61.8% bus efficiency it gives 8.13 GB / (546 x 0.618) = 24.1 ms
+per token = **41.4 t/s at 2K**, and it composes with every kernel improvement
+rather than competing with them.
+
+Per contract §13 this is only admissible if size falls, decode rises, **and** a
+predeclared quality gate passes: these are attention projections, not experts,
+and 8.5 -> 4.5 bits on the value and output projections of a linear-attention
+layer is exactly where recurrent state error would compound. The quality suite
+must run before the throughput claim, not after.
+
+### Retractions forced by this entry
+
+- F24's "17% of peak" -> 62% of peak. The conclusion that the GPU is busy and
+  the schedule is not the lever **stands** (94% busy is measured, not derived).
+- F25/F26's "routed MoE at 42% of peak" and "non-expert path at 12% of peak"
+  are both recomputed against the wrong denominator and are withdrawn. The
+  non-expert path is larger than the expert path in bytes as well as in time,
+  which was the correct half of that finding.
+- The F26 ranking table is void. Bytes, not kernels, is the top item.
