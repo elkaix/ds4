@@ -46718,8 +46718,8 @@ static bool glm_graph_mtp_step(
      * needs exactly that for its first step: the second step attends to this
      * position, so the state update is required, but the first step's logits
      * are discarded.  Skipping the head there removes a full 4096 x 154880
-     * output matmul (~0.67 GB, about 4% of all bytes a cycle moves) and its
-     * 620 KB host readback and argmax, for a value nothing reads. */
+     * output matmul, its 620 KB host readback, and its argmax, for a value
+     * nothing reads. */
     if (!g || !model || !weights) return false;
     if (DS4_N_NEXTN_PREDICT == 0) return false;
     const uint32_t cache_cap = glm_graph_mtp_cache_cap(g);
@@ -65262,7 +65262,7 @@ static int ds4_session_glm_spec_cycle_impl(
         const int n2 = glm_session_logits_argmax(s->logits);
         int nd = -1;
         /* Kill switch: the first draft step's token was previously computed
-         * into a variable named `dummy` and never read.  Set this to 0 to
+         * into a variable named `dummy` and never read.  Set this to 1 to
          * restore the old behaviour for an A/B. */
         const char *keep_env = getenv("DS4_GLM_MTP_DISCARDED_HEAD");
         const bool keep_discarded_head = keep_env && keep_env[0] == '1';

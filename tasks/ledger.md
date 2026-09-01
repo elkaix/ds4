@@ -1317,11 +1317,12 @@ stands. So does the observation that the earlier 4.56 GB figure — and every
 
 ### Revised pick, in order of confidence
 
-1. **Delete the wasted second draft head.** On an accepted cycle the code runs
+1. **Delete the wasted first draft head.** On an accepted cycle the code runs
    two full draft steps, each ending with a 154,880-row output head and a host
    readback, and the first result is stored in `dummy` (ds4.c:65252). That is
-   0.674 GB x 0.721 = 0.486 GB per cycle, **~4% of all traffic**, for a value
-   that is discarded. Exact, no quality risk, small but free.
+   0.674 GB of logical matrix storage times the 0.721 observed short-context
+   acceptance, for a value that is discarded. Exact, no quality risk, small
+   but free. This is not a DRAM-traffic share; M1 must measure that denominator.
 2. **`kda_v` + `kda_output` Q8_0 -> Q4_K.** 1.51 GB off the 9.635 GB trunk
    sweep, 16% fewer bytes per cycle. Changes the checkpoint, so it needs the
    predeclared quality gate first (contract §13); these are the value and output
@@ -1382,7 +1383,6 @@ value was load-bearing after all.
 at HEAD before this branch), no new ones. `metal-tensor-equivalence` passes with
 0 top-1 mismatches.
 
-Predicted from bytes: 0.674 GB of 11.82 GB per cycle x acceptance 0.721 = 4.1%
-of traffic. Measured 1.8-2.3%. The gap is expected — the head is one of the
-better-coalesced reads in the model, so removing it saves less than its byte
-share.
+The 0.674 GB output matrix is a logical storage count, not a measured DRAM-
+traffic share. The balanced short-context effect is 1.8-2.3%; M1 remains
+required before comparing that result with whole-cycle achieved bandwidth.

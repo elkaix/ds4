@@ -14,7 +14,7 @@ enum {
 };
 
 static const char *rollback_env =
-    "DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD";
+    "DS4_GLM_MTP_DISCARDED_HEAD";
 
 typedef struct {
     double elapsed;
