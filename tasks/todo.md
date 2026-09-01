@@ -33,6 +33,11 @@ the frozen corpus reproduces its 1,157,096-byte SHA-256; all 39 tracked Python
 files AST-parse; all 7 tracked shell scripts pass syntax; and `git diff --check`
 passes. These are correctness gates only and add 0 t/s to S55.
 
+A fresh GPT-5.6 Sol max review rejected Claude's live ablation diff and
+`attrib200.py` result as S55 evidence. The harness carries poisoned output/state
+between arms; the diff also breaks the CPU link, races across slots, and adds
+ungated hot-path instrumentation. See `docs/research/claude-ablation-review.md`.
+
 ## Prior Investigation — 4K Boundary Work
 
 ## Established (source-verified)
