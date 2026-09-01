@@ -55,3 +55,39 @@ rank components, authorize an optimization, or count toward sustained decode.
 The running MTP-off 200K attribution cannot rescue this design. S55 remains
 the measured 22.48 t/s baseline until a valid-output, MTP-on controlled result
 changes it.
+
+## Replacement Snapshot Review
+
+Claude replaced the reviewed diff with an in-generation mask program. A second
+max-effort Sol review froze the replacement at SHA-256
+`2987a32031b3380a4282a69807a6766dbc80d3a67ef16477c88b33d79afbded8`.
+Verdict remains **REJECT**:
+
+- **C8 — Still not same-state ABBA.** Advancing changes only the mask. It does
+  not restore tokens, RNG, KV/dense caches, KDA recurrent/conv state, MTP draft
+  state, logits, or checkpoint. Later controls inherit invalid arm state.
+- **C9 — CPU and concurrency blockers remain.** Four public functions are
+  defined only in GPU code but called unconditionally by the CPU server.
+  Program, mask, counters, and cycle timers remain unsynchronized process
+  globals shared by concurrent slot workers.
+- **C10 — Arm boundaries can split one MTP cycle.** A cycle may commit two
+  tokens, while mask advancement occurs in the per-token emission loop. The
+  second token can be labeled under a mask that did not compute it; interval
+  one can advance twice and skip an arm without model execution.
+- **C11 — Timing does not isolate decode.** The first mask applies before prompt
+  sync and its counters include untimed resume/prefill work. Progress logging
+  captures time before formatting and mask advancement, then charges that
+  asymmetric overhead to the following arm.
+- **C12 — Metrics remain invalid and always-on.** Every ordinary gate mutates
+  counters and every MTP cycle takes clocks even when diagnostics are disabled.
+  `commit/cycle` is not acceptance: an accepted draft and an exact-sampling
+  rejection plus replacement can both commit two tokens.
+
+The partial MTP-off 200K run completed only control and routed arms before the
+subsequent server restart failed with Metal out-of-memory. Those arms use
+different state, cannot score S55, and do not authorize kernel work.
+
+Minimum correction is unchanged, with two additions: switch masks only between
+complete MTP cycles, and record true accepted/rejected successful cycles. The
+production S55 measurement must run separately with diagnostics off, MTP on,
+valid output, real 200K context, and the required quality and decay gates.

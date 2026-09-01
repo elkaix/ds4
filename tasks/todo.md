@@ -34,10 +34,11 @@ the frozen corpus reproduces its 1,157,096-byte SHA-256; all 39 tracked Python
 files AST-parse; all 7 tracked shell scripts pass syntax; and `git diff --check`
 passes. These are correctness gates only and add 0 t/s to S55.
 
-A fresh GPT-5.6 Sol max review rejected Claude's live ablation diff and
-`attrib200.py` result as S55 evidence. The harness carries poisoned output/state
-between arms; the diff also breaks the CPU link, races across slots, and adds
-ungated hot-path instrumentation. See `docs/research/claude-ablation-review.md`.
+Two GPT-5.6 Sol max snapshot reviews rejected Claude's live ablation designs
+and `attrib200.py` result as S55 evidence. The replacement in-generation mask
+program still carries poisoned state, can split one MTP cycle across arms,
+breaks the CPU link, races across slots, and taxes the normal hot path. See
+`docs/research/claude-ablation-review.md`.
 
 The untracked `competition/` C++/`metal-cpp` engine is also rejected. It is not
 integrated into DS4, lacks real KDA/DSA and IQ2_XXS/Q2_K execution, and contains
