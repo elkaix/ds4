@@ -9,6 +9,7 @@
  *   git reset --soft HEAD~1 && git stash && git pull --rebase && git stash pop
  * Every hunk of that patch is marked with "LOCAL PATCH" for easy resolution. */
 #include "dashboard_html.h"
+#include "ds4_tp.h"
 #include "rax.h"
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -9119,6 +9120,7 @@ static void id_list_push_unique(stop_list *ids, const char *id);
 
 struct server {
     ds4_engine *engine;
+    ds4_tp *tp_leader;
     server_slot *slots;
     int slot_count;
     int ctx_size;
@@ -9152,7 +9154,6 @@ struct server {
     double started_at;
     const char *model_path;
     server_stats stats;
-    uint64_t seq;
     FILE *trace;
     pthread_mutex_t trace_mu;
     uint64_t trace_seq;
@@ -10189,6 +10190,15 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
     char err[160] = {0};
     ds4_kvstore_trailer_hooks hooks = kv_cache_tool_map_hooks(s, NULL);
     pthread_mutex_lock(&s->inference_mu);
+    /* The payload contains image-conditioned KV rows, but the disk key and
+     * trailer do not contain image fingerprints. Never let generic image
+     * placeholder tokens become a cache hit for a different image.
+     * sync_image_count covers progress-callback writes during prefill;
+     * checkpoint_image_count covers completed sessions. */
+    if (ds4_session_has_vision_state(slot->session)) {
+        pthread_mutex_unlock(&s->inference_mu);
+        return false;
+    }
     pthread_mutex_lock(&s->kv_mu);
     bool ok = ds4_kvstore_store_live_prefix_text(&s->kv, s->engine,
                                                   slot->session,
@@ -10347,6 +10357,12 @@ static int kv_cache_try_load_text(server *s, server_slot *slot,
     ds4_kvstore_load_result lr = {0};
     ds4_kvstore_trailer_hooks hooks = kv_cache_tool_map_hooks(s, NULL);
     pthread_mutex_lock(&s->inference_mu);
+    /* Disk payloads intentionally carry no image identity. If this slot held
+     * vision state, discard it before restoring a text-only checkpoint so the
+     * next sync does not reject the fresh payload as a stale image match. */
+    if (ds4_session_has_vision_state(slot->session)) {
+        ds4_session_invalidate(slot->session);
+    }
     pthread_mutex_lock(&s->kv_mu);
     int loaded = ds4_kvstore_try_load_text(&s->kv, s->engine, slot->session,
                                            prompt_text, effective_prompt, &lr,
@@ -11219,6 +11235,25 @@ static int server_session_sync(server *s, server_slot *slot,
            DS4_SESSION_SYNC_INTERRUPTED : 0;
 }
 
+static int server_multimodal_resume_frontier(int live, int common,
+                                             int prompt_len,
+                                             bool image_state_matches) {
+    return common == live && prompt_len >= live && image_state_matches
+           ? live : 0;
+}
+
+static int server_multimodal_resume_pos(ds4_session *session,
+                                        const ds4_tokens *prompt,
+                                        const ds4_vision_span *images,
+                                        size_t image_count) {
+    if (!session || !prompt) return 0;
+    const int live = ds4_session_pos(session);
+    const int common = ds4_session_common_prefix(session, prompt);
+    return server_multimodal_resume_frontier(
+        live, common, prompt->len,
+        ds4_session_vision_state_matches(session, images, image_count));
+}
+
 static int server_session_sync_multimodal(server *s, server_slot *slot,
                                           const ds4_tokens *prompt,
                                           const ds4_vision_span *images,
@@ -11236,7 +11271,13 @@ static int server_session_sync_multimodal(server *s, server_slot *slot,
         return rc;
     }
 
-    int done = 0;
+    /* Start at the exact live frontier when both tokens and image identities
+     * match. Starting at zero made the first scheduling slice truncate a
+     * perfectly reusable long checkpoint, forcing a complete refill. */
+    pthread_mutex_lock(&s->inference_mu);
+    int done = server_multimodal_resume_pos(slot->session, prompt,
+                                            images, image_count);
+    pthread_mutex_unlock(&s->inference_mu);
     bool called = false;
     while (!g_stop_requested && !slot_job_cancelled(slot) &&
            (!called || done < prompt->len)) {
@@ -11597,6 +11638,19 @@ static void canonicalize_tool_checkpoint(server *s, server_slot *slot,
     }
     free(live_text);
 
+    if (j->req.image_count != 0) {
+        /* Rebuilding through the text-only disk cache would either lose the
+         * vision embeddings or restore rows for an unverified image. Keep the
+         * correctly conditioned sampled frontier instead. */
+        server_log(DS4_LOG_WARNING,
+                   "ds4-server: multimodal tool checkpoint canonicalization skipped ctx=%s common=%d live=%d canonical=%d reason=preserve-image-state",
+                   ctx, common, live_len, canonical.len);
+        trace_event(s, trace_id,
+                    "multimodal tool checkpoint canonicalization skipped: common=%d live=%d canonical=%d",
+                    common, live_len, canonical.len);
+        goto done;
+    }
+
     if (common < j->req.prompt.len) {
         trace_event(s, trace_id,
                     "tool checkpoint canonicalization skipped: common=%d prompt=%d live=%d canonical=%d",
@@ -11929,13 +11983,6 @@ static void *decode_worker_main(void *arg) {
     return NULL;
 }
 
-static uint64_t server_next_sequence(server *s) {
-    pthread_mutex_lock(&s->mu);
-    uint64_t seq = ++s->seq;
-    pthread_mutex_unlock(&s->mu);
-    return seq;
-}
-
 /* Execute one request on the worker-owned session.
  *
  * Clients resend full prompts as text.  The worker first tries the old exact
@@ -11953,14 +12000,13 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     char err[160];
     err[0] = '\0';
     const bool multimodal = j->req.image_count != 0;
-    if (multimodal) {
-        pthread_mutex_lock(&s->inference_mu);
-        ds4_session_invalidate(slot->session);
-        pthread_mutex_unlock(&s->inference_mu);
-        request_live_state_clear(s, slot);
-    }
+    pthread_mutex_lock(&s->inference_mu);
     const int old_pos = ds4_session_pos(slot->session);
     const int common = ds4_session_common_prefix(slot->session, &j->req.prompt);
+    const bool live_vision_match =
+        ds4_session_vision_state_matches(slot->session,
+                                         j->req.images, j->req.image_count);
+    pthread_mutex_unlock(&s->inference_mu);
     trace_cache_diag cache_diag = {0};
     trace_cache_capture(&cache_diag, ds4_session_tokens(slot->session),
                         &j->req.prompt, old_pos, common);
@@ -11979,8 +12025,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
      * exact token-prefix match.  Exact token/text/disk matching remains the
      * fallback when the live state is absent or no longer describes the
      * request. */
-    int cached = responses_live_visible_prefix_prompt(s, slot, &j->req, old_pos,
-                                                      &effective_prompt);
+    int cached = live_vision_match ?
+        responses_live_visible_prefix_prompt(s, slot, &j->req, old_pos,
+                                              &effective_prompt) : 0;
     const char *cache_source = cached > 0 ? "responses-visible" : "none";
     if (cached > 0) {
         responses_live_match = "visible-prefix";
@@ -11991,7 +12038,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             responses_live_match_ids = j->req.responses_live_call_ids.len;
         }
     }
-    if (cached == 0) {
+    if (cached == 0 && live_vision_match) {
         cached = responses_live_continuation_prompt(s, slot, &j->req, old_pos,
                                                     &effective_prompt,
                                                     &responses_live_match_ids);
@@ -12001,7 +12048,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     if (cached > 0) {
         responses_live_continuation = true;
         prompt_for_sync = &effective_prompt;
-    } else {
+    } else if (live_vision_match) {
         cached = anthropic_live_continuation_prompt(s, slot, &j->req, old_pos,
                                                     &effective_prompt,
                                                     &anthropic_live_match_ids);
@@ -12029,7 +12076,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         http_error(j->fd, s->enable_cors, 409,
                    "Anthropic continuation state is not available; retry by replaying the full messages history");
         return;
-    } else if (cached == 0) {
+    } else if (cached == 0 && live_vision_match) {
         const int rewind_to = live_prefix_rewind_target(
             ds4_engine_is_glm_dsa(s->engine), old_pos,
             j->req.prompt.len, common);
@@ -12044,8 +12091,21 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         bool rewound = false;
         if (rewind_to >= 0) {
             pthread_mutex_lock(&s->inference_mu);
-            rewound = ds4_session_can_rewind(slot->session, rewind_to);
-            if (rewound) ds4_session_rewind(slot->session, rewind_to);
+            if (ds4_session_can_rewind(slot->session, rewind_to)) {
+                ds4_session_rewind(slot->session, rewind_to);
+                rewound =
+                    ds4_session_common_prefix(slot->session, &j->req.prompt) ==
+                        rewind_to &&
+                    (!multimodal ||
+                     ds4_session_vision_state_matches(slot->session,
+                                                      j->req.images,
+                                                      j->req.image_count));
+                if (!rewound) {
+                    server_log(DS4_LOG_KVCACHE,
+                               "ds4-server: GLM live prefix rewind from %d to %d requires rebuild",
+                               old_pos, rewind_to);
+                }
+            }
             pthread_mutex_unlock(&s->inference_mu);
         }
         if (rewound) {
@@ -12065,7 +12125,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             cache_source = cached > 0 ? "memory-token" : "none";
         }
     }
-    if (cached == 0) {
+    if (cached == 0 && live_vision_match) {
         int thinking_cached =
             thinking_live_visible_prefix_prompt(s, slot, &j->req, old_pos,
                                                 &effective_prompt);
@@ -12079,7 +12139,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     int disk_cached = 0;
     char *disk_cache_path = NULL;
     uint8_t disk_cache_ext_flags = 0;
-    if (cached == 0) {
+    if (cached == 0 && live_vision_match) {
         int text_cached = live_text_prefix_prompt(s, slot, &j->req,
                                                   &effective_prompt);
         if (text_cached > 0) {
@@ -12090,10 +12150,16 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     }
     if (cached == 0 && old_pos > 0) {
         server_log(DS4_LOG_WARNING,
-                   "ds4-server: live kv cache miss%s live=%d prompt=%d common=%d reason=%s",
+                   "ds4-server: live kv cache miss%s live=%d prompt=%d common=%d vision=%s reason=%s",
                    responses_protocol ? " RESPPROTO" : "",
                    old_pos, j->req.prompt.len, common,
+                   live_vision_match ? "match" : "mismatch",
                    trace_cache_miss_reason(&cache_diag));
+    }
+    if (multimodal && cached > 0) {
+        server_log(DS4_LOG_KVCACHE,
+                   "ds4-server: multimodal live kv hit images=%zu cached=%d prompt=%d identity=fingerprint-match",
+                   j->req.image_count, cached, prompt_for_sync->len);
     }
     if (cached == 0) slot->continued_last_store_tokens = 0;
     if (!multimodal && s->kv.enabled && cached == 0 &&
@@ -12337,11 +12403,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                                              cold_store_len);
         }
     }
-    const uint64_t response_seq = server_next_sequence(s);
     char id[96];
-    snprintf(id, sizeof(id), "%s-%llu",
-             j->req.kind == REQ_CHAT ? "chatcmpl" : "cmpl",
-             (unsigned long long)response_seq);
+    responses_random_id(id, sizeof(id),
+                        j->req.kind == REQ_CHAT ? "chatcmpl-" : "cmpl-");
 
     bool structured_stream = request_uses_structured_stream(&j->req);
     anthropic_stream anthropic_live = {0};
@@ -12415,9 +12479,11 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     }
 
     bool dsml_recovery_attempted = false;
-    uint64_t rng = j->req.seed ? j->req.seed :
-        (((uint64_t)time(NULL) << 32) ^ (response_seq << 1) ^
-         (uint64_t)(uintptr_t)j);
+    uint64_t rng = j->req.seed;
+    if (!rng && !random_bytes(&rng, sizeof(rng))) {
+        rng = ((uint64_t)time(NULL) << 32) ^ (uint64_t)(uintptr_t)j;
+    }
+    if (!rng) rng = UINT64_C(0x9e3779b97f4a7c15);
 decode_again:
     ;
     buf text = {0};
@@ -13249,6 +13315,11 @@ static int job_slot_score(server *s, server_slot *slot, const job *j,
     if (!s || !slot || !j || slot->busy || slot->assigned) return INT_MIN;
     if (required_slot >= 0 && slot->id != required_slot) return INT_MIN;
     if (required_slot == slot->id) return INT_MAX;
+    if (ds4_session_pos(slot->session) > 0 &&
+        !ds4_session_vision_state_matches(slot->session,
+                                          j->req.images, j->req.image_count)) {
+        return -1;
+    }
     int common = ds4_session_common_prefix(slot->session, &j->req.prompt);
     return common;
 }
@@ -14025,7 +14096,9 @@ static void server_close_resources(server *s) {
     pthread_cond_destroy(&s->clients_cv);
     pthread_cond_destroy(&s->cv);
     pthread_mutex_destroy(&s->mu);
+    if (s->tp_leader) ds4_tp_send_stop(s->tp_leader);
     ds4_engine_close(s->engine);
+    ds4_tp_free(s->tp_leader);
     memset(s, 0, sizeof(*s));
 }
 
@@ -14102,6 +14175,24 @@ static server_config parse_options(int argc, char **argv) {
             exit(2);
         }
         if (dist_parse == DS4_DIST_CLI_MATCHED) continue;
+
+        char tp_parse_err[256] = {0};
+        ds4_tp_cli_parse_result tp_parse =
+            ds4_tp_parse_cli_arg(arg,
+                                 &i,
+                                 argc,
+                                 argv,
+                                 &c.engine.tp,
+                                 tp_parse_err,
+                                 sizeof(tp_parse_err));
+        if (tp_parse == DS4_TP_CLI_ERROR) {
+            server_log(DS4_LOG_DEFAULT,
+                       "ds4-server: %s",
+                       tp_parse_err[0] ? tp_parse_err :
+                       "invalid tensor-parallel option");
+            exit(2);
+        }
+        if (tp_parse == DS4_TP_CLI_MATCHED) continue;
 
         if (!strcmp(arg, "-m") || !strcmp(arg, "--model")) {
             c.engine.model_path = need_arg(&i, argc, argv, arg);
@@ -14266,12 +14357,31 @@ static server_config parse_options(int argc, char **argv) {
     if (c.engine.directional_steering_file && !directional_steering_scale_set) {
         c.engine.directional_steering_ffn = 1.0f;
     }
+    char tp_err[256];
+    if (!ds4_tp_adopt_distributed_options(&c.engine.tp,
+                                          &c.engine.distributed,
+                                          tp_err,
+                                          sizeof(tp_err))) {
+        server_log(DS4_LOG_DEFAULT, "ds4-server: %s", tp_err);
+        exit(2);
+    }
     char dist_err[256];
     if (ds4_dist_prepare_engine_options(&c.engine.distributed,
                                         &c.engine,
                                         dist_err,
                                         sizeof(dist_err)) != 0) {
         server_log(DS4_LOG_DEFAULT, "ds4-server: %s", dist_err);
+        exit(2);
+    }
+    if (!ds4_tp_validate_engine_options(&c.engine,
+                                        tp_err,
+                                        sizeof(tp_err))) {
+        server_log(DS4_LOG_DEFAULT, "ds4-server: %s", tp_err);
+        exit(2);
+    }
+    if (c.engine.tp.role == DS4_TP_WORKER) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: --role worker is a serving mode; start tensor-parallel workers with ./ds4");
         exit(2);
     }
     return c;
@@ -14355,6 +14465,34 @@ int main(int argc, char **argv) {
         return rc;
     }
 
+    ds4_tp *tp_leader = NULL;
+    if (cfg.engine.tp.role == DS4_TP_LEADER) {
+        char tp_err[256] = "";
+        ds4_tp_identity tp_id = {
+            .gguf_bytes = ds4_engine_model_bytes(engine),
+            .model_id = (uint32_t)ds4_engine_model_id(engine),
+            .n_layer = (uint32_t)ds4_engine_layer_count(engine),
+            .n_embd = (uint32_t)ds4_engine_embd_dim(engine),
+            .n_vocab = (uint32_t)ds4_engine_vocab_size(engine),
+            .quant_bits = (uint32_t)ds4_engine_routed_quant_bits(engine),
+            .ctx_size = (uint32_t)cfg.ctx_size,
+        };
+        ds4_engine_tp_gate_schedule(engine,
+                                    &tp_id.gate_slot_start,
+                                    &tp_id.gate_slot_step,
+                                    &tp_id.gates_per_token,
+                                    tp_id.gate_slot_mask);
+        if (!ds4_tp_create(&tp_leader, &cfg.engine.tp, &tp_id,
+                           tp_err, sizeof(tp_err)) ||
+            !ds4_engine_tp_bind(engine, tp_leader,
+                                tp_err, sizeof(tp_err))) {
+            server_log(DS4_LOG_DEFAULT, "ds4-server: %s", tp_err);
+            ds4_tp_free(tp_leader);
+            ds4_engine_close(engine);
+            return 1;
+        }
+    }
+
     const int slot_count = cfg.batched_sessions > 0 ? cfg.batched_sessions : 1;
     log_context_memory(cfg.engine.backend,
                        cfg.ctx_size,
@@ -14364,6 +14502,7 @@ int main(int argc, char **argv) {
 
     server s = {0};
     s.engine = engine;
+    s.tp_leader = tp_leader;
     s.ctx_size = cfg.ctx_size;
     s.slot_count = slot_count;
     s.batched_mode = cfg.batched_sessions > 0;
@@ -14615,6 +14754,13 @@ static void test_mixed_prefill_quantum_option(void) {
     TEST_ASSERT(server_prefill_quantum_for(&s, true) == 2048);
     s.mixed_prefill_quantum = defaults.mixed_prefill_quantum;
     TEST_ASSERT(server_prefill_quantum_for(&s, true) == 128);
+}
+
+static void test_multimodal_prefill_resume_frontier(void) {
+    TEST_ASSERT(server_multimodal_resume_frontier(160, 160, 170, true) == 160);
+    TEST_ASSERT(server_multimodal_resume_frontier(160, 159, 170, true) == 0);
+    TEST_ASSERT(server_multimodal_resume_frontier(160, 160, 159, true) == 0);
+    TEST_ASSERT(server_multimodal_resume_frontier(160, 160, 170, false) == 0);
 }
 
 static void test_batched_live_continuation_slot_binding(void) {
@@ -19499,6 +19645,7 @@ static void test_responses_inline_image_content(void) {
 static void ds4_server_unit_tests_run(void) {
     test_batched_prefill_round_robin();
     test_mixed_prefill_quantum_option();
+    test_multimodal_prefill_resume_frontier();
     test_batched_live_continuation_slot_binding();
     test_request_defaults_use_min_p_filtering();
     test_chat_ignore_eos_contract();
