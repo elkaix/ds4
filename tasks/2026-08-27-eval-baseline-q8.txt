@@ -1,0 +1,24 @@
+# BASELINE ds4-eval, SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf (Q8_0 attn+head)
+# 74/92 passed, 18 failed, runtime 03h:21m, ctx auto 16777, tokens 16000
+# Failed items (n, gen_tokens, given/correct, test):
+18   705   167/117    AIME2025/aime2025-04
+20   3948  C/E        SuperGPQA/d44b94f7749345a39a65f6312bda8764
+28   16000 C/D        GPQA Diamond/recb80OwMgNnceA9t          BUDGET
+41   908   E/H        SuperGPQA/e78e4e539d6f4e379ac140d923d7b1be
+44   16000 E/A        SuperGPQA/8483667a25e74fdfa3188de4ea734f03  BUDGET
+49   13313 A/B        GPQA Diamond/recZWeueB7lSPR6wN
+52   16000 A/C        GPQA Diamond/recVvpD8miVjmmyfe          BUDGET
+63   16000 256/204    AIME2025/aime2025-13                    BUDGET
+66   16000 6/248      AIME2025/aime2025-28                    BUDGET
+70   16000 A/C        GPQA Diamond/recWxGU8Q4YReJ1tb          BUDGET
+71   1024  D/F        SuperGPQA/591a77df21324272914be82ac6583399
+72   16000 17/735     AIME2025/aime2025-15                    BUDGET
+74   7123  J/H        SuperGPQA/e780f37a5baa4fe094cd9c157486664d
+75   16000 8/240      AIME2025/aime2025-30                    BUDGET
+79   16000 14/18-19   COMPSEC/compsec-079                     BUDGET
+81   1085  8/10-15    COMPSEC/compsec-081
+82   924   6/9-10     COMPSEC/compsec-082
+87   16000 12/8,20-22 COMPSEC/compsec-087                     BUDGET
+#
+# Per-category: GPQA Diamond 21/25 · SuperGPQA 20/25 · AIME2025 20/25 · COMPSEC 13/17
+# Budget-exhausted failures (gen==16000): 10 of 18

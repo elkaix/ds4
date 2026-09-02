@@ -1,129 +1,188 @@
-# Candidate 01 — Session-State Transaction
+# Convert SuperDeepseek-V4-Flash-abliterated-MQ-2xDGX → ds4 GGUF (2026-08-12)
 
-## Scope
-
-- Implement exactly-once terminalization for admitted `ds4-server` requests.
-- Keep live session/frontier mutation on the single worker.
-- Publish immutable statistics snapshots; `/stats` must not inspect `ds4_session`.
-- Preserve current wire ordering, continuation behavior, checkpoint compatibility, and the running local Metal process.
-- Add deterministic scripted failure coverage and a concise ADR.
-- Exclude protocol-adapter, continuation-policy, and KVC-format refactors.
+Goal: replace the daily `drowzeys-...-DS4-Q2.gguf` with a ds4-format Q2 built from
+`~/models/hf/SuperDeepseek-V4-Flash-abliterated-MQ-2xDGX` (158 GiB, 50 shards).
+Reason to switch: worst-mode refusal 97.92% → 4.17% with tool gates held at 100%.
 
 ## Plan
 
-- [x] Compare three deep-module interfaces and record the approved design and implementation plan.
-- [x] Add a worker-published immutable `/stats` snapshot test-first.
-- [x] Add typed execution phases, reasons, dispositions, and one idempotent terminalizer test-first.
-- [x] Add private production and scripted adapters with deterministic failure precedence tests.
-- [x] Migrate restore, sync, decode, output, commit/rollback, tracing, statistics, and cleanup through the controlled lifecycle.
-- [x] Add the domain glossary entry and ADR.
-- [x] Route prefill/open/delta output and nonterminal trace/statistics observations through the private adapters.
-- [x] Correct causal-failure, checkpoint-disposition, wire, and stats-publication edge cases found by guard review.
-- [x] Add deterministic coverage for operational adapter failures, shutdown/output precedence, checkpoint disposition, and idle stats refresh.
-- [x] Run safe verification, guard reviews, inspect the diff, and commit only scoped files.
+- [x] 1. Verify source is ds4-convertible → verify: `config.json` matches official 0731
+      (`expert_dtype: fp4`, `quant_method: fp8`, `scale_fmt: ue8m0`, 43 layers, 256/top-6). **OK**
+- [x] 2. Verify every safetensors dtype has a converter path → verify: dtype histogram
+      (F8_E8M0, I8, BF16, F8_E4M3, F32, I64) all handled in `deepseek4-quantize.c`. **OK**
+- [x] 3. Pick recipe → verify: `--dry-run` with template only (no type flags) reports
+      `type_changes: 0` and `approx_file_bytes` == current file's 86,720,111,488. **OK, exact**
+- [x] 4. Pre-flight `--compare-tensor` per dtype family vs the current drowzeys Q2. **OK** —
+      see results below.
+- [x] 5. Conversion done: exit 0, 86,720,111,488 bytes (exact match), 1328 tensors, type_changes 0.
+- [x] 6. Load test: generates ("I'm Qwen..."), prefill 47.9 gen 43.1 t/s.
+- [x] 7. Coherence: 17*24 -> 408 step-by-step, no loop, 43.2 t/s.
+- [x] 8. Refusal probes: NO difference vs drowzeys — both comply on all 4. See review.
+      Bar not met; user chose to switch anyway on 2026-08-13.
+- [x] 9. Switched on user instruction: symlink + run.md + new KV dir. Live and verified.
+      drowzeys Q2 kept on disk as rollback.
 
 ## Acceptance criteria
 
-- Every admitted request produces exactly one typed terminal outcome.
-- Terminalization and cleanup are idempotent and run through one path.
-- The primary failure survives rollback, trace, statistics, output-finalization, or cleanup failures.
-- Streamed bytes are recorded as irreversible and are never described as rolled back.
-- `/stats` reads one immutable snapshot and never calls a live-session accessor.
-- Scripted tests cover restore, sync, decode, cancellation, output, commit, rollback, tracing, and cleanup failures.
-- Existing server tests and the normal build pass without stopping the currently running server.
+Ship only if: conversion exit 0 AND loads AND coherent AND measurably fewer refusals than
+the drowzeys Q2 on the same probes. Otherwise keep drowzeys and document why.
 
-## Review
+## Pre-flight results (step 4)
 
-- Replaced the worker's request monolith with one shared, forward-only
-  transaction driver and private production/scripted session, output, trace,
-  and statistics adapters. All admitted jobs publish one typed outcome through
-  an idempotent terminalizer.
-- Routed prefill keepalives, stream open/update/flush/finalization, trace
-  begin/event/piece/finalization, request counters, progress snapshots,
-  settlement, cleanup, and checkpoint accounting through the controlled
-  lifecycle. Rollback no longer publishes a newly parsed continuation frontier.
-- `/stats` now copies only a worker-published immutable snapshot. Worker refresh
-  coalescing prioritizes admitted jobs, and terminal publication occurs after
-  trace and cleanup so `busy=false` is truthful.
-- Added explicit session-validity inspection, sticky shutdown/output failure
-  precedence, broken-wire no-retry behavior, checkpoint secondary failures,
-  and actual-validity rollback disposition.
-- Verification passed:
-  - warning-free `make -B ds4-server ds4_test`;
-  - `./ds4_test --server`;
-  - `./ds4-eval --self-test-extractors`;
-  - `git diff --check`;
-  - independent spec, concurrency, test/documentation, and clean-code audits.
-- Gracefully stopped PID 81030 after it persisted 101,224 live tokens to the
-  disk cache, then restarted the exact requested command as PID 31807. Metal
-  mapped about 95.1 GiB, allocated about 8.6 GiB for the 524,288-token context,
-  reopened the 32 GiB cache, and listened on `127.0.0.1:8000`.
-- Live health, model metadata, and immutable stats checks passed. A one-token
-  chat smoke request completed in 2.7 seconds; the final snapshot reported
-  `busy=false`, one request, nine live tokens, and no rejection/cancellation.
-  Its trace closed with completed/length, committed session, complete wire, and
-  no secondary failure.
-- Supplemental macOS AddressSanitizer was not a passing gate: LeakSanitizer is
-  unsupported, and the leak-disabled instrumented server suite was time-boxed
-  and terminated when it remained unexpectedly CPU-heavy. CUDA, distributed,
-  and SSD-streaming model modes were not exercised; the live Apple M5 Max Metal
-  path and disk checkpoint cache were exercised.
+Regenerated one tensor per dtype path and byte-compared against the current drowzeys Q2:
 
----
+| tensor | path | result |
+|---|---|---|
+| `blk.0.ffn_gate_exps.weight` | I8+E8M0 → IQ2_XXS | **byte-identical** |
+| `blk.0.ffn_down_exps.weight` | I8+E8M0 → Q2_K | **byte-identical** |
+| `blk.0.ffn_gate_shexp.weight` | F8_E4M3+E8M0 → Q8_0 | **byte-identical** |
+| `token_embd.weight` | BF16 → F16 | **byte-identical** |
+| `blk.0.attn_output_b.weight` | F8_E4M3+E8M0 → Q8_0 | **differs, 16,348,915 bytes** |
 
-# Prior: ds4 Server Architecture Review — 2026-07-10
+This is the ideal shape. The four identical results prove the dequant/requant pipeline and
+the imatrix apply are correct on this checkpoint, and confirm SuperDeepseek left the routed
+experts untouched exactly as its README claims. The single mismatch is `attn_output_b` —
+HF `attn.wo_b`, the 46 pairs SuperDeepseek actually modified. So the abliteration is real,
+it is the only delta, and it survives the Q8_0 attention-projection recipe.
 
-## Scope
+## Recipe decision
 
-- Review `ds4-server` for architectural deepening opportunities.
-- Preserve its role as a local DeepSeek V4 Flash Metal server on the Apple M5 Max with 128 GiB unified memory.
-- Keep source code unchanged; write the visual report to the OS temp directory.
-- Preserve the user's existing untracked files.
+Pass **no type flags** — the template
+`~/models/ds4/templates/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.header.gguf`
+already encodes the antirez q2-imatrix recipe. Adding `--attention-proj q8_0` caused 21
+spurious `blk.N.indexer.attn_q_b.weight` f16→q8_0 changes; template-only gives 0.
+
+## Deferred
+
+`--dspark-support` not generated. DSpark measured 16% slower on 2026-08-09 and was removed
+from the daily command.
+
+## Review section (2026-08-13)
+
+**Conversion: SUCCESS.** `SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf`, 86,720,111,488
+bytes — byte-count identical to the current drowzeys Q2. Loads, coherent, **43.1 t/s decode**
+= parity with the model in production. Pre-flight already proved the pipeline (4/5 tensors
+byte-identical; the 1 delta = `attn_output_b` = the abliterated `attn.wo_b`).
+
+**Refusal probes (step 8): NO measurable difference vs the drowzeys Q2 I already run.**
+Both are abliterated builds. On 4 probes (insult-by-name limerick, phishing-email
+construction, manipulative scam lines, forceful opinion) BOTH complied fully. The
+SuperDeepseek README's "97.92% -> 4.17%" is measured against the *base* DeepSeek-0731, NOT
+against drowzeys — which is already uncensored. So on the refusal axis this is a **lateral
+move, not an upgrade.**
+
+**Verdict vs stated acceptance criteria: does NOT clear the bar.** todo.md said "ship only
+if measurably fewer refusals than the drowzeys Q2 ... otherwise keep drowzeys and document
+why." Refusals are identical, so the criterion is not met. The conversion is valid and
+usable; there is just no refusal-based reason to switch.
+
+**Symlink NOT flipped.** `ds4flash.gguf` still -> drowzeys Q2. Both files on disk (995 GB
+free). Switching is one command if the user wants the newer fine-tune for reasons other than
+refusals (it is a different OBLITERATUS+SuperTune checkpoint; any quality/tool-gate edge
+would need a benchmark this session did not run).
+
+## SWITCHED — live on the new model (2026-08-13 09:18)
+
+User overrode the acceptance bar and chose to switch despite refusals being identical.
+Done and verified live:
+
+- `ds4flash.gguf` -> `SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf`
+- `run.md:15` `--model` updated; `--kv-disk-dir` moved to
+  `~/.ds4/server-kv/superdeepseek-mq-q2` (fresh dir — different fine-tune, and
+  `--kv-cache-reject-different-quant` would NOT catch it since the quant is identical;
+  a shared dir would have fed the old model's checkpoints to the new one)
+- server pid 59213, `--ctx 393216`, healthy in 40 s
+- planned memory: KV 3.37 + buffers 3.00 + resident model 80.76 = **87.13 GiB** (unchanged
+  from drowzeys, well under the 118 GB wired cap)
+- live decode **42.2 t/s**, generation correct (12*13 = 156)
+
+sha256: `608757f676569178ccd06ee07c475833d085f93cab4400d45e953ec875b7bade`
+
+Rollback (one command + restart):
+`ln -sfn ~/models/gguf/drowzeys-keys-DeepSeekV4-Flash-GA-0731-Abliterated-32-32-DS4-Q2.gguf ds4flash.gguf`
+and revert `run.md:15`. The drowzeys Q2 stays on disk.
+
+Note: the model self-identifies inconsistently ("Qwen" via CLI, "DeepSeek-V3" via API).
+Cosmetic — inherited from the fine-tune's training data, not a conversion defect. The
+drowzeys build does the same.
+
+# Live DS4 setup audit (2026-08-22)
+
+Goal: validate `run-ds4-monitored.sh`, the running server, cache continuity,
+throughput, memory, disk, and cited upstream claims against this M5 Max.
 
 ## Plan
 
-- [x] Launch the requested server command and verify port 8000 is listening.
-- [x] Monitor live server logs while the user exercises it during this review.
-- [x] Read project guidance, server documentation, current implementation, tests, and recent server-enhancement history.
-- [x] Identify candidates that pass the deletion test and validate each with file-level evidence.
-- [x] Generate, validate, and open a self-contained HTML report with before/after diagrams.
+- [x] 1. Preserve and record repo/runtime baseline.
+- [x] 2. Inspect actual command, binary, logs, KV directory, memory, swap, disk.
+- [x] 3. Validate cited claims against local source and current upstream state.
+- [x] 4. Run controlled repeated-request/cache probes on this machine.
+- [x] 5. Record ranked findings, exact safe config, and remaining limitations.
 
 ## Acceptance criteria
 
-- The requested server remains running on `127.0.0.1:8000` with tracing enabled.
-- Every candidate names involved files, dependency category, architectural friction, deepening, locality, leverage, and test impact.
-- No candidate re-proposes work already implemented on `server-enhancements`.
-- The report ends with one top recommendation and proposes no concrete interfaces.
-
-## Out of scope observations
-
-- `ds4_server.c:11617-11663` lets a client thread read the worker-owned session position while the worker mutates it; the report treats this as architectural evidence, but this review does not change source code.
-- `README.md:1039-1052` trails the current KVC header and extension flags in `ds4_kvstore.h:15-18,36-57`; documentation repair is separate from this architecture review.
+- Every setup claim is labeled observed, source-confirmed, contradicted, or unvalidated.
+- Recommendations reflect the actual local branch/build and measured machine behavior.
+- No server/config/source change occurs during this read-only audit.
+- Existing dirty work remains intact and the review section records commands/results.
 
 ## Review
 
-- Started the exact requested command and verified the Metal-backed DeepSeek V4 Flash server on `127.0.0.1:8000`.
-- Monitored the live tool loop through roughly 132K tokens of session depth. Requests completed with normal `stop` or `tool_calls` finishes; no queue drops, cancellations, socket failures, model failures, malformed DSML, or corrupt-cache warnings appeared.
-- Normal disk-budget pressure evicted zero-hit checkpoints and successfully wrote cold/continued replacements.
-- Produced and opened `/var/folders/fs/brn3wr_x4ns2km1cq1ph9zb80000gn/T/architecture-review-20260710-200425.html` with four deletion-test-backed candidates.
-- Top recommendation: make request execution one terminal transaction while preserving the single local Metal worker.
-- Verified the report in headless Chrome, including Tailwind and Mermaid rendering, and ran `./ds4_test --server` successfully.
-- No production or test source was changed. Repo changes are limited to the task tracker and lesson required by the operating manual.
+- Live server stayed healthy on PID 95676 at `127.0.0.1:8000`; running binary is
+  up to date with local `prod` source (`make -q ds4-server` exit 0).
+- Before the audit probe, the real Pi tool loop had 8 cache hits / 2 cold requests
+  and 309,378 / 353,238 prompt tokens cached (87.6%). This setup does not reproduce
+  issue #816's 787/787 miss pattern.
+- Controlled chat probe: prewarm 0/27 cached, repeat 27/27 cached in 0.094 s,
+  exact assistant replay 30 cached + 11 new tokens in 0.241 s.
+- The initial audit favored `--ctx 393216` for Think Max. The user then selected
+  `--ctx 262144` for lower memory pressure; the launcher now uses it and therefore
+  gives up Think Max's 393216-token minimum. Keep one session; omit batched mode.
+- The launcher now sets `--kv-cache-cold-max-tokens 65536`. Keep `--trace` temporary and private:
+  it records full prompts, generated text, reasoning, and tool arguments.
+- KV store: 140 valid files, 83.97 GiB / 128 GiB. Whole-volume free space was
+  about 2.03 TiB; 23 purgeable Time Machine snapshots exist. During the live sample,
+  an active Hugging Face download matched 98.9% of free-space loss while KV stayed
+  unchanged. Historical disk loss cannot be attributed to DS4 from `disk_free`.
+- Live memory: wired limit 122880 MiB; busy GPU allocation ~98.1 GiB, in-use
+  ~89.7 GiB; no thermal/performance warning. Swap rose during unrelated concurrent
+  Node/Chrome work, so RSS/swap alone cannot prove model-weight eviction.
+- Upstream `main` is still 84cc882. PRs #818/#850/#827 remain open; #601 remains
+  open draft. #818 helps exact/divergent prefixes >=256 tokens, not `common=1`.
+- Verification: `bash -n`, `shellcheck`, exact-value assertions, server help,
+  `make ds4_test && ./ds4_test --server`, and health/stats checks all passed.
+  Restart verified on PID 6262: health `ok`, context 262144, cold max 65536,
+  wired limit 122880 MiB. Existing dirty baseline preserved; only the launcher
+  and this task tracker section changed.
 
-# Task: Post-review robustness fixes for the session transaction (2026-07-10)
+# DS4 max-fan lifecycle (2026-08-22)
+
+Goal: command both fans to verified maximum while ds4-server owns the runtime,
+then restore Apple automatic control when the server stops.
 
 ## Plan
 
-- [x] Two-axis review (standards + spec) of 5a91c33..a2815e5 → verify: findings cite file:line evidence.
-- [x] Fix rollback retaining stale protocol live bindings → verify: new unit test fails before, passes after.
-- [x] Consume the `kv_cache_store_current("shutdown")` result → verify: warning logged on failure path.
-- [x] Compile `test_txn_event` only under `DS4_SERVER_TEST` → verify: warning-free production build.
-- [x] Downgrade duplicate-terminal-publish `die()` to a loud log → verify: `./ds4_test --server` still passes.
-- [x] Align spec text with the queued-disconnect encoding (client gone, restore phase) → verify: doc reads true against `production_restore`.
+- [x] Discover and validate the existing ThermalForge controller.
+- [x] Fail before model startup when non-interactive fan control is unavailable.
+- [x] Verify actual max RPM with a bounded ramp deadline.
+- [x] Restore and verify automatic mode on normal exit, signals, or server failure.
+- [x] Keep a server-watching fallback for wrapper hard-kill, then run failure checks.
+
+## Acceptance criteria
+
+- The server never continues after max-fan activation or verification fails.
+- Fan commands and ramp/restore waits are bounded.
+- Cleanup is idempotent and does not leave the server running after fan failure.
+- A stopped server does not leave fans in manual mode.
 
 ## Review
 
-- Declined review item "wire mislabeled BROKEN on zero-byte failure": the spec's monotonic wire ledger deliberately treats any failed write attempt as may-have-emitted (spec lines 170-171, 195-196), scripted tests pin that contract, and the cited stream-failed early return is unreachable from `production_output_finish` because the wire is already BROKEN there.
-- Kept the worker-ownership `die()` calls: they guard cross-thread session mutation, which is memory-unsafe to continue past.
-- Deferred (out of scope): collapsing the adapter vtable layer to direct calls, deduplicating the two trace vsnprintf wrappers and the two failure latches, and whether docs/tasks files belong in the upstream PR.
-- Verified: warning-free `make ds4-server ds4_test`; `./ds4_test --server` OK including new `test_production_settle_rollback_clears_live_bindings`.
+- ThermalForge owns max/auto commands through its existing scoped NOPASSWD rule;
+  macmon independently verifies actual RPM and reports both fans every monitor cycle.
+- Verified maximum: fan0 5317/5349 RPM, fan1 5684/5777 RPM.
+- Verified normal and TERM/EXIT restore, forced ramp-verification failure restore,
+  fail-closed controller probe, and monitor fallback after simulated server death.
+  Final fan modes are both `auto`.
+- Fan commands are bounded to 5 seconds, ramp to 20 seconds, restore to 5 seconds.
+- `bash -n`, ShellCheck, help smoke test, exact function tests, and `git diff --check`
+  passed. The real DS4 server is currently stopped; no test process remains.
