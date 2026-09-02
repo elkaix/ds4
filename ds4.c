@@ -57484,6 +57484,7 @@ struct ds4_session {
     uint32_t glm_mtp_rollback_dense_len;
     int glm_mtp_rollback_first_token;
     int glm_spec_inside;
+    bool glm_mtp_ctx_gated;
     uint32_t glm_mtp_min_pos;
     float *glm_mtp_hc;
     float *glm_mtp_logits0;
@@ -69470,6 +69471,60 @@ static bool ds4_session_glm_mtp_rewind(ds4_session *s, int pos) {
     return ok;
 }
 
+/* Context ceiling for GLM MTP speculation, in committed tokens.
+ *
+ * Measured on M5 Max with GLM-5.3-Flash Q2 (tasks/ledger.md F32): with the
+ * drafter off, decode is nearly flat in context (36.6 -> 38.5 ms/token from
+ * 2K to 200K), while with it on the speculative cycle grows from 30.5 to
+ * 44.5 ms/token, so past roughly 64K the draft+verify work costs more than
+ * the tokens it commits.  Above the ceiling a session decodes plainly and
+ * skips the nextn block entirely.  Positions only grow inside a request, so
+ * a gated request never resumes speculation; a later rewind below the
+ * ceiling re-seeds the draft window from its first cycle, exactly as a
+ * fresh session does.
+ *
+ * DS4_GLM_MTP_MAX_CTX=<tokens> overrides the default; 0 removes the ceiling.
+ * The 64K crossover is bracketed, not pinned: contract-grade placement needs
+ * the in-process per-segment toggle. */
+#define DS4_GLM_MTP_MAX_CTX_DEFAULT 65536u
+
+static uint32_t glm_mtp_spec_max_ctx(void) {
+    const char *env = getenv("DS4_GLM_MTP_MAX_CTX");
+    if (env && env[0]) {
+        char *endp = NULL;
+        const long v = strtol(env, &endp, 10);
+        if (endp != env) {
+            if (v <= 0) return 0u;
+            return (uint32_t)v;
+        }
+    }
+    return DS4_GLM_MTP_MAX_CTX_DEFAULT;
+}
+
+/* True when the session's next position is at or past the MTP context
+ * ceiling.  Drops any carried draft on the way out so a later resume cannot
+ * verify a stale point mass whose parent token happens to match.  Never
+ * gates under tensor parallelism: the leader's EVAL frame commits every rank
+ * to the same speculative cycle. */
+static bool ds4_session_glm_mtp_ctx_gated(ds4_session *s) {
+    const uint32_t max_ctx = glm_mtp_spec_max_ctx();
+    if (max_ctx == 0 || s->engine->tp.active ||
+        (uint32_t)s->checkpoint.len < max_ctx) {
+        s->glm_mtp_ctx_gated = false;
+        return false;
+    }
+    s->glm_mtp_have = 0;
+    s->glm_mtp_rollback_valid = false;
+    if (!s->glm_mtp_ctx_gated) {
+        s->glm_mtp_ctx_gated = true;
+        fprintf(stderr,
+                "ds4: glm mtp: speculation off past %u tokens (pos %d); "
+                "DS4_GLM_MTP_MAX_CTX=0 removes the ceiling\n",
+                max_ctx, s->checkpoint.len);
+    }
+    return true;
+}
+
 static int ds4_session_glm_spec_cycle(ds4_session *s, int first_token,
                                       int *accepted, int accepted_cap,
                                       char *err, size_t errlen) {
@@ -78180,7 +78235,7 @@ static int ds4_session_eval_speculative_argmax_impl(
             return 1;
         }
         if (s->engine->glm_mtp && DS4_N_NEXTN_PREDICT != 0 &&
-            s->glm_graph_ready) {
+            s->glm_graph_ready && !ds4_session_glm_mtp_ctx_gated(s)) {
             if (ds4_session_tp_leader(s)) {
                 ds4_engine *ge = s->engine;
                 if (!ds4_tp_send_glm_mtp(ge->tp.ctx, s->tp_session_id,
@@ -79030,7 +79085,8 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
     if (ds4_session_is_glm(s)) {
         if (!e || !e->glm_mtp || DS4_N_NEXTN_PREDICT == 0 ||
             !s->glm_graph_ready ||
-            (e->dspark_exact_sampling && e->tp.active)) {
+            (e->dspark_exact_sampling && e->tp.active) ||
+            ds4_session_glm_mtp_ctx_gated(s)) {
             if (ds4_session_eval(s, first_token, err, errlen) != 0) return -1;
             accepted[0] = first_token;
             return 1;
