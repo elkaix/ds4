@@ -3,6 +3,7 @@
 #include "ds4_gpu_args.h"
 #include "ds4_help.h"
 #include "ds4_kvstore.h"
+#include "dashboard_html.h"
 #include "rax.h"
 
 /* OpenAI/Anthropic compatible local server.
@@ -14517,6 +14518,16 @@ static void *client_main(void *arg) {
         (!strcmp(hr.path, "/stats") || !strcmp(hr.path, "/v1/stats")))
     {
         send_stats(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/dashboard") || !strcmp(hr.path, "/dashboard/")))
+    {
+        /* Live stats page, embedded at build time from dashboard.html.  Served
+         * same-origin so it polls /stats without needing --cors. */
+        http_response(fd, s->enable_cors, 200, "text/html; charset=utf-8",
+                      dashboard_html);
         http_request_free(&hr);
         goto done;
     }

@@ -1,0 +1,229 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ds4-server</title>
+<style>
+:root{
+  --bg:#0b0f0e; --panel:#121917; --line:#1e2a27; --fg:#dfeae6; --dim:#7d918b;
+  --mint:#4ade9e; --amber:#f5c451; --red:#f0616d; --blue:#6aa9f0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;
+  border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+h1{font-size:14px;margin:0;font-weight:600;letter-spacing:.02em}
+#dot{width:9px;height:9px;border-radius:50%;background:var(--red);
+  box-shadow:0 0 0 0 currentColor;transition:background .2s}
+#dot.up{background:var(--mint)}
+#dot.busy{background:var(--amber);animation:p 1s infinite}
+@keyframes p{50%{opacity:.35}}
+.sp{flex:1}
+.meta{color:var(--dim)}
+main{display:grid;gap:12px;padding:12px 16px 32px;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));max-width:1500px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card.wide{grid-column:1/-1}
+.card h2{margin:0 0 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dim);font-weight:600}
+.big{font-size:40px;line-height:1;font-variant-numeric:tabular-nums;font-weight:600}
+.big small{font-size:13px;color:var(--dim);font-weight:400;margin-left:6px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:3px 0}
+.row span:last-child{font-variant-numeric:tabular-nums}
+.k{color:var(--dim)}
+.bar{height:6px;background:#0a0e0d;border-radius:3px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--mint);width:0;transition:width .4s}
+.bar i.warn{background:var(--amber)} .bar i.hot{background:var(--red)}
+svg{display:block;width:100%;height:56px;overflow:visible}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0 18px}
+.err{color:var(--red)} .ok{color:var(--mint)} .warn{color:var(--amber)}
+footer{padding:0 16px 24px;color:var(--dim);font-size:11px}
+code{background:#0a0e0d;padding:1px 5px;border-radius:4px;color:var(--blue)}
+</style>
+
+<header>
+  <div id="dot"></div>
+  <h1>ds4-server</h1>
+  <span class="meta" id="model">—</span>
+  <span class="sp"></span>
+  <span class="meta" id="url"></span>
+  <span class="meta" id="up">—</span>
+</header>
+
+<main>
+  <div class="card">
+    <h2>decode</h2>
+    <div class="big"><span id="dtps">—</span><small>tok/s</small></div>
+    <svg id="dspark" viewBox="0 0 300 56" preserveAspectRatio="none"></svg>
+    <div class="row"><span class="k">peak</span><span id="dpeak">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>prefill</h2>
+    <div class="big"><span id="ptps">—</span><small>tok/s</small></div>
+    <svg id="pspark" viewBox="0 0 300 56" preserveAspectRatio="none"></svg>
+    <div class="row"><span class="k">peak</span><span id="ppeak">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>context</h2>
+    <div class="big"><span id="ctxpct">—</span><small>%</small></div>
+    <div class="bar"><i id="ctxbar"></i></div>
+    <div class="row"><span class="k">live</span><span id="live">—</span></div>
+    <div class="row"><span class="k">window</span><span id="ctx">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>load</h2>
+    <div class="row"><span class="k">state</span><span id="busy">—</span></div>
+    <div class="row"><span class="k">queue depth</span><span id="q">—</span></div>
+    <div class="row"><span class="k">clients</span><span id="cl">—</span></div>
+    <div class="row"><span class="k">requests</span><span id="req">—</span></div>
+    <div class="row"><span class="k">req/min</span><span id="rpm">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>cache hit rate</h2>
+    <div class="big"><span id="hitpct">—</span><small>%</small></div>
+    <div class="bar"><i id="hitbar"></i></div>
+    <div class="row"><span class="k">hits</span><span id="hits">—</span></div>
+    <div class="row"><span class="k">cold</span><span id="cold">—</span></div>
+    <div class="row"><span class="k">cached tokens</span><span id="ctok">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>tokens</h2>
+    <div class="row"><span class="k">prompt</span><span id="ptok">—</span></div>
+    <div class="row"><span class="k">cached</span><span id="ctok2">—</span></div>
+    <div class="row"><span class="k">generated</span><span id="gtok">—</span></div>
+    <div class="row"><span class="k">prefill saved</span><span id="saved">—</span></div>
+  </div>
+
+  <div class="card wide">
+    <h2>cache path breakdown</h2>
+    <div class="grid2" id="paths"></div>
+  </div>
+
+  <div class="card wide">
+    <h2>anomalies</h2>
+    <div class="grid2">
+      <div class="row"><span class="k">queue rejected</span><span id="qr">—</span></div>
+      <div class="row"><span class="k">dropped (disconnect)</span><span id="qd">—</span></div>
+      <div class="row"><span class="k">prefill cancelled</span><span id="pc">—</span></div>
+    </div>
+  </div>
+</main>
+
+<footer id="foot"></footer>
+
+<script>
+const P = new URLSearchParams(location.search);
+// served from ds4-server at /dashboard -> same-origin, no --cors needed;
+// opened as a file:// -> falls back to the daily port and needs --cors.
+const BASE = (P.get('url') ||
+  (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:8000')
+).replace(/\/$/,'');
+const EVERY = +(P.get('ms') || 1000);
+const KEEP = 300;                       // ~5 min of samples at 1s
+document.getElementById('url').textContent = BASE;
+
+const $ = id => document.getElementById(id);
+const n = x => x == null ? '—' : x.toLocaleString();
+const f = (x,d=1) => x == null ? '—' : x.toFixed(d);
+const dur = s => { s|=0; const h=s/3600|0, m=(s%3600)/60|0; return h?`${h}h ${m}m`:m?`${m}m ${s%60}s`:`${s}s`; };
+const abbr = v => v==null?'—': v>=1e9?(v/1e9).toFixed(2)+'B': v>=1e6?(v/1e6).toFixed(2)+'M': v>=1e3?(v/1e3).toFixed(1)+'k': ''+v;
+
+const hist = { d: [], p: [] };
+let peak = { d: 0, p: 0 }, prev = null, prevT = 0;
+
+function spark(el, arr, color){
+  if (arr.length < 2) { el.innerHTML = ''; return; }
+  const max = Math.max(...arr) || 1, min = Math.min(...arr);
+  const span = (max - min) || 1;
+  const pts = arr.map((v,i) =>
+    `${(i/(arr.length-1)*300).toFixed(1)},${(52 - (v-min)/span*48).toFixed(1)}`);
+  el.innerHTML =
+    `<polyline fill="none" stroke="${color}" stroke-width="1.5" points="${pts.join(' ')}"/>` +
+    `<polyline fill="${color}" opacity=".10" stroke="none" points="0,56 ${pts.join(' ')} 300,56"/>`;
+}
+
+// ponytail: model id is read once; the server serves whatever GGUF it loaded.
+fetch(BASE + '/v1/models').then(r => r.json())
+  .then(j => $('model').textContent = (j.data || []).map(m => m.id).join(' · '))
+  .catch(() => {});
+
+async function tick(){
+  let s;
+  try {
+    const r = await fetch(BASE + '/stats', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    s = await r.json();
+  } catch (e) {
+    $('dot').className = '';
+    $('foot').innerHTML = `<span class="err">disconnected</span> — ${e.message}. ` +
+      `Open <code>http://127.0.0.1:8000/dashboard</code> instead, or start the server with <code>--cors</code>.`;
+    return;
+  }
+
+  $('dot').className = s.busy ? 'busy' : 'up';
+  $('foot').textContent = `polling ${BASE}/stats every ${EVERY}ms`;
+  $('up').textContent = dur(s.uptime_s);
+
+  // rates
+  hist.d.push(s.last_decode_tps || 0); if (hist.d.length > KEEP) hist.d.shift();
+  hist.p.push(s.last_prefill_tps || 0); if (hist.p.length > KEEP) hist.p.shift();
+  peak.d = Math.max(peak.d, s.last_decode_tps || 0);
+  peak.p = Math.max(peak.p, s.last_prefill_tps || 0);
+  $('dtps').textContent = f(s.last_decode_tps, 2);
+  $('ptps').textContent = f(s.last_prefill_tps, 1);
+  $('dpeak').textContent = f(peak.d, 2) + ' tok/s';
+  $('ppeak').textContent = f(peak.p, 1) + ' tok/s';
+  spark($('dspark'), hist.d, 'var(--mint)');
+  spark($('pspark'), hist.p, 'var(--blue)');
+
+  // context
+  const pct = s.ctx_size ? (s.live_tokens / s.ctx_size * 100) : 0;
+  $('ctxpct').textContent = f(pct, 1);
+  const b = $('ctxbar'); b.style.width = Math.min(100, pct) + '%';
+  b.className = pct > 90 ? 'hot' : pct > 70 ? 'warn' : '';
+  $('live').textContent = n(s.live_tokens);
+  $('ctx').textContent = n(s.ctx_size);
+
+  // load
+  $('busy').innerHTML = s.busy ? '<span class="warn">generating</span>' : '<span class="ok">idle</span>';
+  $('q').textContent = n(s.queue_depth);
+  $('cl').textContent = n(s.clients);
+  $('req').textContent = n(s.requests);
+  const now = Date.now();
+  if (prev && now > prevT) {
+    const rpm = (s.requests - prev.requests) / ((now - prevT) / 60000);
+    $('rpm').textContent = f(rpm, 2);
+  }
+  prev = s; prevT = now;
+
+  // cache
+  const c = s.cache || {}, tot = (c.hits || 0) + (c.cold || 0);
+  const hr = tot ? c.hits / tot * 100 : 0;
+  $('hitpct').textContent = f(hr, 1);
+  const hb = $('hitbar'); hb.style.width = hr + '%';
+  hb.className = hr < 40 ? 'hot' : hr < 70 ? 'warn' : '';
+  $('hits').textContent = n(c.hits); $('cold').textContent = n(c.cold);
+  $('ctok').textContent = abbr(s.cached_tokens);
+
+  $('ptok').textContent = abbr(s.prompt_tokens);
+  $('ctok2').textContent = abbr(s.cached_tokens);
+  $('gtok').textContent = abbr(s.generated_tokens);
+  const sv = s.prompt_tokens ? s.cached_tokens / s.prompt_tokens * 100 : 0;
+  $('saved').textContent = f(sv, 1) + '%';
+
+  const keys = ['memory_token','memory_text','responses_visible','responses_tool_output',
+                'anthropic_tool_output','thinking_visible','tool_visible','disk_text','cold'];
+  $('paths').innerHTML = keys.map(k =>
+    `<div class="row"><span class="k">${k.replace(/_/g,' ')}</span><span${
+      k==='cold'&&c[k]?' class="warn"':''}>${n(c[k])}</span></div>`).join('');
+
+  const anom = (v,el) => { $(el).textContent = n(v); $(el).className = v ? 'err' : ''; };
+  anom(s.queue_rejected,'qr'); anom(s.queue_dropped_disconnected,'qd'); anom(s.prefill_cancelled,'pc');
+}
+
+tick(); setInterval(tick, EVERY);
+</script>
