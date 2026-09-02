@@ -602,9 +602,14 @@ three findings:
 - F2: H25 A/B lives inside MTP, which is 11.21% slower than matched NOMTP at
   197K (E1), and `MTP_AUTO` stays blocked on the verifier-vs-sequential state
   gap. A KEEP cannot ship.
-- F3: The gap is structural: 55 t/s needs 18.18 ms/token; matched NOMTP is
-  39.73. Decode uses ~25% of memory bandwidth. Routed-MoE byte/access-pattern
-  attribution is the only lever sized to the gap.
+- F3: The gap is structural, and per ledger F27 it is above the roofline:
+  55 t/s needs 18.18 ms/token; matched NOMTP is 39.73. The trunk moves
+  9.635 GB/token and DS4 already runs at 62% of the 546 GB/s bus, so the
+  ceiling with this checkpoint is 56.7 t/s at 2K (53.0 with the head) and
+  S55 at 200K needs 97% of peak. Only fewer bytes per token moves the
+  ceiling; the KDA projections (3.845 GB/token at Q8_0/Q4_K) are the largest
+  single stream. (Correction 2026-09-02: an earlier draft of this section
+  cited the retracted "25% of bandwidth" figure.)
 
 All S55 work is now in one WIP commit so no session can lose it to a clean or
 checkout. `competition/` is not in this worktree; the rejected engine sits in
@@ -612,12 +617,17 @@ checkout. `competition/` is not in this worktree; the rejected engine sits in
 
 ### Next session starts here (supersedes the list above)
 
-1. **Routed-MoE decode attribution, plain decode, 200K.** Same-byte, same
-   access-pattern kernel measurement of the expert gather/GEMV against the
-   memory-bandwidth roofline. Needs the non-serializing profiler (item 0 of the
-   prior list) or stage-group bisection. Output: ms/token attributable to MoE,
-   and the ratio of bytes moved to bytes required. This decides whether S55 is
-   reachable at all before any more MTP work.
+1. **Bytes-per-token reduction: KDA projection re-quant trial.** `kda_v` +
+   `kda_output` Q8_0 -> Q4_K (saves 1.51 GB/token; ceiling 56.7 -> 67.2 t/s),
+   then `*_shexp` Q8_0 -> Q4_K (0.59 GB; 72.4 t/s). Rewrite from the existing
+   GGUF (Q8_0 dequant is near-lossless). Predeclare the quality gate before
+   quantizing; ledger F27 "THE PICK" is the spec. Expected ~41 t/s at 2K at
+   today's 62% bus efficiency. This is the only item that can put 55 on the
+   reachable side of the bound.
+1b. **Routed-MoE / non-expert path attribution, plain decode.** Bytes moved
+   versus bytes required per stage, with the non-serializing profiler or
+   stage-group bisection. Sizes the remaining 38% of bus (33 -> 53 t/s at 2K
+   at most) and composes with item 1.
 2. **H25 as a cheap gate, not an experiment.** Run the canonical one-request
    H25 A/B only when the host is quiet and only to KEEP or discard code already
    written. Keep rule unchanged: >3% gain, positive paired CI, sign p<=0.05,
