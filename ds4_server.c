@@ -9140,6 +9140,10 @@ struct server {
     int decode_pending;
     int active_generations;
     int mixed_prefill_quantum;
+    int s55_m0_segment_tokens;
+    int s55_m0_repeats;
+    bool s55_h25_pair_ab;
+    bool s55_m0_claimed;
     int last_prefill_slot;
     pthread_mutex_t mu;
     pthread_cond_t cv;
@@ -9150,6 +9154,7 @@ struct server {
     int clients;
     /* LOCAL PATCH */
     double started_at;
+    uint64_t instance_id;
     const char *model_path;
     server_stats stats;
     uint64_t seq;
@@ -9157,6 +9162,251 @@ struct server {
     pthread_mutex_t trace_mu;
     uint64_t trace_seq;
 };
+
+static uint64_t server_instance_id(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return ((uint64_t)tv.tv_sec << 32) ^ (uint64_t)tv.tv_usec ^
+           (uint64_t)(unsigned int)getpid();
+}
+
+static bool server_glm_mtp_active(const server *s) {
+    return s && !s->batched_mode &&
+           ds4_engine_glm_mtp_enabled(s->engine) &&
+           ds4_engine_mtp_draft_tokens(s->engine) == 2 &&
+           getenv("DS4_MTP_SPEC_DISABLE") == NULL &&
+           getenv("DS4_GLM_MTP_PROBE") == NULL;
+}
+
+static bool server_s55_m0_claim_request(server *s) {
+    if (!s || s->s55_m0_segment_tokens == 0) return true;
+    pthread_mutex_lock(&s->mu);
+    const bool accepted = !s->s55_m0_claimed;
+    s->s55_m0_claimed = true;
+    pthread_mutex_unlock(&s->mu);
+    return accepted;
+}
+
+typedef enum {
+    S55_M0_DISABLED = 0,
+    S55_M0_WARM,
+    S55_M0_MTP,
+    S55_M0_NOMTP,
+    S55_M0_WASH,
+    S55_M0_DONE,
+} s55_m0_kind;
+
+typedef struct {
+    s55_m0_kind kind;
+    int sequence;
+    int measured_index;
+    uint64_t calls;
+    uint64_t tokens;
+    double milliseconds;
+    uint64_t mtp_cycles;
+    uint64_t mtp_accepted;
+    uint64_t mtp_committed;
+} s55_m0_segment;
+
+typedef struct {
+    s55_m0_kind kind;
+    int segment_tokens;
+    int repeats;
+    int measured_index;
+    bool h25_pair_ab;
+    bool invalid;
+    s55_m0_segment current;
+    uint64_t scored_mtp_segments;
+    uint64_t scored_nomtp_segments;
+    uint64_t wash_segments;
+    uint64_t scored_mtp_tokens;
+    uint64_t scored_nomtp_tokens;
+    double scored_mtp_ms;
+    double scored_nomtp_ms;
+    uint64_t scored_mtp_cycles;
+    uint64_t scored_mtp_accepted;
+    uint64_t scored_mtp_committed;
+    uint64_t completed_segment_tokens;
+    uint64_t tail_nomtp_tokens;
+} s55_m0_schedule;
+
+static const char *s55_m0_kind_name(s55_m0_kind kind) {
+    switch (kind) {
+    case S55_M0_WARM: return "warm";
+    case S55_M0_MTP: return "mtp";
+    case S55_M0_NOMTP: return "nomtp";
+    case S55_M0_WASH: return "wash";
+    case S55_M0_DONE: return "done";
+    default: return "disabled";
+    }
+}
+
+static const char *s55_m0_kind_label(const s55_m0_schedule *schedule,
+                                     s55_m0_kind kind) {
+    if (schedule && schedule->h25_pair_ab) {
+        if (kind == S55_M0_MTP) return "baseline";
+        if (kind == S55_M0_NOMTP) return "candidate";
+    }
+    return s55_m0_kind_name(kind);
+}
+
+static s55_m0_kind s55_m0_measured_kind(int index) {
+    static const s55_m0_kind pattern[8] = {
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_NOMTP, S55_M0_MTP,
+        S55_M0_NOMTP, S55_M0_MTP, S55_M0_MTP, S55_M0_NOMTP,
+    };
+    return pattern[index & 7];
+}
+
+static void s55_m0_start_segment(s55_m0_schedule *schedule,
+                                 s55_m0_kind kind, int sequence) {
+    schedule->kind = kind;
+    schedule->current = (s55_m0_segment){
+        .kind = kind,
+        .sequence = sequence,
+        .measured_index = (kind == S55_M0_MTP || kind == S55_M0_NOMTP) ?
+            schedule->measured_index : -1,
+    };
+}
+
+static bool s55_m0_schedule_init_ex(s55_m0_schedule *schedule,
+                                    int segment_tokens, int repeats,
+                                    bool h25_pair_ab) {
+    if (!schedule || segment_tokens < 32 || segment_tokens > 4096 ||
+        repeats < 2 || repeats > 64 ||
+        (uint64_t)segment_tokens * 4u * (uint64_t)repeats < 512u) {
+        return false;
+    }
+    memset(schedule, 0, sizeof(*schedule));
+    schedule->segment_tokens = segment_tokens;
+    schedule->repeats = repeats;
+    schedule->h25_pair_ab = h25_pair_ab;
+    s55_m0_start_segment(schedule, S55_M0_WARM, 0);
+    return true;
+}
+
+static int s55_m0_max_completion_tokens_ex(int segment_tokens, int repeats,
+                                            bool h25_pair_ab) {
+    if (segment_tokens < 32 || segment_tokens > 4096 ||
+        repeats < 2 || repeats > 64 ||
+        (uint64_t)segment_tokens * 4u * (uint64_t)repeats < 512u) {
+        return 0;
+    }
+    const uint64_t total = 11ull * (uint64_t)repeats *
+                           (uint64_t)segment_tokens +
+                           (h25_pair_ab ? 11ull : 7ull) *
+                           (uint64_t)repeats;
+    return total <= INT_MAX ? (int)total : 0;
+}
+
+static void s55_m0_advance(s55_m0_schedule *schedule,
+                           const s55_m0_segment *completed) {
+    const int next_sequence = completed->sequence + 1;
+    schedule->completed_segment_tokens += completed->tokens;
+    if (completed->kind == S55_M0_MTP) {
+        schedule->scored_mtp_segments++;
+        schedule->scored_mtp_tokens += completed->tokens;
+        schedule->scored_mtp_ms += completed->milliseconds;
+        schedule->scored_mtp_cycles += completed->mtp_cycles;
+        schedule->scored_mtp_accepted += completed->mtp_accepted;
+        schedule->scored_mtp_committed += completed->mtp_committed;
+        schedule->measured_index++;
+    } else if (completed->kind == S55_M0_NOMTP) {
+        schedule->scored_nomtp_segments++;
+        schedule->scored_nomtp_tokens += completed->tokens;
+        schedule->scored_nomtp_ms += completed->milliseconds;
+        schedule->measured_index++;
+    } else if (completed->kind == S55_M0_WASH) {
+        schedule->wash_segments++;
+    }
+
+    if (schedule->measured_index >= schedule->repeats * 8) {
+        s55_m0_start_segment(schedule, S55_M0_DONE, next_sequence);
+        return;
+    }
+    const s55_m0_kind next = s55_m0_measured_kind(schedule->measured_index);
+    if (completed->kind == S55_M0_NOMTP && next == S55_M0_MTP) {
+        s55_m0_start_segment(schedule, S55_M0_WASH, next_sequence);
+    } else {
+        s55_m0_start_segment(schedule, next, next_sequence);
+    }
+}
+
+static bool s55_m0_derive_call_counters_ex(s55_m0_kind kind,
+                                           bool h25_pair_ab,
+                                           bool was_speculative,
+                                           int emitted_tokens,
+                                           uint64_t *cycles,
+                                           uint64_t *accepted,
+                                           uint64_t *committed) {
+    *cycles = 0;
+    *accepted = 0;
+    *committed = 0;
+    const bool must_verify = kind == S55_M0_MTP ||
+        (h25_pair_ab && kind == S55_M0_NOMTP);
+    const bool must_reseed = !h25_pair_ab && kind == S55_M0_NOMTP;
+    if ((must_verify && !was_speculative) || (must_reseed && was_speculative) ||
+        emitted_tokens < 1 || emitted_tokens > 2) {
+        return false;
+    }
+    if (!was_speculative) return true;
+    *cycles = 1;
+    *accepted = (uint64_t)(emitted_tokens - 1);
+    *committed = (uint64_t)emitted_tokens;
+    return true;
+}
+
+static bool s55_m0_schedule_finish_call(s55_m0_schedule *schedule,
+                                        int emitted_tokens,
+                                        double milliseconds,
+                                        uint64_t mtp_cycles,
+                                        uint64_t mtp_accepted,
+                                        uint64_t mtp_committed,
+                                        s55_m0_segment *completed) {
+    if (completed) memset(completed, 0, sizeof(*completed));
+    if (!schedule || schedule->kind == S55_M0_DISABLED ||
+        schedule->kind == S55_M0_DONE) {
+        return false;
+    }
+    if (emitted_tokens < 1 || emitted_tokens > 2 || milliseconds <= 0.0 ||
+        mtp_accepted > mtp_cycles || mtp_committed != mtp_cycles + mtp_accepted ||
+        (!schedule->h25_pair_ab && schedule->kind == S55_M0_NOMTP &&
+         (emitted_tokens != 1 || mtp_cycles != 0 || mtp_committed != 0))) {
+        schedule->invalid = true;
+    }
+    s55_m0_segment *segment = &schedule->current;
+    segment->calls++;
+    segment->tokens += emitted_tokens > 0 ? (uint64_t)emitted_tokens : 0u;
+    segment->milliseconds += milliseconds > 0.0 ? milliseconds : 0.0;
+    segment->mtp_cycles += mtp_cycles;
+    segment->mtp_accepted += mtp_accepted;
+    segment->mtp_committed += mtp_committed;
+    if (segment->tokens < (uint64_t)schedule->segment_tokens) return false;
+
+    const uint64_t max_tokens = (uint64_t)schedule->segment_tokens +
+        (!schedule->h25_pair_ab && segment->kind == S55_M0_NOMTP ? 0u : 1u);
+    if (segment->tokens > max_tokens) schedule->invalid = true;
+    if (segment->kind == S55_M0_MTP &&
+        segment->mtp_committed != segment->tokens) {
+        schedule->invalid = true;
+    }
+    if (schedule->h25_pair_ab && segment->kind == S55_M0_NOMTP &&
+        segment->mtp_committed != segment->tokens) {
+        schedule->invalid = true;
+    }
+    if (segment->kind == S55_M0_WARM &&
+        segment->mtp_committed + 1u != segment->tokens) {
+        schedule->invalid = true;
+    }
+    if (segment->kind == S55_M0_WASH &&
+        segment->mtp_committed + (schedule->h25_pair_ab ? 0u : 1u) !=
+            segment->tokens) {
+        schedule->invalid = true;
+    }
+    if (completed) *completed = *segment;
+    s55_m0_advance(schedule, segment);
+    return true;
+}
 
 static void server_inference_lock(server *s) {
     pthread_mutex_lock(&s->inference_mu);
@@ -9778,11 +10028,9 @@ static uint32_t le_get32(const uint8_t *p) {
 }
 
 
-#ifdef DS4_SERVER_TEST
 static void sha1_bytes_hex(const void *ptr, size_t len, char out[41]) {
     ds4_kvstore_sha1_bytes_hex(ptr, len, out);
 }
-#endif
 
 static bool id_list_contains(const stop_list *ids, const char *id) {
     if (!ids || !id || !id[0]) return false;
@@ -11940,6 +12188,11 @@ static uint64_t server_next_sequence(server *s) {
 static void generate_job_inner(server *s, server_slot *slot, job *j) {
     char err[160];
     err[0] = '\0';
+    if (!server_s55_m0_claim_request(s)) {
+        http_error(j->fd, s->enable_cors, 409,
+                   "S55 M0 accepts exactly one inference request per process");
+        return;
+    }
     const bool multimodal = j->req.image_count != 0;
     if (multimodal) {
         pthread_mutex_lock(&s->inference_mu);
@@ -12406,9 +12659,21 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     uint64_t rng = j->req.seed ? j->req.seed :
         (((uint64_t)time(NULL) << 32) ^ (response_seq << 1) ^
          (uint64_t)(uintptr_t)j);
+    const bool capture_mtp_counters =
+        ds4_engine_glm_mtp_counters_enabled(s->engine);
+    ds4_glm_mtp_stats mtp_before = {0};
+    if (capture_mtp_counters) {
+        pthread_mutex_lock(&s->inference_mu);
+        ds4_session_glm_mtp_stats(slot->session, &mtp_before);
+        pthread_mutex_unlock(&s->inference_mu);
+    }
 decode_again:
     ;
     buf text = {0};
+    s55_m0_schedule m0 = {0};
+    char m0_output_sha1[41] = {0};
+    char m0_token_sha1[41] = {0};
+    char m0_trajectory_sha1[41] = {0};
     size_t plain_stream_pos = 0;
     size_t stop_scan_from = 0;
     const char *finish = "length";
@@ -12423,8 +12688,48 @@ decode_again:
     int next_decode_log = 50;
     if (max_tokens < 0) max_tokens = 0;
     if (max_tokens > room) max_tokens = room;
+    const bool m0_enabled = s->s55_m0_segment_tokens != 0;
+    const int m0_expected_tokens = m0_enabled ?
+        s55_m0_max_completion_tokens_ex(s->s55_m0_segment_tokens,
+                                        s->s55_m0_repeats,
+                                        s->s55_h25_pair_ab) : 0;
+    if (m0_enabled) {
+        (void)s55_m0_schedule_init_ex(&m0, s->s55_m0_segment_tokens,
+                                      s->s55_m0_repeats,
+                                      s->s55_h25_pair_ab);
+        const bool valid_request =
+            server_glm_mtp_active(s) &&
+            j->req.max_tokens == m0_expected_tokens &&
+            max_tokens == m0_expected_tokens &&
+            prompt_tokens >= 190000 && prompt_tokens <= 205000 &&
+            j->req.ignore_eos && j->req.temperature_set &&
+            j->req.temperature == 0.0f && !j->req.stream &&
+            !j->req.has_tools && j->req.stops.len == 0 &&
+            !ds4_think_mode_enabled(j->req.think_mode);
+        if (!valid_request) {
+            m0.invalid = true;
+            finish = "error";
+            snprintf(err, sizeof(err),
+                     "S55 M0 requires active width-2 MTP, real 190K..205K "
+                     "context, greedy ignore_eos, no tools/stops/stream, and "
+                     "exactly %d generated tokens",
+                     m0_expected_tokens);
+            max_tokens = 0;
+        }
+        server_log(DS4_LOG_GENERATION,
+                   "ds4-server: s55-m0-start req=%s prompt=%d "
+                   "segment_tokens=%d repeats=%d experiment=%s "
+                   "expected_gen=%d valid=%d",
+                   id, prompt_tokens, s->s55_m0_segment_tokens,
+                   s->s55_m0_repeats,
+                   s->s55_h25_pair_ab ? "h25-pair-ab" : "matched-nomtp",
+                   m0_expected_tokens,
+                   valid_request ? 1 : 0);
+    }
     trace_event(s, trace_id, "prefill done; decode_max=%d ctx_room=%d", max_tokens, room);
     const double decode_t0 = now_sec();
+    double steady_decode_t0 = 0.0;
+    int steady_seed_tokens = 0;
     double last_decode_log_t = decode_t0;
     int last_decode_log_completion = 0;
     thinking_state thinking = thinking_state_from_prompt(&j->req);
@@ -12438,6 +12743,13 @@ decode_again:
     server_generation_enter(s);
     while (!g_stop_requested && !job_cancelled(j) && completion < max_tokens &&
            ds4_session_pos(slot->session) < ds4_session_ctx(slot->session)) {
+        const int m0_completion_before = completion;
+        const s55_m0_kind m0_call_kind =
+            m0_enabled ? m0.kind : S55_M0_DISABLED;
+        const bool m0_recording = m0_call_kind != S55_M0_DISABLED &&
+                                  m0_call_kind != S55_M0_DONE;
+        const double m0_call_t0 = m0_recording ? now_sec() : 0.0;
+        bool m0_was_speculative = false;
         dsml_decode_state dsml_state = j->req.kind == REQ_CHAT && j->req.has_tools ?
             dsml_tracker.decode : DSML_DECODE_OUTSIDE;
         const bool in_tool_call = dsml_decode_state_is_tool(dsml_state);
@@ -12485,20 +12797,64 @@ decode_again:
             ds4_engine_mtp_draft_tokens(s->engine) > 1 &&
             getenv("DS4_MTP_SPEC_DISABLE") == NULL)
         {
-            if (j->req.ignore_eos) {
+            if (m0_enabled) pthread_mutex_lock(&s->inference_mu);
+            int h25_previous_override = -2;
+            if (m0.h25_pair_ab) {
+                const int forced = m0_call_kind == S55_M0_NOMTP ? 1 : 0;
+                h25_previous_override =
+                    ds4_glm53_indexer_score_pair_exact_override(forced);
+                if (h25_previous_override == -2) {
+                    m0.invalid = true;
+                    snprintf(err, sizeof(err),
+                             "S55 H25 pair A/B override is unavailable");
+                }
+            }
+            if (m0.h25_pair_ab && h25_previous_override == -2) {
+                ntok = -1;
+            } else if ((!m0.h25_pair_ab && m0_call_kind == S55_M0_NOMTP) ||
+                m0_call_kind == S55_M0_DONE) {
+                ntok = ds4_session_eval_glm_matched_nomtp(
+                    slot->session, token, j->req.think_mode,
+                    toks, (int)(sizeof(toks) / sizeof(toks[0])),
+                    err, sizeof(err));
+            } else if (j->req.ignore_eos) {
+                const int cycle_cap = max_tokens - completion < (int)(
+                    sizeof(toks) / sizeof(toks[0])) ? max_tokens - completion :
+                    (int)(sizeof(toks) / sizeof(toks[0]));
+                if (m0_recording) {
+                    m0_was_speculative =
+                        ds4_session_glm_mtp_next_call_is_verify(
+                            slot->session, token, cycle_cap);
+                }
                 ntok = ds4_session_eval_speculative_argmax_ignoring_eos(
                     slot->session, token, max_tokens - completion,
                     eos_token, j->req.think_mode,
                     toks, (int)(sizeof(toks) / sizeof(toks[0])),
                     err, sizeof(err));
             } else {
+                const int cycle_cap = max_tokens - completion < (int)(
+                    sizeof(toks) / sizeof(toks[0])) ? max_tokens - completion :
+                    (int)(sizeof(toks) / sizeof(toks[0]));
+                if (m0_recording) {
+                    m0_was_speculative =
+                        ds4_session_glm_mtp_next_call_is_verify(
+                            slot->session, token, cycle_cap);
+                }
                 ntok = ds4_session_eval_speculative(
                     slot->session, token, max_tokens - completion,
                     eos_token, temperature, top_k, top_p, min_p, &rng,
                     toks, (int)(sizeof(toks) / sizeof(toks[0])),
                     err, sizeof(err));
             }
+            if (m0.h25_pair_ab && h25_previous_override != -2) {
+                const int restored =
+                    ds4_glm53_indexer_score_pair_exact_override(
+                        h25_previous_override);
+                if (restored == -2) m0.invalid = true;
+            }
+            if (m0_enabled) pthread_mutex_unlock(&s->inference_mu);
             if (ntok < 0) {
+                if (m0_enabled) m0.invalid = true;
                 finish = "error";
                 break;
             }
@@ -12699,6 +13055,48 @@ decode_again:
                 break;
             }
         }
+        if (m0_recording) {
+            const int emitted = completion - m0_completion_before;
+            if (emitted != ntok) m0.invalid = true;
+            uint64_t cycles = 0, accepted = 0, committed = 0;
+            if (!s55_m0_derive_call_counters_ex(
+                    m0_call_kind, m0.h25_pair_ab,
+                    m0_was_speculative, emitted,
+                    &cycles, &accepted, &committed)) {
+                m0.invalid = true;
+            }
+            const double m0_call_ms = (now_sec() - m0_call_t0) * 1000.0;
+            s55_m0_segment completed_segment = {0};
+            if (s55_m0_schedule_finish_call(&m0, emitted, m0_call_ms,
+                                            cycles, accepted, committed,
+                                            &completed_segment)) {
+                server_log(DS4_LOG_GENERATION,
+                           "ds4-server: s55-m0-segment req=%s seq=%d "
+                           "experiment=%s kind=%s measured=%d calls=%llu tokens=%llu "
+                           "ms=%.6f mtp_cycles=%llu mtp_accepted=%llu "
+                           "mtp_committed=%llu pos=%d invalid=%d",
+                           id, completed_segment.sequence,
+                           m0.h25_pair_ab ? "h25-pair-ab" : "matched-nomtp",
+                           s55_m0_kind_label(&m0, completed_segment.kind),
+                           completed_segment.measured_index,
+                           (unsigned long long)completed_segment.calls,
+                           (unsigned long long)completed_segment.tokens,
+                           completed_segment.milliseconds,
+                           (unsigned long long)completed_segment.mtp_cycles,
+                           (unsigned long long)completed_segment.mtp_accepted,
+                           (unsigned long long)completed_segment.mtp_committed,
+                           ds4_session_pos(slot->session),
+                           m0.invalid ? 1 : 0);
+            }
+        } else if (m0_call_kind == S55_M0_DONE) {
+            const int emitted = completion - m0_completion_before;
+            if (emitted != 1 || emitted != ntok) m0.invalid = true;
+            if (emitted > 0) m0.tail_nomtp_tokens += (uint64_t)emitted;
+        }
+        if (steady_decode_t0 == 0.0 && completion > 0) {
+            steady_seed_tokens = completion;
+            steady_decode_t0 = now_sec();
+        }
         if (stop_decode) break;
     }
     server_generation_leave(s);
@@ -12809,13 +13207,84 @@ decode_again:
                             &last_decode_log_completion);
     }
     /* LOCAL PATCH */
-    {
-        const double decode_sec = now_sec() - decode_t0;
-        pthread_mutex_lock(&s->mu);
-        s->stats.generated_tokens += (uint64_t)(completion > 0 ? completion : 0);
-        if (completion > 0 && decode_sec > 0.0)
-            s->stats.last_decode_tps = (double)completion / decode_sec;
-        pthread_mutex_unlock(&s->mu);
+    const double decode_done = now_sec();
+    const double decode_sec = decode_done - decode_t0;
+    pthread_mutex_lock(&s->mu);
+    s->stats.generated_tokens += (uint64_t)(completion > 0 ? completion : 0);
+    if (completion > 0 && decode_sec > 0.0)
+        s->stats.last_decode_tps = (double)completion / decode_sec;
+    pthread_mutex_unlock(&s->mu);
+
+    if (m0_enabled) {
+        if (m0.kind != S55_M0_DONE || completion != m0_expected_tokens ||
+            strcmp(finish, "length") != 0 ||
+            m0.completed_segment_tokens + m0.tail_nomtp_tokens !=
+                (uint64_t)completion) {
+            m0.invalid = true;
+        }
+        buf token_ids = {0};
+        const ds4_tokens *all_tokens = ds4_session_tokens(slot->session);
+        if (!all_tokens || completion < 0 || all_tokens->len < completion) {
+            m0.invalid = true;
+        } else {
+            const int start = all_tokens->len - completion;
+            for (int i = start; i < all_tokens->len; i++) {
+                buf_printf(&token_ids, "%s%d", i == start ? "" : ",",
+                           all_tokens->v[i]);
+            }
+        }
+        sha1_bytes_hex(text.ptr ? text.ptr : "", text.len, m0_output_sha1);
+        sha1_bytes_hex(token_ids.ptr ? token_ids.ptr : "", token_ids.len,
+                       m0_token_sha1);
+        buf trajectory = {0};
+        buf_append(&trajectory, token_ids.ptr ? token_ids.ptr : "", token_ids.len);
+        const char separator = '\0';
+        buf_append(&trajectory, &separator, 1);
+        buf_append(&trajectory, text.ptr ? text.ptr : "", text.len);
+        sha1_bytes_hex(trajectory.ptr ? trajectory.ptr : "", trajectory.len,
+                       m0_trajectory_sha1);
+        buf_free(&trajectory);
+        server_log(DS4_LOG_GENERATION,
+                   "ds4-server: s55-m0-token-ids req=%s count=%d sha1=%s ids=%s",
+                   id, completion, m0_token_sha1,
+                   token_ids.ptr ? token_ids.ptr : "");
+        buf_free(&token_ids);
+    }
+
+    ds4_glm_mtp_stats mtp_after = {0};
+    if (capture_mtp_counters) {
+        pthread_mutex_lock(&s->inference_mu);
+        ds4_session_glm_mtp_stats(slot->session, &mtp_after);
+        pthread_mutex_unlock(&s->inference_mu);
+    }
+    const uint64_t mtp_cycles = mtp_after.cycles - mtp_before.cycles;
+    const uint64_t mtp_accepted = mtp_after.accepted - mtp_before.accepted;
+    const uint64_t mtp_rejected = mtp_after.rejected - mtp_before.rejected;
+    const uint64_t mtp_committed = mtp_after.committed - mtp_before.committed;
+    const double steady_decode_sec = steady_decode_t0 > 0.0 ?
+        decode_done - steady_decode_t0 : 0.0;
+    const int steady_generated = completion - steady_seed_tokens;
+    if (capture_mtp_counters) {
+        server_log(DS4_LOG_GENERATION,
+                   "ds4-server: decode-summary req=%s prompt=%d gen=%d "
+                   "seconds=%.9f tps=%.9f seed_gen=%d steady_gen=%d "
+                   "steady_seconds=%.9f mtp_active=%d mtp_width=%d "
+                   "mtp_cycles=%llu mtp_accepted=%llu mtp_rejected=%llu "
+                   "mtp_committed=%llu",
+                   id,
+                   prompt_tokens,
+                   completion,
+                   decode_sec,
+                   decode_sec > 0.0 ? (double)completion / decode_sec : 0.0,
+                   steady_seed_tokens,
+                   steady_generated,
+                   steady_decode_sec,
+                   server_glm_mtp_active(s) ? 1 : 0,
+                   ds4_engine_mtp_draft_tokens(s->engine),
+                   (unsigned long long)mtp_cycles,
+                   (unsigned long long)mtp_accepted,
+                   (unsigned long long)mtp_rejected,
+                   (unsigned long long)mtp_committed);
     }
 
     if (j->req.stream && !structured_stream && text.len > plain_stream_pos) {
@@ -13040,6 +13509,50 @@ decode_again:
                                      parsed_content ? parsed_content : "");
     } else if (!parsed_calls.len) {
         thinking_live_clear(s, slot);
+    }
+
+    if (m0_enabled) {
+        const char *response_text = parsed_content ? parsed_content :
+            (text.ptr ? text.ptr : "");
+        const size_t response_len = strlen(response_text);
+        const bool exact_response =
+            response_len == text.len &&
+            memcmp(response_text, text.ptr ? text.ptr : "", text.len) == 0 &&
+            (!parsed_reasoning || parsed_reasoning[0] == '\0') &&
+            parsed_calls.len == 0 &&
+            strcmp(final_finish, "length") == 0;
+        if (!exact_response) {
+            m0.invalid = true;
+            final_finish = "error";
+            snprintf(err, sizeof(err),
+                     "S55 M0 response parsing changed generated output");
+        }
+        server_log(DS4_LOG_GENERATION,
+                   "ds4-server: s55-m0-summary req=%s complete=%d invalid=%d "
+                   "experiment=%s prompt=%d gen=%d expected_gen=%d final_pos=%d "
+                   "mtp_segments=%llu mtp_tokens=%llu mtp_ms=%.6f "
+                   "mtp_cycles=%llu mtp_accepted=%llu mtp_committed=%llu "
+                   "nomtp_segments=%llu nomtp_tokens=%llu nomtp_ms=%.6f "
+                   "wash_segments=%llu tail_nomtp_tokens=%llu "
+                   "output_sha1=%s token_sha1=%s trajectory_sha1=%s finish=%s",
+                   id, m0.kind == S55_M0_DONE ? 1 : 0,
+                   m0.invalid ? 1 : 0,
+                   m0.h25_pair_ab ? "h25-pair-ab" : "matched-nomtp",
+                   prompt_tokens, completion,
+                   m0_expected_tokens, ds4_session_pos(slot->session),
+                   (unsigned long long)m0.scored_mtp_segments,
+                   (unsigned long long)m0.scored_mtp_tokens,
+                   m0.scored_mtp_ms,
+                   (unsigned long long)m0.scored_mtp_cycles,
+                   (unsigned long long)m0.scored_mtp_accepted,
+                   (unsigned long long)m0.scored_mtp_committed,
+                   (unsigned long long)m0.scored_nomtp_segments,
+                   (unsigned long long)m0.scored_nomtp_tokens,
+                   m0.scored_nomtp_ms,
+                   (unsigned long long)m0.wash_segments,
+                   (unsigned long long)m0.tail_nomtp_tokens,
+                   m0_output_sha1, m0_token_sha1, m0_trajectory_sha1,
+                   final_finish);
     }
 
     bool response_ok = !job_cancelled(j);
@@ -13302,27 +13815,57 @@ static bool send_health(server *s, int fd) {
 
 static bool send_stats(server *s, int fd) {
     buf slots = {0};
+    bool *slot_busy = xmalloc((size_t)s->slot_count * sizeof(*slot_busy));
+    int *slot_pos = xmalloc((size_t)s->slot_count * sizeof(*slot_pos));
+    int *slot_ctx = xmalloc((size_t)s->slot_count * sizeof(*slot_ctx));
     pthread_mutex_lock(&s->mu);
     server_stats st = s->stats;
     int queue_depth = 0;
     for (job *j = s->head; j; j = j->next) queue_depth++;
+    for (int i = 0; i < s->slot_count; i++) {
+        slot_busy[i] = s->slots[i].busy;
+    }
+    const int clients = s->clients;
+    const bool s55_m0_claimed = s->s55_m0_claimed;
+    pthread_mutex_unlock(&s->mu);
+
+    pthread_mutex_lock(&s->model_mu);
     bool busy = false;
-    int live_tokens = 0;
-    int ctx_size = s->ctx_size;
+    for (int i = 0; i < s->slot_count; i++) {
+        slot_busy[i] = slot_busy[i] || s->slots[i].running != NULL;
+        if (slot_busy[i]) busy = true;
+        slot_pos[i] = -1;
+        slot_ctx[i] = s->ctx_size;
+    }
+    pthread_mutex_unlock(&s->model_mu);
+
+    /* Never make monitor polling contend with active decode. Exact positions
+     * are reported only at an idle boundary, where inference_mu makes the
+     * session reads race-free. */
+    if (!busy) {
+        pthread_mutex_lock(&s->inference_mu);
+        for (int i = 0; i < s->slot_count; i++) {
+            ds4_session *session = s->slots[i].session;
+            slot_pos[i] = session ? ds4_session_pos(session) : 0;
+            slot_ctx[i] = session ? ds4_session_ctx(session) : s->ctx_size;
+        }
+        pthread_mutex_unlock(&s->inference_mu);
+    }
+
+    int live_tokens = busy ? -1 : 0;
     buf_puts(&slots, "[");
     for (int i = 0; i < s->slot_count; i++) {
         const server_slot *sl = &s->slots[i];
-        const bool sl_busy = sl->busy || sl->running != NULL;
-        const int pos = sl->session ? ds4_session_pos(sl->session) : 0;
-        if (sl_busy) busy = true;
-        live_tokens += pos;
+        if (!busy) live_tokens += slot_pos[i];
         buf_printf(&slots, "%s{\"id\":%d,\"busy\":%s,\"live_tokens\":%d,\"ctx\":%d}",
-                   i ? "," : "", sl->id, sl_busy ? "true" : "false", pos,
-                   sl->session ? ds4_session_ctx(sl->session) : ctx_size);
+                   i ? "," : "", sl->id,
+                   slot_busy[i] ? "true" : "false",
+                   slot_pos[i], slot_ctx[i]);
     }
     buf_puts(&slots, "]");
-    const int clients = s->clients;
-    pthread_mutex_unlock(&s->mu);
+    free(slot_busy);
+    free(slot_pos);
+    free(slot_ctx);
     uint64_t kv_used = 0, kv_budget = 0;
     int kv_files = 0;
     bool kv_enabled = false;
@@ -13336,6 +13879,10 @@ static bool send_stats(server *s, int fd) {
         if (s->kv.dir) kv_dir = xstrdup(s->kv.dir);
     }
     pthread_mutex_unlock(&s->kv_mu);
+    const int mtp_width = ds4_engine_mtp_draft_tokens(s->engine);
+    const bool mtp_active = server_glm_mtp_active(s);
+    const bool mtp_timing = ds4_engine_glm_mtp_timing_enabled(s->engine);
+    const bool mtp_counters = ds4_engine_glm_mtp_counters_enabled(s->engine);
     buf b = {0};
     buf_puts(&b, "{\"model\":");
     json_escape(&b, ds4_engine_model_name(s->engine));
@@ -13350,7 +13897,10 @@ static bool send_stats(server *s, int fd) {
                (double)kv_budget / (1024.0 * 1024.0), kv_files);
     free(kv_dir);
     buf_printf(&b,
-        ",\"uptime_s\":%.0f,"
+        ",\"runtime_schema\":1,"
+        "\"instance\":\"%016llx\","
+        "\"pid\":%d,"
+        "\"uptime_s\":%.0f,"
         "\"busy\":%s,"
         "\"queue_depth\":%d,"
         "\"clients\":%d,"
@@ -13367,14 +13917,19 @@ static bool send_stats(server *s, int fd) {
         "\"generated_tokens\":%llu,"
         "\"last_prefill_tps\":%.2f,"
         "\"last_decode_tps\":%.2f,"
+        "\"mtp\":{\"active\":%s,\"width\":%d,\"timing\":%s,\"counters\":%s},"
+        "\"s55_m0\":{\"enabled\":%s,\"segment_tokens\":%d,\"repeats\":%d,"
+        "\"experiment\":\"%s\",\"claimed\":%s},"
         "\"cache\":{\"hits\":%llu,\"cold\":%llu},"
         "\"slots\":%s}\n",
+        (unsigned long long)s->instance_id,
+        (int)getpid(),
         now_sec() - s->started_at,
         busy ? "true" : "false",
         queue_depth,
         clients,
         live_tokens,
-        ctx_size,
+        s->ctx_size,
         s->slot_count,
         process_rss_mb(),
         (unsigned long long)st.requests,
@@ -13384,6 +13939,15 @@ static bool send_stats(server *s, int fd) {
         (unsigned long long)st.generated_tokens,
         st.last_prefill_tps,
         st.last_decode_tps,
+        mtp_active ? "true" : "false",
+        mtp_width,
+        mtp_timing ? "true" : "false",
+        mtp_counters ? "true" : "false",
+        s->s55_m0_segment_tokens ? "true" : "false",
+        s->s55_m0_segment_tokens,
+        s->s55_m0_repeats,
+        s->s55_h25_pair_ab ? "h25-pair-ab" : "matched-nomtp",
+        s55_m0_claimed ? "true" : "false",
         (unsigned long long)st.cache_hits,
         (unsigned long long)st.cache_cold,
         slots.ptr ? slots.ptr : "[]");
@@ -13917,6 +14481,9 @@ typedef struct {
     bool enable_cors;
     int batched_sessions;
     int mixed_prefill_quantum;
+    int s55_m0_segment_tokens;
+    int s55_m0_repeats;
+    bool s55_h25_pair_ab;
 } server_config;
 
 static int parse_int_arg(const char *s, const char *opt) {
@@ -14100,6 +14667,20 @@ static server_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--mtp-timing")) {
             c.engine.glm_mtp = true;
             c.engine.glm_mtp_timing = true;
+        } else if (!strcmp(arg, "--mtp-counters")) {
+            c.engine.glm_mtp = true;
+            c.engine.glm_mtp_counters = true;
+        } else if (!strcmp(arg, "--s55-m0-segment-tokens")) {
+            c.s55_m0_segment_tokens =
+                parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+            c.engine.glm_mtp = true;
+        } else if (!strcmp(arg, "--s55-m0-repeats")) {
+            c.s55_m0_repeats =
+                parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+            c.engine.glm_mtp = true;
+        } else if (!strcmp(arg, "--s55-h25-pair-ab")) {
+            c.s55_h25_pair_ab = true;
+            c.engine.glm_mtp = true;
         } else if (!strcmp(arg, "--dspark")) {
             c.engine.dspark = true;
         } else if (!strcmp(arg, "--dspark-confidence")) {
@@ -14248,6 +14829,30 @@ static server_config parse_options(int argc, char **argv) {
     if (c.engine.directional_steering_file && !directional_steering_scale_set) {
         c.engine.directional_steering_ffn = 1.0f;
     }
+    if ((c.s55_m0_segment_tokens == 0) != (c.s55_m0_repeats == 0) ||
+        (c.s55_m0_segment_tokens != 0 &&
+         (c.s55_m0_segment_tokens < 32 || c.s55_m0_segment_tokens > 4096 ||
+          c.s55_m0_repeats < 2 || c.s55_m0_repeats > 64 ||
+          (uint64_t)c.s55_m0_segment_tokens * 4u *
+              (uint64_t)c.s55_m0_repeats < 512u))) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: S55 M0 requires segment tokens 32..4096, repeats 2..64, and >=512 scored tokens per arm");
+        exit(2);
+    }
+    if (c.s55_h25_pair_ab && c.s55_m0_segment_tokens == 0) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: --s55-h25-pair-ab requires the S55 M0 schedule");
+        exit(2);
+    }
+    if (c.s55_m0_segment_tokens != 0 &&
+        (c.batched_sessions > 0 || c.engine.glm_mtp_timing ||
+         c.engine.glm_mtp_counters ||
+         c.engine.distributed.role != DS4_DISTRIBUTED_NONE ||
+         c.engine.tp.role != DS4_TP_NONE)) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: S55 M0 requires one local session with TP, counters, and profiler/timing disabled");
+        exit(2);
+    }
     char dist_err[256];
     if (ds4_dist_prepare_engine_options(&c.engine.distributed,
                                         &c.engine,
@@ -14286,6 +14891,24 @@ int main(int argc, char **argv) {
     sigaction(SIGTERM, &sa, NULL);
 
     server_config cfg = parse_options(argc, argv);
+    if (cfg.s55_m0_segment_tokens != 0 &&
+        (cfg.engine.backend != DS4_BACKEND_METAL ||
+         getenv("DS4_MTP_SPEC_DISABLE") ||
+         getenv("DS4_GLM_MTP_PROBE") ||
+         getenv("DS4_GLM_DECODE_ABLATE") ||
+         getenv("DS4_GLM_ABLATE_FILE") ||
+         getenv("DS4_GLM_VERIFY_SCAN"))) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: S55 M0 requires Metal and no speculative/ablation overrides");
+        return 2;
+    }
+    if (cfg.s55_h25_pair_ab &&
+        (getenv("DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT") ||
+         getenv("DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT"))) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: S55 H25 pair A/B refuses global indexer-pair overrides");
+        return 2;
+    }
     if (cfg.chdir_path && chdir(cfg.chdir_path) != 0) {
         server_log(DS4_LOG_DEFAULT, "ds4-server: failed to chdir to %s: %s",
                    cfg.chdir_path, strerror(errno));
@@ -14350,6 +14973,9 @@ int main(int argc, char **argv) {
     s.slot_count = slot_count;
     s.batched_mode = cfg.batched_sessions > 0;
     s.mixed_prefill_quantum = cfg.mixed_prefill_quantum;
+    s.s55_m0_segment_tokens = cfg.s55_m0_segment_tokens;
+    s.s55_m0_repeats = cfg.s55_m0_repeats;
+    s.s55_h25_pair_ab = cfg.s55_h25_pair_ab;
     s.last_prefill_slot = slot_count - 1;
     s.default_tokens = cfg.default_tokens;
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
@@ -14357,7 +14983,24 @@ int main(int argc, char **argv) {
     s.enable_cors = cfg.enable_cors;
     /* LOCAL PATCH */
     s.started_at = now_sec();
+    s.instance_id = server_instance_id();
     s.model_path = cfg.engine.model_path;
+    server_log(DS4_LOG_DEFAULT,
+               "ds4-server: runtime instance=%016llx pid=%d schema=1",
+               (unsigned long long)s.instance_id,
+               (int)getpid());
+    if (s.s55_m0_segment_tokens) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: S55 M0 enabled segment_tokens=%d repeats=%d "
+                   "experiment=%s expected_gen=%d schedule=ABBA-BAAB "
+                   "wash=arm-b-to-arm-a "
+                   "tail=matched-nomtp counters=derived",
+                   s.s55_m0_segment_tokens, s.s55_m0_repeats,
+                   s.s55_h25_pair_ab ? "h25-pair-ab" : "matched-nomtp",
+                   s55_m0_max_completion_tokens_ex(
+                       s.s55_m0_segment_tokens, s.s55_m0_repeats,
+                       s.s55_h25_pair_ab));
+    }
     s.slots = xmalloc((size_t)slot_count * sizeof(*s.slots));
     memset(s.slots, 0, (size_t)slot_count * sizeof(*s.slots));
     if (s.batched_mode) {
@@ -14585,6 +15228,7 @@ static void test_mixed_prefill_quantum_option(void) {
     char *default_argv[] = {"ds4-server"};
     server_config defaults = parse_options(1, default_argv);
     TEST_ASSERT(defaults.mixed_prefill_quantum == 128);
+    TEST_ASSERT(!defaults.engine.glm_mtp_counters);
 
     char *custom_argv[] = {
         "ds4-server", "--mixed-prefill-quantum", "2048"
@@ -14597,6 +15241,164 @@ static void test_mixed_prefill_quantum_option(void) {
     TEST_ASSERT(server_prefill_quantum_for(&s, true) == 2048);
     s.mixed_prefill_quantum = defaults.mixed_prefill_quantum;
     TEST_ASSERT(server_prefill_quantum_for(&s, true) == 128);
+
+    char *counter_argv[] = {"ds4-server", "--mtp-counters"};
+    server_config counters = parse_options(2, counter_argv);
+    TEST_ASSERT(counters.engine.glm_mtp);
+    TEST_ASSERT(counters.engine.glm_mtp_counters);
+}
+
+static void test_s55_m0_schedule_is_balanced_and_wash_separated(void) {
+    s55_m0_schedule schedule;
+    TEST_ASSERT(s55_m0_schedule_init_ex(&schedule, 64, 2, false));
+
+    const s55_m0_kind expected[] = {
+        S55_M0_WARM,
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_NOMTP, S55_M0_WASH,
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_WASH, S55_M0_MTP,
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_WASH,
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_NOMTP, S55_M0_WASH,
+        S55_M0_MTP, S55_M0_NOMTP, S55_M0_WASH, S55_M0_MTP,
+        S55_M0_MTP, S55_M0_NOMTP,
+    };
+    int completed_count = 0;
+    while (schedule.kind != S55_M0_DONE) {
+        const s55_m0_kind kind = schedule.kind;
+        uint64_t cycles = 0, accepted = 0, committed = 0;
+        const bool was_speculative = kind == S55_M0_MTP ||
+            ((kind == S55_M0_WARM || kind == S55_M0_WASH) &&
+             schedule.current.calls != 0u);
+        TEST_ASSERT(s55_m0_derive_call_counters_ex(
+            kind, false, was_speculative, 1,
+            &cycles, &accepted, &committed));
+        s55_m0_segment completed = {0};
+        if (!s55_m0_schedule_finish_call(&schedule, 1, 1.0,
+                                         cycles, accepted, committed,
+                                         &completed)) {
+            continue;
+        }
+        TEST_ASSERT(completed_count < (int)(sizeof(expected) / sizeof(expected[0])));
+        if (completed_count < (int)(sizeof(expected) / sizeof(expected[0]))) {
+            TEST_ASSERT(completed.kind == expected[completed_count]);
+        }
+        completed_count++;
+    }
+    TEST_ASSERT(completed_count == (int)(sizeof(expected) / sizeof(expected[0])));
+    TEST_ASSERT(!schedule.invalid);
+    TEST_ASSERT(schedule.scored_mtp_segments == 8);
+    TEST_ASSERT(schedule.scored_nomtp_segments == 8);
+    TEST_ASSERT(schedule.wash_segments == 5);
+    TEST_ASSERT(schedule.scored_mtp_tokens == 512);
+    TEST_ASSERT(schedule.scored_nomtp_tokens == 512);
+    TEST_ASSERT(s55_m0_max_completion_tokens_ex(64, 2, false) == 1422);
+    TEST_ASSERT(schedule.completed_segment_tokens == 1408);
+    TEST_ASSERT((uint64_t)s55_m0_max_completion_tokens_ex(64, 2, false) -
+                schedule.completed_segment_tokens == 14u);
+}
+
+static void test_s55_m0_schedule_rejects_counter_or_boundary_mismatch(void) {
+    s55_m0_schedule schedule;
+    TEST_ASSERT(s55_m0_schedule_init_ex(&schedule, 64, 2, false));
+    s55_m0_segment completed = {0};
+    for (int i = 0; i < 64; i++) {
+        (void)s55_m0_schedule_finish_call(&schedule, 1, 1.0,
+                                          0u, 0u, 0u, &completed);
+    }
+    TEST_ASSERT(schedule.kind == S55_M0_MTP);
+    for (int i = 0; i < 64; i++) {
+        (void)s55_m0_schedule_finish_call(&schedule, 1, 1.0,
+                                          0u, 0u, 0u, &completed);
+    }
+    TEST_ASSERT(schedule.invalid);
+
+    TEST_ASSERT(s55_m0_schedule_init_ex(&schedule, 64, 2, false));
+    (void)s55_m0_schedule_finish_call(&schedule, 3, 1.0,
+                                      0u, 0u, 0u, &completed);
+    TEST_ASSERT(schedule.invalid);
+    TEST_ASSERT(!s55_m0_schedule_init_ex(&schedule, 31, 2, false));
+    TEST_ASSERT(!s55_m0_schedule_init_ex(&schedule, 32, 2, false));
+    TEST_ASSERT(s55_m0_schedule_init_ex(&schedule, 32, 4, false));
+    TEST_ASSERT(!s55_m0_schedule_init_ex(&schedule, 64, 1, false));
+
+    uint64_t cycles = 0, accepted = 0, committed = 0;
+    TEST_ASSERT(!s55_m0_derive_call_counters_ex(
+        S55_M0_MTP, false, false, 1,
+        &cycles, &accepted, &committed));
+    TEST_ASSERT(s55_m0_derive_call_counters_ex(
+        S55_M0_WASH, false, false, 1,
+        &cycles, &accepted, &committed));
+    TEST_ASSERT(cycles == 0 && accepted == 0 && committed == 0);
+    TEST_ASSERT(s55_m0_derive_call_counters_ex(
+        S55_M0_WASH, false, true, 2,
+        &cycles, &accepted, &committed));
+    TEST_ASSERT(cycles == 1 && accepted == 1 && committed == 2);
+}
+
+static void test_s55_h25_pair_schedule_scores_two_speculative_arms(void) {
+    s55_m0_schedule schedule;
+    TEST_ASSERT(s55_m0_schedule_init_ex(&schedule, 64, 2, true));
+
+    while (schedule.kind != S55_M0_DONE) {
+        const s55_m0_kind kind = schedule.kind;
+        uint64_t cycles = 0, accepted = 0, committed = 0;
+        const bool was_speculative =
+            kind == S55_M0_MTP || kind == S55_M0_NOMTP ||
+            (kind == S55_M0_WASH) ||
+            (kind == S55_M0_WARM && schedule.current.calls != 0u);
+        TEST_ASSERT(s55_m0_derive_call_counters_ex(
+            kind, true, was_speculative, 1,
+            &cycles, &accepted, &committed));
+        s55_m0_segment completed = {0};
+        (void)s55_m0_schedule_finish_call(&schedule, 1, 1.0,
+                                          cycles, accepted, committed,
+                                          &completed);
+    }
+
+    TEST_ASSERT(!schedule.invalid);
+    TEST_ASSERT(schedule.scored_mtp_segments == 8);
+    TEST_ASSERT(schedule.scored_nomtp_segments == 8);
+    TEST_ASSERT(schedule.scored_mtp_tokens == 512);
+    TEST_ASSERT(schedule.scored_nomtp_tokens == 512);
+    TEST_ASSERT(schedule.wash_segments == 5);
+    TEST_ASSERT(s55_m0_max_completion_tokens_ex(64, 2, true) == 1430);
+    TEST_ASSERT(schedule.completed_segment_tokens == 1408);
+    TEST_ASSERT((uint64_t)s55_m0_max_completion_tokens_ex(64, 2, true) -
+                schedule.completed_segment_tokens == 22u);
+}
+
+static void test_s55_m0_options_are_explicit_without_counter_bias(void) {
+    char *argv[] = {
+        "ds4-server",
+        "--s55-m0-segment-tokens", "64",
+        "--s55-m0-repeats", "2",
+        "--s55-h25-pair-ab",
+    };
+    server_config config = parse_options(6, argv);
+    TEST_ASSERT(config.s55_m0_segment_tokens == 64);
+    TEST_ASSERT(config.s55_m0_repeats == 2);
+    TEST_ASSERT(config.s55_h25_pair_ab);
+    TEST_ASSERT(config.engine.glm_mtp);
+    TEST_ASSERT(!config.engine.glm_mtp_counters);
+
+    char *defaults_argv[] = {"ds4-server"};
+    server_config defaults = parse_options(1, defaults_argv);
+    TEST_ASSERT(defaults.s55_m0_segment_tokens == 0);
+    TEST_ASSERT(defaults.s55_m0_repeats == 0);
+    TEST_ASSERT(!defaults.s55_h25_pair_ab);
+}
+
+static void test_s55_m0_claims_exactly_one_inference_request(void) {
+    server s = {.s55_m0_segment_tokens = 64};
+    pthread_mutex_init(&s.mu, NULL);
+    TEST_ASSERT(server_s55_m0_claim_request(&s));
+    TEST_ASSERT(s.s55_m0_claimed);
+    TEST_ASSERT(!server_s55_m0_claim_request(&s));
+    pthread_mutex_destroy(&s.mu);
+
+    server normal = {0};
+    TEST_ASSERT(server_s55_m0_claim_request(&normal));
+    TEST_ASSERT(server_s55_m0_claim_request(&normal));
+    TEST_ASSERT(!normal.s55_m0_claimed);
 }
 
 static void test_batched_live_continuation_slot_binding(void) {
@@ -19481,6 +20283,11 @@ static void test_responses_inline_image_content(void) {
 static void ds4_server_unit_tests_run(void) {
     test_batched_prefill_round_robin();
     test_mixed_prefill_quantum_option();
+    test_s55_m0_schedule_is_balanced_and_wash_separated();
+    test_s55_m0_schedule_rejects_counter_or_boundary_mismatch();
+    test_s55_h25_pair_schedule_scores_two_speculative_arms();
+    test_s55_m0_options_are_explicit_without_counter_bias();
+    test_s55_m0_claims_exactly_one_inference_request();
     test_batched_live_continuation_slot_binding();
     test_request_defaults_use_min_p_filtering();
     test_chat_ignore_eos_contract();

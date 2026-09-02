@@ -37882,6 +37882,7 @@ struct ds4_engine {
     bool quality;
     bool glm_mtp;
     bool glm_mtp_timing;
+    bool glm_mtp_counters;
     bool dspark;
     bool dspark_strict;
     bool dspark_exact_sampling;
@@ -41154,6 +41155,248 @@ static DS4_MAYBE_UNUSED bool glm_graph_env_truthy(const char *env) {
            strcasecmp(env, "no") != 0;
 }
 
+static uint32_t glm_decode_ablate_mask(void);
+
+typedef struct {
+    bool        active;
+    const char *path;
+    uint64_t    cycle;
+    uint32_t    layer;
+    uint32_t    pos;
+    uint32_t    n_tokens;
+} glm_metal_macro_profile_scope;
+
+static _Thread_local glm_metal_macro_profile_scope
+    g_glm_metal_macro_profile_scope;
+static _Thread_local int g_glm_metal_macro_profile_override = -1;
+static _Thread_local uint64_t
+    g_glm_metal_macro_profile_logical_cycle_override;
+static uint64_t g_glm_metal_macro_profile_cycle;
+
+static bool glm_graph_metal_macro_profile_requested(void) {
+#if defined(__APPLE__)
+    if (g_glm_metal_macro_profile_override >= 0) {
+        return g_glm_metal_macro_profile_override != 0;
+    }
+    return glm_graph_env_truthy(getenv("DS4_METAL_GLM_MACRO_PROFILE"));
+#else
+    return false;
+#endif
+}
+
+static int glm_graph_metal_macro_profile_override(int enabled) {
+    const int previous = g_glm_metal_macro_profile_override;
+    g_glm_metal_macro_profile_override = enabled < 0 ? -1 : enabled != 0;
+    return previous;
+}
+
+int ds4_test_glm_macro_profile_override(int enabled) {
+    return glm_graph_metal_macro_profile_override(enabled);
+}
+
+static bool glm_graph_metal_macro_profile_supported(
+        const ds4_glm_gpu_graph *g) {
+#if defined(__APPLE__)
+    if (!g || !g->glm53 || g->ssd_streaming || g->placement ||
+        g->tp_world > 1 || g_expert_profile.active ||
+        glm_decode_ablate_mask() != 0 ||
+        getenv("DS4_METAL_LAYER_STAGE_PROFILE") != NULL ||
+        getenv("DS4_METAL_DECODE_STAGE_PROFILE") != NULL ||
+        getenv("DS4_METAL_MOE_ONE_STAGE_PROFILE") != NULL) {
+        fprintf(stderr,
+                "ds4: DS4_METAL_GLM_MACRO_PROFILE requires GLM-5.3, "
+                "single-device resident Metal, and no other profiler or ablation\n");
+        return false;
+    }
+    return true;
+#else
+    (void)g;
+    return false;
+#endif
+}
+
+static bool glm_graph_metal_macro_profile_select_layer(
+        const ds4_glm_gpu_graph *g,
+        uint32_t                 pos,
+        uint32_t                *layer_out) {
+    if (!g || !layer_out || g->layer_count == 0) return false;
+    const char *fixed = getenv("DS4_METAL_GLM_MACRO_PROFILE_LAYER");
+    if (fixed && fixed[0]) {
+        char *end = NULL;
+        errno = 0;
+        const unsigned long value = strtoul(fixed, &end, 10);
+        if (errno != 0 || end == fixed || *end != '\0' ||
+            value < g->layer_start || value > g->layer_end) {
+            fprintf(stderr,
+                    "ds4: invalid DS4_METAL_GLM_MACRO_PROFILE_LAYER='%s' "
+                    "for layers %u..%u\n",
+                    fixed,
+                    g->layer_start,
+                    g->layer_end);
+            return false;
+        }
+        *layer_out = (uint32_t)value;
+        return true;
+    }
+
+    const uint32_t sweep = pos / g->layer_count;
+    uint32_t offset = pos % g->layer_count;
+    if ((sweep & 1u) != 0) offset = g->layer_count - 1u - offset;
+    *layer_out = g->layer_start + offset;
+    return true;
+}
+
+static uint64_t glm_graph_metal_macro_profile_next_cycle(void) {
+    return ++g_glm_metal_macro_profile_cycle;
+}
+
+static uint64_t glm_graph_metal_macro_profile_logical_cycle(void) {
+    return g_glm_metal_macro_profile_logical_cycle_override;
+}
+
+static uint64_t glm_graph_metal_macro_profile_cycle_for_call(void) {
+    const uint64_t inherited =
+        glm_graph_metal_macro_profile_logical_cycle();
+    return inherited != 0 ? inherited :
+                            glm_graph_metal_macro_profile_next_cycle();
+}
+
+static uint64_t glm_graph_metal_macro_profile_logical_cycle_override(
+        uint64_t cycle) {
+    const uint64_t previous =
+        g_glm_metal_macro_profile_logical_cycle_override;
+    g_glm_metal_macro_profile_logical_cycle_override = cycle;
+    return previous;
+}
+
+static void glm_graph_metal_macro_profile_report_cycle(
+        uint64_t cycle,
+        uint32_t pos,
+        uint32_t committed_tokens,
+        double   wall_start) {
+#if defined(__APPLE__)
+    if (cycle == 0) return;
+    double labelled_gpu_ms = 0.0;
+    uint32_t records = 0;
+    uint32_t timed_records = 0;
+    const bool have_summary =
+        ds4_gpu_macro_profile_cycle_summary(cycle,
+                                            &labelled_gpu_ms,
+                                            &records,
+                                            &timed_records) != 0;
+    if (committed_tokens == 0 || wall_start <= 0.0) return;
+    fprintf(stderr,
+            "ds4: metal macro cycle=%llu path=logical_cycle "
+            "region=cycle_summary layer=%u pos=%u tokens=%u "
+            "wall_ms=%.6f labelled_gpu_ms=%.6f records=%u timed=%u "
+            "unattributed=not_computed summary=%s\n",
+            (unsigned long long)cycle,
+            DS4_N_LAYER,
+            pos,
+            committed_tokens,
+            (now_sec() - wall_start) * 1000.0,
+            labelled_gpu_ms,
+            records,
+            timed_records,
+            have_summary ? "labelled_spans" : "empty");
+#else
+    (void)cycle;
+    (void)pos;
+    (void)committed_tokens;
+    (void)wall_start;
+#endif
+}
+
+static void glm_graph_metal_macro_profile_discard_cycle(uint64_t cycle) {
+    glm_graph_metal_macro_profile_report_cycle(cycle, 0, 0, 0.0);
+}
+
+static bool glm_graph_metal_macro_profile_begin(
+        const char *path,
+        uint64_t    cycle,
+        uint32_t    layer,
+        uint32_t    pos,
+        uint32_t    n_tokens) {
+#if defined(__APPLE__)
+    if (!path || !path[0] || cycle == 0 || n_tokens == 0 ||
+        g_glm_metal_macro_profile_scope.active) {
+        return false;
+    }
+    if (!ds4_gpu_macro_profile_boundary(path,
+                                        NULL,
+                                        cycle,
+                                        layer,
+                                        pos,
+                                        n_tokens)) {
+        return false;
+    }
+    g_glm_metal_macro_profile_scope = (glm_metal_macro_profile_scope) {
+        .active = true,
+        .path = path,
+        .cycle = cycle,
+        .layer = layer,
+        .pos = pos,
+        .n_tokens = n_tokens,
+    };
+    return true;
+#else
+    (void)path;
+    (void)cycle;
+    (void)layer;
+    (void)pos;
+    (void)n_tokens;
+    return false;
+#endif
+}
+
+static bool glm_graph_metal_macro_profile_region(const char *region) {
+#if defined(__APPLE__)
+    const glm_metal_macro_profile_scope *scope =
+        &g_glm_metal_macro_profile_scope;
+    return !scope->active ||
+           ds4_gpu_macro_profile_boundary(scope->path,
+                                          region,
+                                          scope->cycle,
+                                          scope->layer,
+                                          scope->pos,
+                                          scope->n_tokens) != 0;
+#else
+    (void)region;
+    return true;
+#endif
+}
+
+static bool glm_graph_metal_macro_profile_label_terminal(
+        const char *region) {
+#if defined(__APPLE__)
+    const glm_metal_macro_profile_scope scope =
+        g_glm_metal_macro_profile_scope;
+    if (!scope.active) return true;
+    const bool ok = ds4_gpu_macro_profile_label_current(scope.path,
+                                                        region,
+                                                        scope.cycle,
+                                                        scope.layer,
+                                                        scope.pos,
+                                                        scope.n_tokens) != 0;
+    memset(&g_glm_metal_macro_profile_scope,
+           0,
+           sizeof(g_glm_metal_macro_profile_scope));
+    return ok;
+#else
+    (void)region;
+    return true;
+#endif
+}
+
+static void glm_graph_metal_macro_profile_end(void) {
+#if defined(__APPLE__)
+    (void)ds4_gpu_macro_profile_cancel();
+#endif
+    memset(&g_glm_metal_macro_profile_scope,
+           0,
+           sizeof(g_glm_metal_macro_profile_scope));
+}
+
 static bool glm_graph_streaming_prefill_sync_each_layer(
         bool full_layer_prefill) {
 #ifdef DS4_ROCM_BUILD
@@ -43606,13 +43849,65 @@ static bool glm_graph_encode_output_head(
     return glm_graph_encode_output_head_from(g, model, weights, g->cur);
 }
 
-static bool glm_graph_forward_output_head(
+static bool glm_graph_forward_hc_output_profiled(
+        ds4_glm_gpu_graph    *g,
+        const ds4_gpu_tensor *hidden_hc,
+        const char           *profile_path,
+        uint64_t              profile_cycle,
+        uint32_t              profile_pos,
+        uint32_t              profile_tokens) {
+    if (!g || !hidden_hc ||
+        (profile_cycle == 0) != (profile_path == NULL) ||
+        (profile_cycle != 0 && profile_tokens == 0)) {
+        return false;
+    }
+    if (profile_cycle == 0) {
+        return ds4_gpu_hc_weighted_sum_tensor(g->hc_output,
+                                              hidden_hc,
+                                              g->hc_mean_weights,
+                                              DS4_N_EMBD,
+                                              DS4_N_HC) != 0;
+    }
+#if defined(__APPLE__)
+    bool ok = ds4_gpu_begin_commands() != 0;
+    if (ok) {
+        ok = ds4_gpu_hc_weighted_sum_tensor(g->hc_output,
+                                            hidden_hc,
+                                            g->hc_mean_weights,
+                                            DS4_N_EMBD,
+                                            DS4_N_HC) != 0;
+    }
+    if (ok) {
+        ok = ds4_gpu_macro_profile_label_current(profile_path,
+                                                 "hc_output",
+                                                 profile_cycle,
+                                                 DS4_N_LAYER,
+                                                 profile_pos,
+                                                 profile_tokens) != 0;
+    }
+    if (ok) ok = ds4_gpu_end_commands() != 0;
+    else (void)ds4_gpu_synchronize();
+    return ok;
+#else
+    return false;
+#endif
+}
+
+static bool glm_graph_forward_output_head_profiled(
         ds4_glm_gpu_graph    *g,
         const ds4_model      *model,
         const ds4_weights    *weights,
         const ds4_gpu_tensor *hidden,
-        float                *logits_out) {
+        float                *logits_out,
+        const char           *profile_path,
+        uint64_t              profile_cycle,
+        uint32_t              profile_pos,
+        uint32_t              profile_tokens) {
     if (!g || !model || !weights || !hidden || !logits_out) return false;
+    if ((profile_cycle == 0) != (profile_path == NULL) ||
+        (profile_cycle != 0 && profile_tokens == 0)) {
+        return false;
+    }
     const ds4_gpu_tensor *plain = hidden;
     bool ok = ds4_gpu_begin_commands() != 0;
     if (ok && g->glm53 &&
@@ -43625,6 +43920,18 @@ static bool glm_graph_forward_output_head(
         plain = g->hc_output;
     }
     if (ok) ok = glm_graph_encode_output_head_from(g, model, weights, plain);
+    if (ok && profile_cycle != 0) {
+#if defined(__APPLE__)
+        ok = ds4_gpu_macro_profile_label_current(profile_path,
+                                                 "output_head",
+                                                 profile_cycle,
+                                                 DS4_N_LAYER,
+                                                 profile_pos,
+                                                 profile_tokens) != 0;
+#else
+        ok = false;
+#endif
+    }
     if (ok) ok = ds4_gpu_end_commands() != 0;
     else (void)ds4_gpu_synchronize();
     if (ok && glm_debug_hidden_dump_layer() < 0)
@@ -44322,6 +44629,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                          1,
                                          stage_t0);
     if (ok) ok = glm_graph_profile_router_selection(g, l, il, pos);
+    if (ok) ok = glm_graph_metal_macro_profile_region("router");
     const bool resident_decode_layer =
         g->ssd_streaming && glm_stream_resident_decode_layer_enabled(l, il);
     const bool streaming_expert_cache =
@@ -44542,6 +44850,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                          pos,
                                          1,
                                          stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("routed_moe");
     if (ok && !shared_first &&
         !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_SHARED)) {
         ok = glm_graph_encode_shared_swiglu_one(ffn_mid,
@@ -44574,6 +44883,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                              1,
                                              stage_t0);
     }
+    if (ok) ok = glm_graph_metal_macro_profile_region("shared_expert");
     if (ok && add_residual && !glm_graph_disable_add3_residual()) {
         ok = ds4_gpu_add3_tensor(next,
                                  after_attn,
@@ -44602,6 +44912,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                          pos,
                                          1,
                                          stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("ffn_residual");
     if (async_profile) {
         const double now_ms = glm_graph_streaming_async_profile_ms();
         if (async_path_profiled) {
@@ -45698,6 +46009,7 @@ static bool glm_graph_encode_sparse_ffn_indexed_batch_routed_moe(
                                                           il,
                                                           pos0,
                                                           n_tokens);
+    if (ok) ok = glm_graph_metal_macro_profile_region("router");
     if (ok) ok = glm_graph_capture_prefill_seed_router_selected(g,
                                                                 il,
                                                                 n_tokens);
@@ -45755,6 +46067,7 @@ static bool glm_graph_encode_sparse_ffn_indexed_batch_routed_moe(
                                                   pos0,
                                                   n_tokens,
                                                   stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("routed_moe");
     metal_graph_debug_dump_tensor("glm_indexed_routed_out",
                                   g->batch_ffn_out,
                                   (uint64_t)n_tokens * DS4_N_EMBD,
@@ -45905,6 +46218,7 @@ static bool glm_graph_encode_sparse_ffn_indexed_batch_routed_moe(
                                                   pos0,
                                                   n_tokens,
                                                   stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("shared_expert");
     if (ok && use_batch_residual) {
         failed_stage = "residual";
         if (!glm_graph_disable_add3_residual()) {
@@ -45932,6 +46246,7 @@ static bool glm_graph_encode_sparse_ffn_indexed_batch_routed_moe(
                                                   pos0,
                                                   n_tokens,
                                                   stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("ffn_residual");
     metal_graph_debug_dump_tensor("glm_indexed_next",
                                   next,
                                   (uint64_t)n_tokens * DS4_N_EMBD,
@@ -46214,6 +46529,7 @@ static bool glm_graph_encode_ffn_batch(
                                                           il,
                                                           pos0,
                                                           n_tokens);
+    if (ok) ok = glm_graph_metal_macro_profile_region("router");
     const bool tp_batch_split_ffn = g->tp_world == 2;
     if (ok && tp_batch_split_ffn) {
         ok = glm_graph_tp_batch_bounce_ready(g, n_tokens);
@@ -46383,6 +46699,7 @@ static bool glm_graph_encode_ffn_batch(
                                                   pos0,
                                                   n_tokens,
                                                   stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("routed_moe");
     if (ok) {
         metal_graph_debug_dump_tensor("glm_ffn_routed_out",
                                       g->batch_ffn_out,
@@ -46392,6 +46709,7 @@ static bool glm_graph_encode_ffn_batch(
     }
     if (ok && !shared_done) DS4_GLM_ENCODE_FFN_BATCH_SHARED();
 #undef DS4_GLM_ENCODE_FFN_BATCH_SHARED
+    if (ok) ok = glm_graph_metal_macro_profile_region("shared_expert");
     if (ok) {
         metal_graph_debug_dump_tensor("glm_ffn_shared_out",
                                       g->batch_attn_out,
@@ -46428,6 +46746,7 @@ static bool glm_graph_encode_ffn_batch(
                                                   pos0,
                                                   n_tokens,
                                                   stage_t0);
+    if (ok) ok = glm_graph_metal_macro_profile_region("ffn_residual");
     if (ok) {
         metal_graph_debug_dump_tensor("glm_ffn_next",
                                       next,
@@ -46722,6 +47041,17 @@ static bool glm_graph_mtp_step(
      * nothing reads. */
     if (!g || !model || !weights) return false;
     if (DS4_N_NEXTN_PREDICT == 0) return false;
+    const bool macro_profile = glm_graph_metal_macro_profile_requested();
+    if (macro_profile && !glm_graph_metal_macro_profile_supported(g)) {
+        return false;
+    }
+    const bool macro_profile_owns_cycle =
+        macro_profile &&
+        glm_graph_metal_macro_profile_logical_cycle() == 0;
+    const double macro_profile_wall_start =
+        macro_profile ? now_sec() : 0.0;
+    const uint64_t macro_profile_cycle = macro_profile ?
+        glm_graph_metal_macro_profile_cycle_for_call() : 0;
     const uint32_t cache_cap = glm_graph_mtp_cache_cap(g);
     if (pos >= cache_cap || min_pos > pos) {
         fprintf(stderr, "ds4: glm mtp: pos %u/min %u out of range (cap %u)\n",
@@ -46803,6 +47133,16 @@ static bool glm_graph_mtp_step(
     const char *mtp_stage = "begin";
 #define DS4_GLM_MTP_STAGE(name_) do { if (ok) mtp_stage = (name_); } while (0)
     bool ok = glm_graph_begin_commands_if_needed();
+    bool macro_profile_scope = false;
+    if (ok && macro_profile) {
+        macro_profile_scope = glm_graph_metal_macro_profile_begin(
+                draft_out ? "mtp_draft" : "mtp_state",
+                macro_profile_cycle,
+                il,
+                pos,
+                1);
+        ok = macro_profile_scope;
+    }
     /* MTP input: concat(enorm(embed(next_token)), hnorm(h)) -> eh_proj. */
     if (ok && !input_ready) {
         ok = glm_graph_mtp_embed_token(g,
@@ -47101,6 +47441,13 @@ static bool glm_graph_mtp_step(
                                       DS4_N_VOCAB,
                                       g->output_norm);
     DS4_GLM_MTP_STAGE("end");
+    if (macro_profile_scope) {
+        if (ok) {
+            ok = glm_graph_metal_macro_profile_label_terminal("nextn_block");
+        } else {
+            glm_graph_metal_macro_profile_end();
+        }
+    }
     if (ok) ok = ds4_gpu_end_commands() != 0;
     else (void)ds4_gpu_synchronize();
     if (ok && want_draft) {
@@ -47114,10 +47461,19 @@ static bool glm_graph_mtp_step(
     if (!ok) {
         fprintf(stderr, "ds4: glm mtp step failed at stage '%s' (pos %u)\n",
                 mtp_stage, pos);
+        if (macro_profile_owns_cycle) {
+            glm_graph_metal_macro_profile_discard_cycle(macro_profile_cycle);
+        }
         return false;
     }
 #undef DS4_GLM_MTP_STAGE
-    if (!want_draft) return true;
+    if (!want_draft) {
+        if (macro_profile_owns_cycle) {
+            glm_graph_metal_macro_profile_report_cycle(
+                macro_profile_cycle, pos, 1, macro_profile_wall_start);
+        }
+        return true;
+    }
     int best = 0;
     float best_v = g->mtp_logits_host[0];
     for (uint32_t i = 1; i < DS4_N_VOCAB; i++) {
@@ -47127,6 +47483,10 @@ static bool glm_graph_mtp_step(
         }
     }
     *draft_out = best;
+    if (macro_profile_owns_cycle) {
+        glm_graph_metal_macro_profile_report_cycle(
+            macro_profile_cycle, pos, 1, macro_profile_wall_start);
+    }
     return true;
 }
 
@@ -47624,6 +47984,8 @@ glm53_verify_attention_done:
             nxt = tmp;
         }
     }
+    const uint64_t macro_profile_cycle =
+        glm_graph_metal_macro_profile_logical_cycle();
     /* The output head recognises only the decode mHC tensors. Speculative
      * verification can stage row 0 and encode its head in this command batch;
      * row 1 is then computed only if the draft is accepted. Other callers
@@ -47641,6 +48003,20 @@ glm53_verify_attention_done:
     }
     if (ok && g->glm53 && head_request == GLM_VERIFY_HEAD_FIRST) {
         ok = glm_graph_encode_output_head(g, model, weights);
+    }
+    if (ok && macro_profile_cycle != 0) {
+#if defined(__APPLE__)
+        ok = ds4_gpu_macro_profile_label_current(
+                 "verify_rows",
+                 head_request == GLM_VERIFY_HEAD_FIRST ?
+                     "verify_rows_first_head" : "verify_rows",
+                 macro_profile_cycle,
+                 DS4_N_LAYER,
+                 pos,
+                 n) != 0;
+#else
+        ok = false;
+#endif
     }
     if (ok) ok = ds4_gpu_end_commands() != 0;
     else (void)ds4_gpu_synchronize();
@@ -47662,16 +48038,32 @@ glm53_verify_attention_done:
     }
     if (ok && head_request == GLM_VERIFY_HEAD_LAST) {
         if (g->glm53) {
-            ok = glm_graph_forward_output_head(g, model, weights,
-                                               g->hc_cur, head_logits_out);
+            ok = glm_graph_forward_output_head_profiled(
+                g,
+                model,
+                weights,
+                g->hc_cur,
+                head_logits_out,
+                macro_profile_cycle != 0 ? "verify_output" : NULL,
+                macro_profile_cycle,
+                pos + n - 1u,
+                macro_profile_cycle != 0 ? 1u : 0u);
         } else {
             ds4_gpu_tensor *last = glm_graph_tensor_row_view_strided(cur,
                                                                      n - 1u,
                                                                      DS4_N_EMBD,
                                                                      DS4_N_EMBD);
             ok = last != NULL &&
-                 glm_graph_forward_output_head(g, model, weights, last,
-                                               head_logits_out);
+                 glm_graph_forward_output_head_profiled(
+                     g,
+                     model,
+                     weights,
+                     last,
+                     head_logits_out,
+                     macro_profile_cycle != 0 ? "verify_output" : NULL,
+                     macro_profile_cycle,
+                     pos + n - 1u,
+                     macro_profile_cycle != 0 ? 1u : 0u);
             ds4_gpu_tensor_free(last);
         }
     }
@@ -49006,6 +49398,8 @@ glm53_batch_attention_done:
                                                                 weights);
     }
     if (ok && logits_out) {
+        const uint64_t profile_cycle =
+            glm_graph_metal_macro_profile_logical_cycle();
         if (g->glm53) {
             ds4_gpu_tensor *last_hc = glm_graph_tensor_row_view_strided(
                     hc_cur,
@@ -49013,11 +49407,13 @@ glm53_batch_attention_done:
                     (uint64_t)DS4_N_HC * DS4_N_EMBD,
                     (uint64_t)DS4_N_HC * DS4_N_EMBD);
             ok = last_hc != NULL &&
-                 ds4_gpu_hc_weighted_sum_tensor(g->hc_output,
-                                                 last_hc,
-                                                 g->hc_mean_weights,
-                                                 DS4_N_EMBD,
-                                                 DS4_N_HC) != 0;
+                 glm_graph_forward_hc_output_profiled(
+                     g,
+                     last_hc,
+                     profile_cycle != 0 ? "batch_output" : NULL,
+                     profile_cycle,
+                     pos0 + n_tokens - 1u,
+                     profile_cycle != 0 ? 1u : 0u);
             ds4_gpu_tensor_free(last_hc);
             last_hidden = g->hc_output;
         } else {
@@ -49028,7 +49424,20 @@ glm53_batch_attention_done:
             ok = last_hidden != NULL;
         }
         if (ok && g->ssd_streaming) ok = glm_graph_stream_map_output(g, model, weights);
-        if (ok) ok = glm_graph_forward_output_head(g, model, weights, last_hidden, logits_out);
+        if (ok) {
+            const uint64_t profile_cycle =
+                glm_graph_metal_macro_profile_logical_cycle();
+            ok = glm_graph_forward_output_head_profiled(
+                g,
+                model,
+                weights,
+                last_hidden,
+                logits_out,
+                profile_cycle != 0 ? "batch_output" : NULL,
+                profile_cycle,
+                pos0 + n_tokens - 1u,
+                profile_cycle != 0 ? 1u : 0u);
+        }
         if (ok) {
             glm_graph_report_prefill_display_progress(display_progress,
                                                       display_progress_ud,
@@ -49162,6 +49571,26 @@ static bool glm_graph_forward_indexed_tokens(
     if (!input_hc && !g->has_token_embd) return false;
     if (input_hc && image_count != 0) return false;
     if (logits_out && !g->has_output_head) return false;
+    const bool macro_profile =
+        glm_graph_metal_macro_profile_requested() &&
+        logits_out != NULL &&
+        n_tokens <= 8u;
+    uint32_t macro_profile_layer = UINT32_MAX;
+    uint64_t macro_profile_cycle = 0;
+    bool macro_profile_owns_cycle = false;
+    double macro_profile_wall_start = 0.0;
+    if (macro_profile) {
+        if (!glm_graph_metal_macro_profile_supported(g) ||
+            !glm_graph_metal_macro_profile_select_layer(
+                    g, pos0, &macro_profile_layer)) {
+            return false;
+        }
+        macro_profile_owns_cycle =
+            glm_graph_metal_macro_profile_logical_cycle() == 0;
+        macro_profile_cycle =
+            glm_graph_metal_macro_profile_cycle_for_call();
+        macro_profile_wall_start = now_sec();
+    }
     glm_graph_reset_prefill_seed_capture(g);
 
     glm_vision_overlay vision_overlay = {0};
@@ -49422,6 +49851,8 @@ static bool glm_graph_forward_indexed_tokens(
         }
         const ds4_layer_weights *l = &weights->layer[il];
         const bool glm53_kda = g->glm53 && ds4_glm53_layer_is_kda(il);
+        const bool macro_layer_profile =
+            macro_profile && il == macro_profile_layer;
         const uint32_t kv_raw_dim = glm53_kda ? 0u :
             (uint32_t)l->attn_kv_a_mqa->dim[1];
         const float rope_base = layer_rope_freq_base(il);
@@ -49455,6 +49886,13 @@ static bool glm_graph_forward_indexed_tokens(
                                                           n_tokens,
                                                           &layer_stage_t0);
         }
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_begin("indexed_verify",
+                                                       macro_profile_cycle,
+                                                       il,
+                                                       pos0,
+                                                       n_tokens);
+        }
 
         if (ok && g->glm53) {
             ok = glm53_graph_hc_pre_rows(g,
@@ -49479,6 +49917,9 @@ static bool glm_graph_forward_indexed_tokens(
                                                      DS4_N_EMBD,
                                                      n_tokens,
                                                      DS4_RMS_EPS) != 0;
+        }
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region("hc_attn_pre");
         }
         DS4_GLM_PROFILE_INDEXED_STAGE("glm_indexed_attn", "attn_norm");
         if (ok && glm53_kda) {
@@ -50309,6 +50750,10 @@ static bool glm_graph_forward_indexed_tokens(
             ok = glm_graph_tp_batch_ffn_combine(g, il, g->batch_attn_out, n_tokens);
         }
 glm53_indexed_attention_done:
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region(
+                    glm53_kda ? "kda" : "dsa");
+        }
         if (ok && g->glm53) {
             metal_graph_debug_dump_tensor(
                     "attn_out", g->batch_attn_out,
@@ -50343,6 +50788,9 @@ glm53_indexed_attention_done:
                                     cur,
                                     g->batch_attn_out,
                                     (uint32_t)residual_elems) != 0;
+        }
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region("hc_ffn_pre");
         }
         DS4_GLM_PROFILE_INDEXED_STAGE("glm_indexed_attn", "attn_output");
         metal_graph_debug_dump_tensor("glm_indexed_after_attn",
@@ -50485,6 +50933,15 @@ glm53_indexed_attention_done:
             ds4_gpu_tensor *tmp = cur;
             cur = next;
             next = tmp;
+        }
+        if (macro_layer_profile) {
+            if (ok) {
+                ok = glm_graph_metal_macro_profile_label_terminal(
+                        il < DS4_N_LEADING_DENSE ?
+                            "dense_ffn_hc_post" : "hc_ffn_post");
+            } else {
+                glm_graph_metal_macro_profile_end();
+            }
         }
         if (ok && glm_debug_hidden_dump_layer_match(il)) {
             ok = ds4_gpu_end_commands() != 0;
@@ -50678,11 +51135,13 @@ glm53_indexed_attention_done:
                     (uint64_t)DS4_N_HC * DS4_N_EMBD,
                     (uint64_t)DS4_N_HC * DS4_N_EMBD);
             ok = last_hc != NULL &&
-                 ds4_gpu_hc_weighted_sum_tensor(g->hc_output,
-                                                 last_hc,
-                                                 g->hc_mean_weights,
-                                                 DS4_N_EMBD,
-                                                 DS4_N_HC) != 0;
+                 glm_graph_forward_hc_output_profiled(
+                     g,
+                     last_hc,
+                     macro_profile ? "indexed_output" : NULL,
+                     macro_profile_cycle,
+                     pos0 + n_tokens - 1u,
+                     macro_profile ? 1u : 0u);
             ds4_gpu_tensor_free(last_hc);
             last_hidden = g->hc_output;
         } else {
@@ -50693,7 +51152,18 @@ glm53_indexed_attention_done:
             ok = last_hidden != NULL;
         }
         if (ok && g->ssd_streaming) ok = glm_graph_stream_map_output(g, model, weights);
-        if (ok) ok = glm_graph_forward_output_head(g, model, weights, last_hidden, logits_out);
+        if (ok) {
+            ok = glm_graph_forward_output_head_profiled(
+                g,
+                model,
+                weights,
+                last_hidden,
+                logits_out,
+                macro_profile ? "indexed_output" : NULL,
+                macro_profile_cycle,
+                pos0 + n_tokens - 1u,
+                macro_profile ? 1u : 0u);
+        }
         if (ok) {
             glm_graph_report_prefill_display_progress(display_progress,
                                                       display_progress_ud,
@@ -50715,6 +51185,17 @@ glm53_indexed_attention_done:
     ds4_gpu_tensor_free(cur_view);
     glm_vision_overlay_free(&vision_overlay);
     ds4_gpu_set_glm_streaming_prefill_full_layer(false);
+    if (macro_profile_owns_cycle) {
+        if (ok) {
+            glm_graph_metal_macro_profile_report_cycle(
+                macro_profile_cycle,
+                pos0,
+                n_tokens,
+                macro_profile_wall_start);
+        } else {
+            glm_graph_metal_macro_profile_discard_cycle(macro_profile_cycle);
+        }
+    }
     return ok;
 }
 
@@ -51163,6 +51644,27 @@ static bool glm_graph_forward_token(
     if (logits_out && !g->has_output_head) { DS4_GLM_FT_FAIL("no output head"); return false; }
     const bool use_indexed_attention =
         glm_graph_decode_uses_indexed_attention(g, pos, logits_out);
+    const bool macro_profile =
+        glm_graph_metal_macro_profile_requested() &&
+        logits_out != NULL &&
+        !defer_completion;
+    uint32_t macro_profile_layer = UINT32_MAX;
+    uint64_t macro_profile_cycle = 0;
+    bool macro_profile_owns_cycle = false;
+    double macro_profile_wall_start = 0.0;
+    if (macro_profile) {
+        if (!glm_graph_metal_macro_profile_supported(g) ||
+            !glm_graph_metal_macro_profile_select_layer(
+                    g, pos, &macro_profile_layer)) {
+            DS4_GLM_FT_FAIL("unsupported macro profiler configuration");
+            return false;
+        }
+        macro_profile_owns_cycle =
+            glm_graph_metal_macro_profile_logical_cycle() == 0;
+        macro_profile_cycle =
+            glm_graph_metal_macro_profile_cycle_for_call();
+        macro_profile_wall_start = now_sec();
+    }
     uint32_t decode_layer_flush_interval = 0;
     if (logits_out != NULL) {
 #if defined(__APPLE__) || defined(DS4_ROCM_BUILD) || defined(DS4_NO_GPU)
@@ -51338,12 +51840,21 @@ static bool glm_graph_forward_token(
         }
         const ds4_layer_weights *l = &weights->layer[il];
         const bool glm53_kda = g->glm53 && ds4_glm53_layer_is_kda(il);
+        const bool macro_layer_profile =
+            macro_profile && il == macro_profile_layer;
         const uint32_t kv_raw_dim = glm53_kda ? 0u :
             (uint32_t)l->attn_kv_a_mqa->dim[1];
         const float rope_base = layer_rope_freq_base(il);
         const float rope_scale = layer_rope_freq_scale(il);
         const bool decode_stage_profile = metal_graph_decode_stage_profile_enabled(il);
         double decode_stage_t0 = decode_stage_profile ? now_sec() : 0.0;
+        if (macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_begin("plain_decode",
+                                                       macro_profile_cycle,
+                                                       il,
+                                                       pos,
+                                                       1);
+        }
         if (decode_stage_profile) {
             ok = metal_graph_layer_stage_profile_boundary("glm_decode_attn",
                                                           NULL,
@@ -51372,6 +51883,9 @@ static bool glm_graph_forward_token(
                                                 l->attn_norm->abs_offset,
                                                 DS4_N_EMBD,
                                                 DS4_RMS_EPS) != 0;
+        }
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region("hc_attn_pre");
         }
         DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_attn", "attn_norm");
         if (ok && glm53_kda) {
@@ -51990,6 +52504,10 @@ static bool glm_graph_forward_token(
         }
 glm53_attention_done:
         DS4_GLM_FT_STAGE("attention mHC expand");
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region(
+                    glm53_kda ? "kda" : "dsa");
+        }
         DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_attn", "attn_output");
         if (ok && g->glm53) {
             metal_graph_debug_dump_tensor("attn_out",
@@ -52027,6 +52545,9 @@ glm53_attention_done:
                                                     l->ffn_norm->abs_offset,
                                                     DS4_N_EMBD,
                                                     DS4_RMS_EPS) != 0;
+        }
+        if (ok && macro_layer_profile) {
+            ok = glm_graph_metal_macro_profile_region("hc_ffn_pre");
         }
         DS4_GLM_PROFILE_DECODE_STAGE("glm_decode_ffn", "ffn_norm");
         DS4_GLM_FT_STAGE("FFN");
@@ -52113,6 +52634,15 @@ glm53_attention_done:
                                                       decode_stage_profile,
                                                       decode_stage_profile ? &decode_stage_t0 : NULL);
         }
+        if (macro_layer_profile) {
+            if (ok) {
+                ok = glm_graph_metal_macro_profile_label_terminal(
+                        il < DS4_N_LEADING_DENSE ?
+                            "dense_ffn_hc_post" : "hc_ffn_post");
+            } else {
+                glm_graph_metal_macro_profile_end();
+            }
+        }
         if (ok && !g->glm53) {
             ds4_gpu_tensor *tmp = g->cur;
             g->cur = g->next;
@@ -52173,13 +52703,31 @@ glm53_attention_done:
 #undef DS4_GLM_FT_STAGE
     if (ok && (merge_indexed_output ||
                (defer_completion && logits_out != NULL))) {
+        bool macro_output_profile = false;
         if (g->ssd_streaming) {
             if (!static_decode_map) {
                 ok = glm_graph_stream_map_output(g, model, weights);
             }
             if (ok) ok = glm_graph_begin_commands_if_needed();
         }
-        ok = glm_graph_encode_output_head(g, model, weights);
+        if (ok && macro_profile) {
+            macro_output_profile = glm_graph_metal_macro_profile_begin(
+                    "plain_output",
+                    macro_profile_cycle,
+                    DS4_N_LAYER,
+                    pos,
+                    1);
+            ok = macro_output_profile;
+        }
+        if (ok) ok = glm_graph_encode_output_head(g, model, weights);
+        if (macro_output_profile) {
+            if (ok) {
+                ok = glm_graph_metal_macro_profile_label_terminal(
+                        "output_head");
+            } else {
+                glm_graph_metal_macro_profile_end();
+            }
+        }
         if (g->ssd_streaming) {
             if (ok) ok = glm_graph_end_commands_if_active();
             else (void)ds4_gpu_synchronize();
@@ -52210,11 +52758,30 @@ glm53_attention_done:
     if (ok && logits_out && !defer_completion) {
         if (use_indexed_attention) {
             if (!merge_indexed_output) {
+                bool macro_output_profile = false;
                 if (g->ssd_streaming && !static_decode_map) {
                     ok = glm_graph_stream_map_output(g, model, weights);
                 }
                 if (ok) ok = glm_graph_begin_commands_if_needed();
+                if (ok && macro_profile) {
+                    macro_output_profile =
+                        glm_graph_metal_macro_profile_begin(
+                                "plain_output",
+                                macro_profile_cycle,
+                                DS4_N_LAYER,
+                                pos,
+                                1);
+                    ok = macro_output_profile;
+                }
                 if (ok) ok = glm_graph_encode_output_head(g, model, weights);
+                if (macro_output_profile) {
+                    if (ok) {
+                        ok = glm_graph_metal_macro_profile_label_terminal(
+                                "output_head");
+                    } else {
+                        glm_graph_metal_macro_profile_end();
+                    }
+                }
                 if (ok) ok = glm_graph_end_commands_if_active();
                 else (void)ds4_gpu_synchronize();
                 if (decode_output_profile) {
@@ -52248,12 +52815,18 @@ glm53_attention_done:
             if (ok && ds4_gpu_commands_active()) {
                 ok = ds4_gpu_end_commands() != 0;
             }
-            if (ok) ok = glm_graph_forward_output_head(
-                g,
-                model,
-                weights,
-                g->glm53 ? g->hc_cur : g->cur,
-                logits_out);
+            if (ok) {
+                ok = glm_graph_forward_output_head_profiled(
+                    g,
+                    model,
+                    weights,
+                    g->glm53 ? g->hc_cur : g->cur,
+                    logits_out,
+                    macro_profile ? "plain_output" : NULL,
+                    macro_profile_cycle,
+                    pos,
+                    macro_profile ? 1u : 0u);
+            }
             if (decode_output_profile) {
                 const double now = now_sec();
                 fprintf(stderr,
@@ -52283,6 +52856,14 @@ glm53_attention_done:
     ds4_gpu_tensor_free(tp_qk_low);
     ds4_gpu_tensor_free(tp_q);
     (void)glm_ft_fail_il;
+    if (macro_profile_owns_cycle) {
+        if (ok) {
+            glm_graph_metal_macro_profile_report_cycle(
+                macro_profile_cycle, pos, 1, macro_profile_wall_start);
+        } else {
+            glm_graph_metal_macro_profile_discard_cycle(macro_profile_cycle);
+        }
+    }
     return ok;
 #undef DS4_GLM_FT_FAIL
 }
@@ -53863,6 +54444,9 @@ struct ds4_session {
     uint32_t glm_mtp_min_pos;
     float *glm_mtp_hc;
     float *glm_mtp_logits0;
+    uint64_t glm_mtp_cycles;
+    uint64_t glm_mtp_accepted;
+    uint64_t glm_mtp_committed;
     ds4_spec_frontier greedy_splitkv_anchor;
 #endif
     ds4_kv_cache cpu_cache;
@@ -55732,6 +56316,37 @@ int ds4_engine_mtp_draft_tokens(ds4_engine *e) {
     }
 #endif
     return 0;
+}
+
+bool ds4_engine_glm_mtp_enabled(ds4_engine *e) {
+#ifndef DS4_NO_GPU
+    return ds4_engine_glm_mtp_spec_enabled(e);
+#else
+    (void)e;
+    return false;
+#endif
+}
+
+bool ds4_engine_glm_mtp_timing_enabled(ds4_engine *e) {
+    return e && e->glm_mtp_timing;
+}
+
+bool ds4_engine_glm_mtp_counters_enabled(ds4_engine *e) {
+    return e && e->glm_mtp_counters;
+}
+
+void ds4_session_glm_mtp_stats(ds4_session *s, ds4_glm_mtp_stats *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+#ifndef DS4_NO_GPU
+    if (!s) return;
+    out->cycles = s->glm_mtp_cycles;
+    out->accepted = s->glm_mtp_accepted;
+    out->rejected = s->glm_mtp_cycles - s->glm_mtp_accepted;
+    out->committed = s->glm_mtp_committed;
+#else
+    (void)s;
+#endif
 }
 
 const ds4_tokens *ds4_session_tokens(ds4_session *s) {
@@ -62400,6 +63015,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->quality = opt->quality;
     e->glm_mtp = opt->glm_mtp;
     e->glm_mtp_timing = opt->glm_mtp_timing;
+    e->glm_mtp_counters = opt->glm_mtp_counters;
     e->dspark = opt->dspark;
     e->dspark_strict = opt->dspark_strict;
     e->dspark_exact_sampling = opt->dspark_exact_sampling;
@@ -64707,6 +65323,26 @@ static int glm_session_logits_argmax(const float *logits) {
     return best;
 }
 
+static int glm_session_logits_argmax_for_mode(ds4_session *s,
+                                              const float *logits,
+                                              bool ignore_eos,
+                                              ds4_think_mode think_mode) {
+    if (!ignore_eos) return glm_session_logits_argmax(logits);
+    int best = -1;
+    float bv = DS4_NEG_INF;
+    for (uint32_t i = 0; i < DS4_N_VOCAB; i++) {
+        if (ds4_token_is_stop_for_think_mode(s->engine, (int)i,
+                                             think_mode)) {
+            continue;
+        }
+        if (best < 0 || logits[i] > bv) {
+            bv = logits[i];
+            best = (int)i;
+        }
+    }
+    return best;
+}
+
 static bool speculative_point_accept(float target_p, float draft_p,
                                      uint64_t *rng);
 static int speculative_point_replacement(ds4_session *s,
@@ -65022,6 +65658,431 @@ static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
     free(lg);
 }
 
+static int glm53_scan_double_cmp(const void *a, const void *b) {
+    const double x = *(const double *)a;
+    const double y = *(const double *)b;
+    return (x > y) - (x < y);
+}
+
+static int glm53_indexer_pair_exact_override(int mode) {
+#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+    return ds4_gpu_glm53_indexer_score_pair_exact_override(mode);
+#else
+    (void)mode;
+    return -2;
+#endif
+}
+
+int ds4_glm53_indexer_score_pair_exact_override(int mode) {
+    return glm53_indexer_pair_exact_override(mode);
+}
+
+/* The indexed A/B scanner replays the same speculative position repeatedly.
+ * GLM-5.3's DSA indexer keeps the unfinished four-token pool in persistent
+ * tails, so position-addressed cache rollback alone is insufficient when a
+ * two-row sample crosses a pool boundary. Keep this host snapshot local to the
+ * diagnostic scanner; production speculation must not pay these copies. */
+static uint64_t glm53_indexer_tail_snapshot_bytes(
+        const ds4_glm_gpu_graph *g) {
+    if (!g || !g->glm53 || g->layer_start > g->layer_end) return 0;
+    const uint64_t layer_bytes =
+        2u * DS4_GLM53_INDEX_POOL_SIZE *
+        DS4_N_INDEXER_HEAD_DIM * sizeof(float);
+    uint64_t bytes = 0;
+    for (uint32_t il = g->layer_start; il <= g->layer_end; il++) {
+        if (glm_graph_layer_uses_full_indexer(il)) bytes += layer_bytes;
+    }
+    return bytes;
+}
+
+static bool glm53_indexer_tail_snapshot_transfer(
+        ds4_glm_gpu_graph *g,
+        void              *snapshot,
+        uint64_t           snapshot_bytes,
+        bool               save) {
+    if (!g || !snapshot || snapshot_bytes == 0) return false;
+    const uint64_t tail_bytes =
+        (uint64_t)DS4_GLM53_INDEX_POOL_SIZE *
+        DS4_N_INDEXER_HEAD_DIM * sizeof(float);
+    uint8_t *cursor = snapshot;
+    uint64_t remaining = snapshot_bytes;
+    for (uint32_t il = g->layer_start; il <= g->layer_end; il++) {
+        if (!glm_graph_layer_uses_full_indexer(il)) continue;
+        if (!g->layer_indexer_tail_k[il] ||
+            !g->layer_indexer_tail_gate[il] ||
+            remaining < 2u * tail_bytes) {
+            return false;
+        }
+        if (save) {
+            if (ds4_gpu_tensor_read(g->layer_indexer_tail_k[il], 0,
+                                    cursor, tail_bytes) == 0 ||
+                ds4_gpu_tensor_read(g->layer_indexer_tail_gate[il], 0,
+                                    cursor + tail_bytes, tail_bytes) == 0) {
+                return false;
+            }
+        } else {
+            if (ds4_gpu_tensor_write(g->layer_indexer_tail_k[il], 0,
+                                     cursor, tail_bytes) == 0 ||
+                ds4_gpu_tensor_write(g->layer_indexer_tail_gate[il], 0,
+                                     cursor + tail_bytes, tail_bytes) == 0) {
+                return false;
+            }
+        }
+        cursor += 2u * tail_bytes;
+        remaining -= 2u * tail_bytes;
+    }
+    return remaining == 0;
+}
+
+/* Measurement-only: price the real long-context indexed verifier at n=1 and
+ * n=2 using the pending MTP token pair.  The scored order is ABBA BAAB, each
+ * arm is warmed once, and KDA plus the persistent DSA indexer tails are
+ * restored after every sample. Future position-addressed DSA rows are
+ * overwritten by the next sample or the real verify. Direct operation timing
+ * intentionally waits for each complete indexed forward; it is attribution,
+ * never S55 throughput credit. Gated on
+ * DS4_GLM_INDEXED_VERIFY_SCAN=<reps-per-arm>, once/process. */
+static bool glm53_indexed_verify_scan(ds4_session *s,
+                                      const int toks[2],
+                                      int reps) {
+    ds4_engine *e = s->engine;
+    ds4_glm_gpu_graph *g = &s->glm_graph;
+    const uint32_t pos = (uint32_t)s->checkpoint.len;
+    const bool pair_ab = getenv("DS4_GLM_INDEXED_PAIR_AB") != NULL;
+    const bool profile_ab =
+        glm_graph_env_truthy(getenv("DS4_GLM_MACRO_PROFILE_AB"));
+    const bool compare_ab = pair_ab || profile_ab;
+    int saved_pair_override = -2;
+    bool pair_override_managed = false;
+    int saved_profile_override = -1;
+    bool profile_override_managed = false;
+    if (pair_ab && profile_ab) {
+        fprintf(stderr,
+                "ds4: glm indexed verify scan rejects simultaneous pair and profiler A/B\n");
+        return false;
+    }
+    if (reps < 8) reps = 8;
+    reps = ((reps + 3) / 4) * 4;
+    if (pos + 2u <= glm_graph_dense_compact_attention_limit(g) ||
+        !glm_graph_indexed_prefill_batch_ready(g, pos) ||
+        glm_graph_limit_indexed_prefill_chunk(g, pos, 2u) < 2u) {
+        fprintf(stderr,
+                "ds4: glm indexed verify scan refused pos=%u dense_limit=%u\n",
+                pos, glm_graph_dense_compact_attention_limit(g));
+        return false;
+    }
+    const size_t hc_values = (size_t)2 * DS4_N_EMBD * DS4_N_HC;
+    float *hc = malloc(hc_values * sizeof(float));
+    float *lg = malloc((size_t)DS4_N_VOCAB * sizeof(float));
+    float *hc_ref = compare_ab ? malloc(hc_values * sizeof(float)) : NULL;
+    float *lg_ref = compare_ab ?
+        malloc((size_t)DS4_N_VOCAB * sizeof(float)) : NULL;
+    double *samples[2] = {
+        malloc((size_t)reps * sizeof(double)),
+        malloc((size_t)reps * sizeof(double))
+    };
+    const uint64_t tail_snapshot_bytes =
+        glm53_indexer_tail_snapshot_bytes(g);
+    void *tail_snapshot = tail_snapshot_bytes != 0 ?
+        malloc((size_t)tail_snapshot_bytes) : NULL;
+    if (!hc || !lg || (compare_ab && (!hc_ref || !lg_ref)) ||
+        !samples[0] || !samples[1] || !tail_snapshot) {
+        fprintf(stderr, "ds4: glm indexed verify scan allocation failed\n");
+        free(tail_snapshot);
+        free(samples[1]);
+        free(samples[0]);
+        free(lg_ref);
+        free(hc_ref);
+        free(lg);
+        free(hc);
+        return false;
+    }
+    if (!glm53_indexer_tail_snapshot_transfer(
+            g, tail_snapshot, tail_snapshot_bytes, true)) {
+        fprintf(stderr,
+                "ds4: glm indexed verify scan tail snapshot failed\n");
+        free(tail_snapshot);
+        free(samples[1]);
+        free(samples[0]);
+        free(lg_ref);
+        free(hc_ref);
+        free(lg);
+        free(hc);
+        return false;
+    }
+    if (pair_ab) {
+        saved_pair_override = glm53_indexer_pair_exact_override(0);
+        if (saved_pair_override == -2) {
+            fprintf(stderr,
+                    "ds4: glm indexed pair A/B requires the Metal backend\n");
+            free(tail_snapshot);
+            free(samples[1]);
+            free(samples[0]);
+            free(lg_ref);
+            free(hc_ref);
+            free(lg);
+            free(hc);
+            return false;
+        }
+        pair_override_managed = true;
+    }
+    if (profile_ab) {
+        saved_profile_override = glm_graph_metal_macro_profile_override(0);
+        profile_override_managed = true;
+    }
+
+    fprintf(stderr,
+            "ds4: glm indexed verify scan pos=%u reps_per_arm=%d "
+            "tokens=%d,%d pair_ab=%u profile_ab=%u\n",
+            pos, reps, toks[0], toks[1], pair_ab ? 1u : 0u,
+            profile_ab ? 1u : 0u);
+    for (uint32_t arm = 0; arm < 2; arm++) {
+        const uint32_t n = compare_ab ? 2u : arm + 1u;
+        bool toggle_ok = !pair_ab ||
+            glm53_indexer_pair_exact_override((int)arm) != -2;
+        if (profile_ab) {
+            (void)glm_graph_metal_macro_profile_override((int)arm);
+        }
+        float *warm_hc = compare_ab && arm == 0u ? hc_ref : hc;
+        float *warm_lg = compare_ab && arm == 0u ? lg_ref : lg;
+        glm53_spec_transaction tx = {0};
+        bool ok = toggle_ok && glm53_spec_transaction_begin(&tx, s, pos) &&
+                  glm_graph_forward_indexed_tokens(
+                      g, &e->model, &e->weights, toks, NULL, NULL, 0,
+                      pos, n, warm_hc, warm_lg, NULL, NULL, pos, 0, n);
+        if (tx.base_saved) ok = glm53_spec_transaction_restore_base(&tx) && ok;
+        ok = glm53_indexer_tail_snapshot_transfer(
+                 g, tail_snapshot, tail_snapshot_bytes, false) && ok;
+        if (!ok) {
+            fprintf(stderr,
+                    "ds4: glm indexed verify scan warmup arm=%u n=%u failed\n",
+                    arm, n);
+            if (pair_override_managed) {
+                (void)glm53_indexer_pair_exact_override(saved_pair_override);
+            }
+            if (profile_override_managed) {
+                (void)glm_graph_metal_macro_profile_override(
+                    saved_profile_override);
+            }
+            free(tail_snapshot);
+            free(samples[1]);
+            free(samples[0]);
+            free(lg_ref);
+            free(hc_ref);
+            free(lg);
+            free(hc);
+            return false;
+        }
+    }
+    if (compare_ab) {
+        const bool hc_equal =
+            memcmp(hc_ref, hc, hc_values * sizeof(float)) == 0;
+        const bool logits_equal =
+            memcmp(lg_ref, lg,
+                   (size_t)DS4_N_VOCAB * sizeof(float)) == 0;
+        fprintf(stderr,
+                "ds4: glm indexed %s exactness hc=%s logits=%s\n",
+                profile_ab ? "profiler A/B" : "pair A/B",
+                hc_equal ? "exact" : "DIFF",
+                logits_equal ? "exact" : "DIFF");
+        if (!hc_equal || !logits_equal) {
+            if (pair_override_managed) {
+                (void)glm53_indexer_pair_exact_override(saved_pair_override);
+            }
+            if (profile_override_managed) {
+                (void)glm_graph_metal_macro_profile_override(
+                    saved_profile_override);
+            }
+            fprintf(stderr,
+                    "ds4: glm indexed %s rejected before timing\n",
+                    profile_ab ? "profiler A/B" : "pair A/B");
+            free(tail_snapshot);
+            free(samples[1]);
+            free(samples[0]);
+            free(lg_ref);
+            free(hc_ref);
+            free(lg);
+            free(hc);
+            return false;
+        }
+    }
+
+    static const uint8_t order[8] = {0, 1, 1, 0, 1, 0, 0, 1};
+    int count[2] = {0, 0};
+    bool failed = false;
+    for (int round = 0; round < reps / 4 && !failed; round++) {
+        for (size_t i = 0; i < sizeof(order); i++) {
+            const uint32_t arm = order[i];
+            const uint32_t n = compare_ab ? 2u : arm + 1u;
+            bool toggle_ok = !pair_ab ||
+                glm53_indexer_pair_exact_override((int)arm) != -2;
+            if (profile_ab) {
+                (void)glm_graph_metal_macro_profile_override((int)arm);
+            }
+            glm53_spec_transaction tx = {0};
+            bool ok = toggle_ok && glm53_spec_transaction_begin(&tx, s, pos);
+            const double t0 = now_sec();
+            if (ok) {
+                ok = glm_graph_forward_indexed_tokens(
+                    g, &e->model, &e->weights, toks, NULL, NULL, 0,
+                    pos, n, hc, lg, NULL, NULL, pos, 0, n);
+            }
+            const double ms = (now_sec() - t0) * 1000.0;
+            if (tx.base_saved) ok = glm53_spec_transaction_restore_base(&tx) && ok;
+            ok = glm53_indexer_tail_snapshot_transfer(
+                     g, tail_snapshot, tail_snapshot_bytes, false) && ok;
+            if (!ok) {
+                fprintf(stderr,
+                        "ds4: glm indexed verify scan sample arm=%u n=%u failed\n",
+                        arm, n);
+                failed = true;
+                break;
+            }
+            samples[arm][count[arm]++] = ms;
+        }
+    }
+
+    const bool complete =
+        !failed && count[0] == reps && count[1] == reps;
+    if (complete) {
+        double mean[2] = {0.0, 0.0};
+        double median[2] = {0.0, 0.0};
+        double minv[2] = {DBL_MAX, DBL_MAX};
+        double maxv[2] = {0.0, 0.0};
+        double variance[2] = {0.0, 0.0};
+        double ci95[2] = {0.0, 0.0};
+        double paired_mean = 0.0;
+        double paired_variance = 0.0;
+        for (int i = 0; i < reps; i++) {
+            const double delta = samples[1][i] - samples[0][i];
+            paired_mean += delta;
+            if (compare_ab) {
+                fprintf(stderr,
+                        "ds4: glm indexed %s pair=%d arm0=%.6f ms "
+                        "arm1=%.6f ms delta=%.6f ms\n",
+                        profile_ab ? "profiler A/B raw" : "pair A/B raw",
+                        i,
+                        samples[0][i],
+                        samples[1][i],
+                        delta);
+            }
+        }
+        paired_mean /= (double)reps;
+        for (int i = 0; i < reps; i++) {
+            const double delta = samples[1][i] - samples[0][i];
+            const double centered = delta - paired_mean;
+            paired_variance += centered * centered;
+        }
+        paired_variance /= (double)(reps - 1);
+        const double paired_ci95 =
+            2.365 * sqrt(paired_variance / (double)reps);
+        for (uint32_t arm = 0; arm < 2; arm++) {
+            for (int i = 0; i < reps; i++) {
+                mean[arm] += samples[arm][i];
+                if (samples[arm][i] < minv[arm]) minv[arm] = samples[arm][i];
+                if (samples[arm][i] > maxv[arm]) maxv[arm] = samples[arm][i];
+            }
+            mean[arm] /= (double)reps;
+            for (int i = 0; i < reps; i++) {
+                const double d = samples[arm][i] - mean[arm];
+                variance[arm] += d * d;
+            }
+            variance[arm] /= (double)(reps - 1);
+            /* t(7)=2.365 is conservative for every permitted larger n. */
+            ci95[arm] = 2.365 * sqrt(variance[arm] / (double)reps);
+            qsort(samples[arm], (size_t)reps, sizeof(double),
+                  glm53_scan_double_cmp);
+            median[arm] = (samples[arm][reps / 2 - 1] +
+                           samples[arm][reps / 2]) * 0.5;
+            if (compare_ab) {
+                fprintf(stderr,
+                        "ds4: glm indexed %s arm=%s samples=%d "
+                        "mean=%.3f ms median=%.3f ms range=[%.3f,%.3f] ms "
+                        "mean_ci95=[%.3f,%.3f] ms\n",
+                        profile_ab ? "profiler A/B" : "pair A/B",
+                        profile_ab ?
+                            (arm == 0u ? "off" : "on") :
+                            (arm == 0u ? "baseline" : "candidate"),
+                        reps,
+                        mean[arm], median[arm], minv[arm], maxv[arm],
+                        mean[arm] - ci95[arm], mean[arm] + ci95[arm]);
+            } else {
+                fprintf(stderr,
+                        "ds4: glm indexed verify scan n=%u samples=%d "
+                        "mean=%.3f ms median=%.3f ms range=[%.3f,%.3f] ms "
+                        "mean_ci95=[%.3f,%.3f] ms\n",
+                        arm + 1u, reps, mean[arm], median[arm], minv[arm],
+                        maxv[arm], mean[arm] - ci95[arm],
+                        mean[arm] + ci95[arm]);
+            }
+        }
+        const double excess = mean[1] - mean[0];
+        if (pair_ab) {
+            fprintf(stderr,
+                    "ds4: glm indexed pair A/B result pos=%u "
+                    "candidate_over_baseline=%.4f delta=%.3f ms "
+                    "paired_delta_ci95=[%.3f,%.3f] ms speedup=%.2f%%\n",
+                    pos, mean[1] / mean[0], excess,
+                    paired_mean - paired_ci95,
+                    paired_mean + paired_ci95,
+                    100.0 * (mean[0] - mean[1]) / mean[0]);
+        } else if (profile_ab) {
+            fprintf(stderr,
+                    "ds4: glm indexed profiler A/B result pos=%u "
+                    "on_over_off=%.4f delta=%.3f ms "
+                    "paired_delta_ci95=[%.3f,%.3f] ms mean_overhead=%.2f%% "
+                    "median_overhead=%.2f%%\n",
+                    pos, mean[1] / mean[0], excess,
+                    paired_mean - paired_ci95,
+                    paired_mean + paired_ci95,
+                    100.0 * excess / mean[0],
+                    100.0 * (median[1] - median[0]) / median[0]);
+        } else {
+            fprintf(stderr,
+                    "ds4: glm indexed verify scan result pos=%u ratio=%.4f "
+                    "excess=%.3f ms paired_excess_ci95=[%.3f,%.3f] ms "
+                    "effect=%.2f%%\n",
+                    pos, mean[1] / mean[0], excess,
+                    paired_mean - paired_ci95,
+                    paired_mean + paired_ci95,
+                    100.0 * excess / mean[0]);
+        }
+    }
+    if (pair_override_managed) {
+        (void)glm53_indexer_pair_exact_override(saved_pair_override);
+    }
+    if (profile_override_managed) {
+        (void)glm_graph_metal_macro_profile_override(saved_profile_override);
+    }
+    fprintf(stderr, "ds4: glm indexed verify scan done\n");
+    free(tail_snapshot);
+    free(samples[1]);
+    free(samples[0]);
+    free(lg_ref);
+    free(hc_ref);
+    free(lg);
+    free(hc);
+    return complete;
+}
+
+static bool glm_session_mtp_can_verify(ds4_session *s, int first_token,
+                                       int accepted_cap) {
+    if (!s || !s->engine || !s->engine->glm_mtp || !s->glm_graph_ready ||
+        accepted_cap < 2 || !s->glm_mtp_have ||
+        first_token != s->glm_mtp_parent) {
+        return false;
+    }
+    const uint32_t pos = (uint32_t)s->checkpoint.len;
+    return pos + 2 <= s->glm_graph.ctx_size &&
+        (s->glm_graph.compact_cache_cap == 0 ||
+         pos + 1 < s->glm_graph.compact_cache_cap);
+}
+
+bool ds4_session_glm_mtp_next_call_is_verify(ds4_session *s, int first_token,
+                                             int accepted_cap) {
+    return glm_session_mtp_can_verify(s, first_token, accepted_cap);
+}
+
 static int ds4_session_glm_spec_cycle_impl(
         ds4_session *s,
         int          first_token,
@@ -65032,6 +66093,8 @@ static int ds4_session_glm_spec_cycle_impl(
         float        min_p,
         uint64_t    *rng,
         bool         exact_sampling,
+        bool         ignore_eos,
+        ds4_think_mode think_mode,
         int         *accepted,
         int          accepted_cap,
         char        *err,
@@ -65065,19 +66128,54 @@ static int ds4_session_glm_spec_cycle_impl(
             glm53_verify_scan(s, first_token, atoi(scan));
         }
     }
-    s->glm_mtp_rollback_valid = false;
-    if (s->glm_mtp_have && first_token != s->glm_mtp_parent) {
-        s->glm_mtp_have = 0;
+    const bool macro_profile =
+        glm_graph_metal_macro_profile_requested();
+    if (macro_profile && !glm_graph_metal_macro_profile_supported(g)) {
+        if (errlen) {
+            snprintf(err, errlen,
+                     "glm mtp: unsupported macro profiler configuration");
+        }
+        s->checkpoint_valid = false;
+        return -1;
     }
-    if (!s->glm_mtp_have || accepted_cap < 2 ||
-        pos + 2 > g->ctx_size ||
-        (g->compact_cache_cap != 0 && pos + 1 >= g->compact_cache_cap)) {
+    const bool macro_profile_owns_cycle =
+        macro_profile &&
+        glm_graph_metal_macro_profile_logical_cycle() == 0;
+    const uint64_t macro_profile_cycle = macro_profile ?
+        glm_graph_metal_macro_profile_cycle_for_call() : 0;
+    const double macro_profile_wall_start =
+        macro_profile ? now_sec() : 0.0;
+#define GLM_MTP_PROFILE_FAIL() do {                                      \
+    if (macro_profile_owns_cycle) {                                      \
+        glm_graph_metal_macro_profile_discard_cycle(macro_profile_cycle);\
+    }                                                                    \
+    return -1;                                                           \
+} while (0)
+    s->glm_mtp_rollback_valid = false;
+    if (!glm_session_mtp_can_verify(s, first_token, accepted_cap)) {
         /* Plain step, then seed the first draft from g->cur. */
+        const uint64_t previous_profile_cycle =
+            glm_graph_metal_macro_profile_logical_cycle_override(
+                macro_profile_cycle);
+        s->glm_mtp_have = 0;
         s->glm_spec_inside = 1;
         const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
         s->glm_spec_inside = 0;
-        if (rc != 0) return -1;
-        const int n1 = glm_session_logits_argmax(s->logits);
+        if (rc != 0) {
+            (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                previous_profile_cycle);
+            GLM_MTP_PROFILE_FAIL();
+        }
+        const int n1 = glm_session_logits_argmax_for_mode(
+            s, s->logits, ignore_eos, think_mode);
+        if (n1 < 0) {
+            if (errlen) snprintf(err, errlen,
+                                 "glm mtp: no allowed next token");
+            s->checkpoint_valid = false;
+            (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                previous_profile_cycle);
+            GLM_MTP_PROFILE_FAIL();
+        }
         if (s->glm_mtp_min_pos == 0 || s->glm_mtp_min_pos > pos) {
             s->glm_mtp_min_pos = pos;
         }
@@ -65089,7 +66187,13 @@ static int ds4_session_glm_spec_cycle_impl(
             s->glm_mtp_parent = n1;
             s->glm_mtp_have = 1;
         }
+        (void)glm_graph_metal_macro_profile_logical_cycle_override(
+            previous_profile_cycle);
         accepted[0] = first_token;
+        if (macro_profile_owns_cycle) {
+            glm_graph_metal_macro_profile_report_cycle(
+                macro_profile_cycle, pos, 1, macro_profile_wall_start);
+        }
         return 1;
     }
 
@@ -65097,6 +66201,24 @@ static int ds4_session_glm_spec_cycle_impl(
     s->glm_mtp_have = 0;
     const int d = s->glm_mtp_draft;
     int toks[2] = { first_token, d };
+    {
+        static bool indexed_scan_done = false;
+        const char *scan = getenv("DS4_GLM_INDEXED_VERIFY_SCAN");
+        const char *scan_pos = getenv("DS4_GLM_INDEXED_VERIFY_SCAN_POS");
+        if (scan && scan[0] && !indexed_scan_done && g->glm53 &&
+            (!scan_pos || !scan_pos[0] ||
+             pos >= (uint32_t)strtoul(scan_pos, NULL, 10))) {
+            indexed_scan_done = true;
+            if (!glm53_indexed_verify_scan(s, toks, atoi(scan))) {
+                if (errlen) {
+                    snprintf(err, errlen,
+                             "glm mtp: indexed verify diagnostic failed");
+                }
+                s->checkpoint_valid = false;
+                GLM_MTP_PROFILE_FAIL();
+            }
+        }
+    }
     bool verified = false;
     bool kda_saved = false;
     bool kda_prefix_saved = false;
@@ -65108,6 +66230,9 @@ static int ds4_session_glm_spec_cycle_impl(
         kda_saved = glm53_spec_transaction_begin(&glm_tx, s, pos);
         if (timing) verify_t0 = now_sec();
         if (kda_saved) {
+            const uint64_t previous_profile_cycle =
+                glm_graph_metal_macro_profile_logical_cycle_override(
+                    macro_profile_cycle);
             verified = glm53_spec_verify(&glm_tx,
                                          toks,
                                          s->glm_mtp_hc,
@@ -65115,6 +66240,8 @@ static int ds4_session_glm_spec_cycle_impl(
                                          s->logits,
                                          &verify_logits,
                                          &verify_path);
+            (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                previous_profile_cycle);
             kda_prefix_saved = verified && glm_tx.prefix_count == 1u;
         }
     } else {
@@ -65136,13 +66263,13 @@ static int ds4_session_glm_spec_cycle_impl(
                                               NULL, NULL, pos, 0, 2)) {
             if (errlen) snprintf(err, errlen, "glm mtp: verify failed");
             s->checkpoint_valid = false;
-            return -1;
+            GLM_MTP_PROFILE_FAIL();
         }
     } else if (!verified) {
         if (kda_saved) (void)glm53_spec_transaction_restore_base(&glm_tx);
         if (errlen) snprintf(err, errlen, "glm mtp: GLM 5.3 verify failed");
         s->checkpoint_valid = false;
-        return -1;
+        GLM_MTP_PROFILE_FAIL();
     }
     const double t1 = timing ? now_sec() : 0.0;
     /* Row0 logits through the shared head. */
@@ -65152,7 +66279,7 @@ static int ds4_session_glm_spec_cycle_impl(
         }
         if (errlen) snprintf(err, errlen, "glm mtp: scratch alloc failed");
         s->checkpoint_valid = false;
-        return -1;
+        GLM_MTP_PROFILE_FAIL();
     }
     ds4_gpu_tensor *h0 = NULL;
     bool head_ok = false;
@@ -65162,11 +66289,16 @@ static int ds4_session_glm_spec_cycle_impl(
                                         0,
                                         s->glm_mtp_hc,
                                         hc_row_bytes) != 0 &&
-                   glm_graph_forward_output_head(g,
-                                                 &e->model,
-                                                 &e->weights,
-                                                 g->hc_cur,
-                                                 s->glm_mtp_logits0));
+                   glm_graph_forward_output_head_profiled(
+                       g,
+                       &e->model,
+                       &e->weights,
+                       g->hc_cur,
+                       s->glm_mtp_logits0,
+                       macro_profile ? "target_output_row0" : NULL,
+                       macro_profile_cycle,
+                       pos,
+                       macro_profile ? 1u : 0u));
     } else {
         h0 = ds4_gpu_tensor_view(g->mtp_concat,
                                  0,
@@ -65176,11 +66308,16 @@ static int ds4_session_glm_spec_cycle_impl(
                                        0,
                                        s->glm_mtp_hc,
                                        hc_row_bytes) != 0 &&
-                  glm_graph_forward_output_head(g,
-                                                &e->model,
-                                                &e->weights,
-                                                h0,
-                                                s->glm_mtp_logits0);
+                  glm_graph_forward_output_head_profiled(
+                      g,
+                      &e->model,
+                      &e->weights,
+                      h0,
+                      s->glm_mtp_logits0,
+                      macro_profile ? "target_output_row0" : NULL,
+                      macro_profile_cycle,
+                      pos,
+                      macro_profile ? 1u : 0u);
         ds4_gpu_tensor_free(h0);
     }
     if (!head_ok) {
@@ -65189,9 +66326,18 @@ static int ds4_session_glm_spec_cycle_impl(
         }
         if (errlen) snprintf(err, errlen, "glm mtp: row0 head failed");
         s->checkpoint_valid = false;
-        return -1;
+        GLM_MTP_PROFILE_FAIL();
     }
-    const int n1 = glm_session_logits_argmax(s->glm_mtp_logits0);
+    const int n1 = glm_session_logits_argmax_for_mode(
+        s, s->glm_mtp_logits0, ignore_eos, think_mode);
+    if (n1 < 0) {
+        if (g->glm53 && kda_saved) {
+            (void)glm53_spec_transaction_restore_base(&glm_tx);
+        }
+        if (errlen) snprintf(err, errlen, "glm mtp: no allowed target token");
+        s->checkpoint_valid = false;
+        GLM_MTP_PROFILE_FAIL();
+    }
     int replacement = -1;
     int accept = n1 == d;
     double rollback_ms = 0.0;
@@ -65210,7 +66356,7 @@ static int ds4_session_glm_spec_cycle_impl(
             }
             if (errlen) snprintf(err, errlen, "glm mtp: target distribution failed");
             s->checkpoint_valid = false;
-            return -1;
+            GLM_MTP_PROFILE_FAIL();
         }
         accept = speculative_point_accept(s->sample_probs[d], 1.0f, rng);
         if (!accept) {
@@ -65221,7 +66367,7 @@ static int ds4_session_glm_spec_cycle_impl(
                 }
                 if (errlen) snprintf(err, errlen, "glm mtp: replacement sampling failed");
                 s->checkpoint_valid = false;
-                return -1;
+                GLM_MTP_PROFILE_FAIL();
             }
         }
     }
@@ -65232,16 +66378,21 @@ static int ds4_session_glm_spec_cycle_impl(
                                  0,
                                  s->glm_mtp_hc + hc_row_values,
                                  hc_row_bytes) != 0 &&
-            glm_graph_forward_output_head(g,
-                                          &e->model,
-                                          &e->weights,
-                                          g->hc_cur,
-                                          s->logits);
+            glm_graph_forward_output_head_profiled(
+                g,
+                &e->model,
+                &e->weights,
+                g->hc_cur,
+                s->logits,
+                macro_profile ? "target_output_row1" : NULL,
+                macro_profile_cycle,
+                pos + 1u,
+                macro_profile ? 1u : 0u);
         if (!row1_head_ok) {
             if (kda_saved) (void)glm53_spec_transaction_restore_base(&glm_tx);
             if (errlen) snprintf(err, errlen, "glm mtp: row1 head failed");
             s->checkpoint_valid = false;
-            return -1;
+            GLM_MTP_PROFILE_FAIL();
         }
     }
     token_vec_push(&s->checkpoint, first_token);
@@ -65254,12 +66405,19 @@ static int ds4_session_glm_spec_cycle_impl(
             if (errlen) snprintf(err, errlen,
                                  "glm mtp: transaction commit failed");
             s->checkpoint_valid = false;
-            return -1;
+            GLM_MTP_PROFILE_FAIL();
         }
         if (!g->glm53) ds4_session_glm_note_dense_cache(s, pos, 2);
         n_committed = 2;
         /* s->logits already holds row1 (position pos+1) logits. */
-        const int n2 = glm_session_logits_argmax(s->logits);
+        const int n2 = glm_session_logits_argmax_for_mode(
+            s, s->logits, ignore_eos, think_mode);
+        if (n2 < 0) {
+            if (errlen) snprintf(err, errlen,
+                                 "glm mtp: no allowed accepted-tail token");
+            s->checkpoint_valid = false;
+            GLM_MTP_PROFILE_FAIL();
+        }
         int nd = -1;
         /* Kill switch: the first draft step's token was previously computed
          * into a variable named `dummy` and never read.  Set this to 1 to
@@ -65269,6 +66427,9 @@ static int ds4_session_glm_spec_cycle_impl(
         int discarded = -1;
         ds4_gpu_tensor *target_hidden = g->glm53 ? g->hc_cur : g->cur;
         const double draft_t0 = timing ? now_sec() : 0.0;
+        const uint64_t previous_profile_cycle =
+            glm_graph_metal_macro_profile_logical_cycle_override(
+                macro_profile_cycle);
         const bool cu =
             ds4_gpu_tensor_write(target_hidden, 0, s->glm_mtp_hc,
                                  hc_row_bytes) != 0 &&
@@ -65281,6 +66442,8 @@ static int ds4_session_glm_spec_cycle_impl(
                                  hc_row_bytes) != 0 &&
             glm_graph_mtp_step(g, &e->model, &e->weights, n2, pos + 1u,
                                s->glm_mtp_min_pos, &nd);
+        (void)glm_graph_metal_macro_profile_logical_cycle_override(
+            previous_profile_cycle);
         if (timing) draft_ms += (now_sec() - draft_t0) * 1000.0;
         if (cu) {
             s->glm_mtp_draft = nd;
@@ -65304,16 +66467,23 @@ static int ds4_session_glm_spec_cycle_impl(
                        (size_t)DS4_N_VOCAB * sizeof(float));
             }
         } else if (g->glm53) {
-            replay_ok = glm53_spec_transaction_restore_base(&glm_tx) &&
-                        glm_graph_forward_token(g,
-                                                &e->model,
-                                                &e->weights,
-                                                first_token,
-                                                NULL,
-                                                pos,
-                                                NULL,
-                                                s->logits,
-                                                false);
+            replay_ok = glm53_spec_transaction_restore_base(&glm_tx);
+            if (replay_ok) {
+                const uint64_t previous_profile_cycle =
+                    glm_graph_metal_macro_profile_logical_cycle_override(
+                        macro_profile_cycle);
+                replay_ok = glm_graph_forward_token(g,
+                                                     &e->model,
+                                                     &e->weights,
+                                                     first_token,
+                                                     NULL,
+                                                     pos,
+                                                     NULL,
+                                                     s->logits,
+                                                     false);
+                (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                    previous_profile_cycle);
+            }
         } else {
             memcpy(s->logits, s->glm_mtp_logits0,
                    (size_t)DS4_N_VOCAB * sizeof(float));
@@ -65321,22 +66491,29 @@ static int ds4_session_glm_spec_cycle_impl(
         if (!replay_ok) {
             if (errlen) snprintf(err, errlen, "glm mtp: rejection replay failed");
             s->checkpoint_valid = false;
-            return -1;
+            GLM_MTP_PROFILE_FAIL();
         }
         if (timing) rollback_ms = (now_sec() - rollback_t0) * 1000.0;
         if (exact_sampling) {
-            if (!glm_graph_forward_token(g,
-                                         &e->model,
-                                         &e->weights,
-                                         replacement,
-                                         NULL,
-                                         pos + 1u,
-                                         NULL,
-                                         s->logits,
-                                         false)) {
+            const uint64_t previous_profile_cycle =
+                glm_graph_metal_macro_profile_logical_cycle_override(
+                    macro_profile_cycle);
+            const bool replacement_ok = glm_graph_forward_token(
+                g,
+                &e->model,
+                &e->weights,
+                replacement,
+                NULL,
+                pos + 1u,
+                NULL,
+                s->logits,
+                false);
+            (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                previous_profile_cycle);
+            if (!replacement_ok) {
                 if (errlen) snprintf(err, errlen, "glm mtp: replacement replay failed");
                 s->checkpoint_valid = false;
-                return -1;
+                GLM_MTP_PROFILE_FAIL();
             }
             token_vec_push(&s->checkpoint, replacement);
             ds4_session_glm_note_dense_cache(s, pos, 2);
@@ -65344,18 +66521,27 @@ static int ds4_session_glm_spec_cycle_impl(
             accepted[0] = first_token;
             accepted[1] = replacement;
 
-            const int next = glm_session_logits_argmax(s->logits);
+            const int next = glm_session_logits_argmax_for_mode(
+                s, s->logits, ignore_eos, think_mode);
             int nd = -1;
             s->glm_mtp_have = 0;
             const double draft_t0 = timing ? now_sec() : 0.0;
-            if (replacement != eos_token &&
-                glm_graph_mtp_step(g,
-                                   &e->model,
-                                   &e->weights,
-                                   next,
-                                   pos + 1u,
-                                   s->glm_mtp_min_pos,
-                                   &nd)) {
+            bool nextn_ok = false;
+            if (next >= 0 && replacement != eos_token) {
+                const uint64_t nextn_previous_profile_cycle =
+                    glm_graph_metal_macro_profile_logical_cycle_override(
+                        macro_profile_cycle);
+                nextn_ok = glm_graph_mtp_step(g,
+                                              &e->model,
+                                              &e->weights,
+                                              next,
+                                              pos + 1u,
+                                              s->glm_mtp_min_pos,
+                                              &nd);
+                (void)glm_graph_metal_macro_profile_logical_cycle_override(
+                    nextn_previous_profile_cycle);
+            }
+            if (nextn_ok) {
                 s->glm_mtp_draft = nd;
                 s->glm_mtp_parent = next;
                 s->glm_mtp_have = 1;
@@ -65372,9 +66558,14 @@ static int ds4_session_glm_spec_cycle_impl(
                                  s->glm_mtp_hc,
                                  hc_row_bytes) != 0;
         const double draft_t0 = timing ? now_sec() : 0.0;
+        const uint64_t previous_profile_cycle =
+            glm_graph_metal_macro_profile_logical_cycle_override(
+                macro_profile_cycle);
         const bool cu = !exact_sampling && hidden_ready &&
             glm_graph_mtp_step(g, &e->model, &e->weights, n1, pos,
                                s->glm_mtp_min_pos, &nd);
+        (void)glm_graph_metal_macro_profile_logical_cycle_override(
+            previous_profile_cycle);
         if (timing && !exact_sampling) {
             draft_ms += (now_sec() - draft_t0) * 1000.0;
         }
@@ -65416,6 +66607,19 @@ static int ds4_session_glm_spec_cycle_impl(
         s->glm_mtp_rollback_first_token = first_token;
         s->glm_mtp_rollback_valid = true;
     }
+    if (s->engine->glm_mtp_counters) {
+        s->glm_mtp_cycles++;
+        if (accept) s->glm_mtp_accepted++;
+        s->glm_mtp_committed += (uint64_t)n_committed;
+    }
+    if (macro_profile_owns_cycle) {
+        glm_graph_metal_macro_profile_report_cycle(
+            macro_profile_cycle,
+            pos,
+            (uint32_t)n_committed,
+            macro_profile_wall_start);
+    }
+#undef GLM_MTP_PROFILE_FAIL
     return n_committed;
 }
 
@@ -65452,6 +66656,8 @@ static bool ds4_session_glm_mtp_rewind(ds4_session *s, int pos) {
 }
 
 static int ds4_session_glm_spec_cycle(ds4_session *s, int first_token,
+                                      bool ignore_eos,
+                                      ds4_think_mode think_mode,
                                       int *accepted, int accepted_cap,
                                       char *err, size_t errlen) {
     return ds4_session_glm_spec_cycle_impl(s,
@@ -65463,10 +66669,152 @@ static int ds4_session_glm_spec_cycle(ds4_session *s, int first_token,
                                            0.0f,
                                            NULL,
                                            false,
+                                           ignore_eos,
+                                           think_mode,
                                            accepted,
                                            accepted_cap,
                                            err,
                                            errlen);
+}
+
+int ds4_session_eval_glm_matched_nomtp(ds4_session *s, int first_token,
+                                       ds4_think_mode think_mode,
+                                       int *accepted, int accepted_cap,
+                                       char *err, size_t errlen) {
+    if (!s || !accepted || accepted_cap < 1 || !ds4_session_is_glm(s) ||
+        !s->engine || !s->engine->glm_mtp || !s->glm_graph_ready) {
+        if (errlen) snprintf(err, errlen,
+                             "matched-state nomtp requires active GLM MTP");
+        return -1;
+    }
+    ds4_engine *e = s->engine;
+    ds4_glm_gpu_graph *g = &s->glm_graph;
+    const uint32_t pos = (uint32_t)s->checkpoint.len;
+    s->glm_mtp_have = 0;
+    s->glm_mtp_rollback_valid = false;
+    s->glm_spec_inside = 1;
+    const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
+    s->glm_spec_inside = 0;
+    if (rc != 0) return -1;
+
+    const int next = ds4_session_argmax_ignoring_eos(s, think_mode);
+    if (next < 0) {
+        s->checkpoint_valid = false;
+        if (errlen) snprintf(err, errlen,
+                             "matched-state nomtp could not select next token");
+        return -1;
+    }
+    if (s->glm_mtp_min_pos == 0 || s->glm_mtp_min_pos > pos) {
+        s->glm_mtp_min_pos = pos;
+    }
+    if (!glm_graph_mtp_step(g, &e->model, &e->weights, next, pos,
+                            s->glm_mtp_min_pos, NULL)) {
+        s->checkpoint_valid = false;
+        if (errlen) snprintf(err, errlen,
+                             "matched-state nomtp nextn step failed");
+        return -1;
+    }
+    accepted[0] = first_token;
+    return 1;
+}
+
+bool ds4_test_glm_mtp_cache_row_equal(ds4_session *a, ds4_session *b,
+                                      uint32_t pos, char *err, size_t errlen) {
+    if (!a || !b || !a->glm_graph_ready || !b->glm_graph_ready ||
+        !a->glm_graph.glm53 || !b->glm_graph.glm53 ||
+        !a->glm_graph.mtp_ready || !b->glm_graph.mtp_ready) {
+        if (errlen) snprintf(err, errlen,
+                             "GLM MTP cache comparison requires two ready sessions");
+        return false;
+    }
+    ds4_glm_gpu_graph *ga = &a->glm_graph;
+    ds4_glm_gpu_graph *gb = &b->glm_graph;
+    const uint32_t cap_a = glm_graph_mtp_cache_cap(ga);
+    const uint32_t cap_b = glm_graph_mtp_cache_cap(gb);
+    if (cap_a != cap_b || pos >= cap_a ||
+        a->glm_mtp_min_pos != b->glm_mtp_min_pos ||
+        pos < a->glm_mtp_min_pos) {
+        if (errlen) snprintf(err, errlen,
+                             "GLM MTP cache geometry differs at row %u", pos);
+        return false;
+    }
+
+    const uint64_t elem = glm_graph_compact_cache_elem_bytes();
+    const uint64_t kv_bytes = (uint64_t)DS4_N_KV_LORA * elem;
+    const uint64_t rope_bytes = (uint64_t)DS4_N_ROT * elem;
+    if (kv_bytes > SIZE_MAX || rope_bytes > SIZE_MAX - kv_bytes) {
+        if (errlen) snprintf(err, errlen, "GLM MTP cache row is too large");
+        return false;
+    }
+    const size_t row_bytes = (size_t)(kv_bytes + rope_bytes);
+    unsigned char *row_a = malloc(row_bytes);
+    unsigned char *row_b = malloc(row_bytes);
+    if (!row_a || !row_b) {
+        free(row_b);
+        free(row_a);
+        if (errlen) snprintf(err, errlen,
+                             "out of memory comparing GLM MTP cache rows");
+        return false;
+    }
+
+    bool ok = ds4_gpu_synchronize() != 0 &&
+              ds4_gpu_tensor_read(ga->mtp_kv_lora_cache,
+                                  (uint64_t)pos * kv_bytes,
+                                  row_a, kv_bytes) != 0 &&
+              ds4_gpu_tensor_read(gb->mtp_kv_lora_cache,
+                                  (uint64_t)pos * kv_bytes,
+                                  row_b, kv_bytes) != 0;
+    if (ok && rope_bytes != 0) {
+        ok = ds4_gpu_tensor_read(ga->mtp_k_rope_cache,
+                                 (uint64_t)pos * rope_bytes,
+                                 row_a + kv_bytes, rope_bytes) != 0 &&
+             ds4_gpu_tensor_read(gb->mtp_k_rope_cache,
+                                 (uint64_t)pos * rope_bytes,
+                                 row_b + kv_bytes, rope_bytes) != 0;
+    }
+    const bool equal = ok && memcmp(row_a, row_b, row_bytes) == 0;
+    free(row_b);
+    free(row_a);
+    if (!equal && errlen) {
+        snprintf(err, errlen, ok ?
+                 "GLM MTP cache row %u differs" :
+                 "failed to read GLM MTP cache row %u", pos);
+    }
+    return equal;
+}
+#endif
+
+#ifdef DS4_NO_GPU
+bool ds4_session_glm_mtp_next_call_is_verify(ds4_session *s, int first_token,
+                                             int accepted_cap) {
+    (void)s;
+    (void)first_token;
+    (void)accepted_cap;
+    return false;
+}
+
+int ds4_session_eval_glm_matched_nomtp(ds4_session *s, int first_token,
+                                       ds4_think_mode think_mode,
+                                       int *accepted, int accepted_cap,
+                                       char *err, size_t errlen) {
+    (void)s;
+    (void)first_token;
+    (void)think_mode;
+    (void)accepted;
+    (void)accepted_cap;
+    if (errlen) snprintf(err, errlen,
+                         "matched-state nomtp requires the GLM GPU backend");
+    return -1;
+}
+
+bool ds4_test_glm_mtp_cache_row_equal(ds4_session *a, ds4_session *b,
+                                      uint32_t pos, char *err, size_t errlen) {
+    (void)a;
+    (void)b;
+    (void)pos;
+    if (errlen) snprintf(err, errlen,
+                         "GLM MTP cache comparison requires the GPU backend");
+    return false;
 }
 #endif
 
@@ -68141,7 +69489,8 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
             !e->dspark_exact_sampling &&
             e->tp.active && e->tp.rank != 0) {
             int acc[2];
-            const int rc = ds4_session_glm_spec_cycle(s, token, acc, 2, err, errlen);
+            const int rc = ds4_session_glm_spec_cycle(
+                s, token, false, DS4_THINK_HIGH, acc, 2, err, errlen);
             (void)probe_mtp;
             return rc < 0 ? 1 : 0;
         }
@@ -73676,7 +75025,6 @@ static int ds4_session_eval_speculative_argmax_impl(
         return 1;
     }
     if (ds4_session_is_glm(s)) {
-        (void)max_tokens;
         (void)eos_token;
         if (!accepted || accepted_cap <= 0) return 0;
 #ifndef DS4_NO_GPU
@@ -73700,8 +75048,13 @@ static int ds4_session_eval_speculative_argmax_impl(
                     return -1;
                 }
             }
-            int rc = ds4_session_glm_spec_cycle(s, first_token, accepted,
-                                                accepted_cap, err, errlen);
+            const bool tp_active = s->engine->tp.active;
+            const int cycle_cap = tp_active ? accepted_cap :
+                (max_tokens < accepted_cap ? max_tokens : accepted_cap);
+            int rc = ds4_session_glm_spec_cycle(
+                s, first_token, tp_active ? false : ignore_eos,
+                tp_active ? DS4_THINK_HIGH : think_mode,
+                accepted, cycle_cap, err, errlen);
 #if defined(__APPLE__)
             if (rc >= 0 && s->engine && s->engine->tp.active && ds4_gpu_tp_failed()) {
                 snprintf(err, errlen, "tp: gate transport failed");
@@ -73726,9 +75079,9 @@ static int ds4_session_eval_speculative_argmax_impl(
     if (ds4_session_is_glm(s) && ds4_engine_glm_mtp_spec_enabled(e)) {
         int cycle_cap = accepted_cap;
         if (cycle_cap > max_tokens) cycle_cap = max_tokens;
-        return ds4_session_glm_spec_cycle(s, first_token,
-                                          accepted, cycle_cap,
-                                          err, errlen);
+        return ds4_session_glm_spec_cycle(
+            s, first_token, ignore_eos, think_mode,
+            accepted, cycle_cap, err, errlen);
     }
 
     /*
@@ -74501,6 +75854,8 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                 return -1;
             }
         }
+        const int cycle_cap = e->tp.active ? accepted_cap :
+            (max_tokens < accepted_cap ? max_tokens : accepted_cap);
         const int rc = ds4_session_glm_spec_cycle_impl(
                 s,
                 first_token,
@@ -74511,8 +75866,10 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                 min_p,
                 rng,
                 e->dspark_exact_sampling,
+                false,
+                DS4_THINK_HIGH,
                 accepted,
-                accepted_cap,
+                cycle_cap,
                 err,
                 errlen);
 #if defined(__APPLE__)

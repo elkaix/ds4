@@ -8,17 +8,18 @@ none count as speedup until a controlled DS4/M5 Max/GLM-5.3 A/B passes.
 
 ## Source-Grounded Findings
 
-1. Apple exposes dispatch- and stage-boundary GPU counter sampling, but the
-   target M5 Max reports `dispatch=false`, `stage=true`, and exposes only the
-   public `timestamp/GPUTimestamp` counter set. The viable local macro
-   profiler cannot sample individual dispatches through the runtime API. Test
-   the installed Xcode 26.6 `Metal System Trace` template first; if its export cannot
-   close the macro ledger, use compute-encoder start/end timestamps inside one
-   command buffer and resolve once after normal completion. Whole-command-buffer
-   `GPUStartTime`/`GPUEndTime` remains the control, and OFF/ON overhead must be
-   no more than 3%. DS4 already reads those command-buffer timestamps inside
-   its unconditional normal completion wait under `DS4_METAL_GPU_BUSY_PROFILE`;
-   that control needs no new synchronization or inference harness.
+1. The target M5 Max exposes the public `timestamp/GPUTimestamp` counter set
+   but reports dispatch-boundary sampling unsupported. The topology-neutral H26
+   fallback therefore labels existing command buffers and reads
+   `GPUStartTime`/`GPUEndTime` at their existing completion wait. At position
+   197,623, profiler OFF/ON hidden state and logits were byte-identical; OFF/ON
+   means were 85.992/86.345 ms and medians 88.662/89.214 ms, or +0.41%/+0.62%
+   overhead with paired delta CI [-0.202, 0.910] ms. The 16-cycle replay also
+   matched all 4,885,013,984 serialized state bytes. This accepts the backend as
+   a whole-command-buffer diagnostic. It rejects H26 as the required macro-region
+   target selector: all selected-layer labels on an indexed verify share the same
+   whole-forward span, so they cannot rank KDA against routed MoE. Profiling earns
+   zero S55 throughput credit.
 2. Apple documents ordered `enqueue()` plus parallel command-buffer encoding.
    DS4 should test coarse command-buffer splits only if wall time materially
    exceeds GPU span; otherwise host/GPU overlap has no useful ceiling.

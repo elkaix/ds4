@@ -6,11 +6,15 @@
 #include <math.h>
 
 bool ds4_test_dspark_cache_window_crop(void);
+#if defined(__APPLE__)
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode);
+#endif
 
 static ds4_engine *test_engine_fast;
 static ds4_engine *test_engine_quality;
 
 static char *test_read_file(const char *path);
+static double test_monotonic_seconds(void);
 
 static const char *test_model_path(void) {
     const char *model_path = getenv("DS4_TEST_MODEL");
@@ -145,14 +149,214 @@ static void test_close_engine(bool quality) {
     *slot = NULL;
 }
 
+static bool test_snapshots_equal(ds4_session *a, ds4_session *b,
+                                 const char *label, char *err, size_t errlen) {
+    ds4_session_snapshot sa = {0};
+    ds4_session_snapshot sb = {0};
+    bool equal = false;
+    const int save_a = ds4_session_save_snapshot(a, &sa, err, errlen);
+    TEST_ASSERT(save_a == 0);
+    if (save_a != 0) goto cleanup;
+    const int save_b = ds4_session_save_snapshot(b, &sb, err, errlen);
+    TEST_ASSERT(save_b == 0);
+    if (save_b != 0) goto cleanup;
+    equal = sa.len == sb.len && memcmp(sa.ptr, sb.ptr, (size_t)sa.len) == 0;
+    if (!equal) {
+        size_t first = 0;
+        const size_t common = sa.len < sb.len ? (size_t)sa.len : (size_t)sb.len;
+        while (first < common && sa.ptr[first] == sb.ptr[first]) first++;
+        fprintf(stderr,
+                "ds4-test: %s target snapshot mismatch "
+                "(%llu vs %llu bytes, first byte %zu: 0x%02x vs 0x%02x)\n",
+                label,
+                (unsigned long long)sa.len,
+                (unsigned long long)sb.len,
+                first,
+                first < (size_t)sa.len ? sa.ptr[first] : 0,
+                first < (size_t)sb.len ? sb.ptr[first] : 0);
+        uint32_t saved_tokens = 0;
+        uint32_t saved_vocab = 0;
+        memcpy(&saved_tokens, sa.ptr + 7u * sizeof(uint32_t),
+               sizeof(saved_tokens));
+        memcpy(&saved_vocab, sa.ptr + 11u * sizeof(uint32_t),
+               sizeof(saved_vocab));
+        const size_t logits_offset =
+            DS4_SESSION_PAYLOAD_U32_FIELDS * sizeof(uint32_t) +
+            (size_t)saved_tokens * sizeof(uint32_t);
+        const size_t logits_bytes =
+            (size_t)saved_vocab * sizeof(float);
+        if (logits_offset <= common && logits_bytes <= common - logits_offset) {
+            size_t logit_mismatches = 0;
+            float max_abs = 0.0f;
+            for (size_t i = 0; i < logits_bytes / sizeof(float); i++) {
+                float va = 0.0f;
+                float vb = 0.0f;
+                memcpy(&va, sa.ptr + logits_offset + i * sizeof(float),
+                       sizeof(va));
+                memcpy(&vb, sb.ptr + logits_offset + i * sizeof(float),
+                       sizeof(vb));
+                if (memcmp(&va, &vb, sizeof(va)) != 0) logit_mismatches++;
+                const float delta = fabsf(va - vb);
+                if (delta > max_abs) max_abs = delta;
+            }
+            const size_t state_offset = logits_offset + logits_bytes;
+            const bool state_equal = sa.len == sb.len &&
+                memcmp(sa.ptr + state_offset, sb.ptr + state_offset,
+                       (size_t)sa.len - state_offset) == 0;
+            size_t state_first = state_offset;
+            while (state_first < common &&
+                   sa.ptr[state_first] == sb.ptr[state_first]) state_first++;
+            fprintf(stderr,
+                    "ds4-test: %s logits mismatches=%zu max_abs=%.9g "
+                    "persistent_state=%s first_state_byte=%zu\n",
+                    label, logit_mismatches, max_abs,
+                    state_equal ? "exact" : "DIFF", state_first);
+        }
+    }
+    TEST_ASSERT(equal);
+
+cleanup:
+    ds4_session_snapshot_free(&sb);
+    ds4_session_snapshot_free(&sa);
+    return equal;
+}
+
+static void test_glm53_matched_nomtp_equivalence(void) {
+    if (!test_env_bool("DS4_TEST_GLM_MTP")) {
+        fprintf(stderr,
+                "ds4-test: glm53-matched-nomtp skipped "
+                "(set DS4_TEST_GLM_MTP=1)\n");
+        return;
+    }
+
+    ds4_engine *engine = test_get_engine(false);
+    if (!engine) return;
+    TEST_ASSERT(ds4_engine_is_glm53(engine));
+    TEST_ASSERT(ds4_engine_glm_mtp_enabled(engine));
+    if (!ds4_engine_is_glm53(engine) ||
+        !ds4_engine_glm_mtp_enabled(engine)) return;
+
+    ds4_session *seeded = NULL;
+    ds4_session *matched = NULL;
+    ds4_session_snapshot initial = {0};
+    ds4_session_snapshot oracle_state = {0};
+    ds4_tokens prompt = {0};
+    char err[256] = {0};
+    int seeded_accepted[2] = {0};
+    int matched_accepted[2] = {0};
+    uint32_t ctx = test_env_u32("DS4_TEST_SNAPSHOT_CTX");
+    if (ctx == 0) ctx = 1024;
+    const char *prompt_path = getenv("DS4_TEST_SNAPSHOT_PROMPT");
+    char *prompt_text = prompt_path && prompt_path[0] ?
+        test_read_file(prompt_path) : NULL;
+    if (prompt_path && prompt_path[0]) {
+        TEST_ASSERT(prompt_text != NULL);
+        if (!prompt_text) goto cleanup;
+    }
+
+    TEST_ASSERT(ds4_session_create(&seeded, engine, ctx) == 0);
+    TEST_ASSERT(ds4_session_create(&matched, engine, ctx) == 0);
+    if (!seeded || !matched) goto cleanup;
+
+    ds4_chat_begin(engine, &prompt);
+    ds4_chat_append_message(engine, &prompt, "user",
+                            prompt_text ? prompt_text :
+                            "Continue with one concise factual sentence.");
+    ds4_chat_append_assistant_prefix(engine, &prompt, DS4_THINK_NONE);
+    TEST_ASSERT(prompt.len > 0);
+    TEST_ASSERT(ds4_session_sync(seeded, &prompt, err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_save_snapshot(seeded, &initial,
+                                          err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_load_snapshot(matched, &initial,
+                                          err, sizeof(err)) == 0);
+    if (!initial.ptr || initial.len == 0) goto cleanup;
+
+    const uint32_t seed_pos = (uint32_t)ds4_session_pos(seeded);
+    const int first = ds4_session_argmax_ignoring_eos(seeded, DS4_THINK_NONE);
+    TEST_ASSERT(first >= 0);
+    TEST_ASSERT(first ==
+                ds4_session_argmax_ignoring_eos(matched, DS4_THINK_NONE));
+    TEST_ASSERT(!ds4_session_glm_mtp_next_call_is_verify(seeded, first, 2));
+    TEST_ASSERT(!ds4_session_glm_mtp_next_call_is_verify(matched, first, 2));
+    if (first < 0) goto cleanup;
+
+    const int seeded_n = ds4_session_eval_speculative_argmax_ignoring_eos(
+        seeded, first, 2, -1, DS4_THINK_NONE,
+        seeded_accepted, 2, err, sizeof(err));
+    const int matched_n = ds4_session_eval_glm_matched_nomtp(
+        matched, first, DS4_THINK_NONE,
+        matched_accepted, 2, err, sizeof(err));
+    TEST_ASSERT(seeded_n == 1);
+    TEST_ASSERT(matched_n == 1);
+    TEST_ASSERT(seeded_accepted[0] == first);
+    TEST_ASSERT(matched_accepted[0] == first);
+    if (seeded_n != 1 || matched_n != 1) goto cleanup;
+
+    if (!test_snapshots_equal(seeded, matched, "matched seed",
+                              err, sizeof(err))) goto cleanup;
+    TEST_ASSERT(ds4_test_glm_mtp_cache_row_equal(
+        seeded, matched, seed_pos, err, sizeof(err)));
+    const int seeded_next =
+        ds4_session_argmax_ignoring_eos(seeded, DS4_THINK_NONE);
+    const int matched_next =
+        ds4_session_argmax_ignoring_eos(matched, DS4_THINK_NONE);
+    TEST_ASSERT(seeded_next == matched_next);
+    TEST_ASSERT(ds4_session_glm_mtp_next_call_is_verify(seeded,
+                                                        seeded_next, 2));
+    TEST_ASSERT(!ds4_session_glm_mtp_next_call_is_verify(matched,
+                                                         matched_next, 2));
+
+    TEST_ASSERT(ds4_session_save_snapshot(matched, &oracle_state,
+                                          err, sizeof(err)) == 0);
+    TEST_ASSERT(ds4_session_load_snapshot(seeded, &oracle_state,
+                                          err, sizeof(err)) == 0);
+    if (!oracle_state.ptr || oracle_state.len == 0) goto cleanup;
+
+    const int wash_first =
+        ds4_session_argmax_ignoring_eos(matched, DS4_THINK_NONE);
+    TEST_ASSERT(wash_first >= 0);
+    TEST_ASSERT(wash_first ==
+                ds4_session_argmax_ignoring_eos(seeded, DS4_THINK_NONE));
+    TEST_ASSERT(!ds4_session_glm_mtp_next_call_is_verify(matched,
+                                                         wash_first, 2));
+    if (wash_first < 0) goto cleanup;
+    const int wash_n = ds4_session_eval_speculative_argmax_ignoring_eos(
+        matched, wash_first, 2, -1, DS4_THINK_NONE,
+        matched_accepted, 2, err, sizeof(err));
+    TEST_ASSERT(wash_n == 1);
+    TEST_ASSERT(matched_accepted[0] == wash_first);
+    TEST_ASSERT(ds4_session_eval(seeded, wash_first,
+                                 err, sizeof(err)) == 0);
+    if (wash_n != 1) goto cleanup;
+    if (!test_snapshots_equal(seeded, matched, "wash seed",
+                              err, sizeof(err))) goto cleanup;
+
+    fprintf(stderr,
+            "ds4-test: matched NOMTP exact seed, nextn row, and wash at pos=%u\n",
+            seed_pos);
+
+cleanup:
+    if (err[0]) fprintf(stderr, "ds4-test: matched NOMTP detail: %s\n", err);
+    ds4_tokens_free(&prompt);
+    ds4_session_snapshot_free(&oracle_state);
+    ds4_session_snapshot_free(&initial);
+    ds4_session_free(matched);
+    ds4_session_free(seeded);
+    free(prompt_text);
+}
+
 static void test_session_snapshot_roundtrip(void) {
     ds4_engine *engine = test_get_engine(false);
     if (!engine) return;
 
     ds4_session *reference = NULL;
     ds4_session *restored = NULL;
+    ds4_session *pair_exact = NULL;
     ds4_session *kda_rollback = NULL;
     ds4_session_snapshot snapshot = {0};
+    ds4_session_snapshot reference_final = {0};
+    ds4_session_snapshot restored_final = {0};
+    ds4_session_snapshot pair_final = {0};
     ds4_tokens prompt = {0};
     char err[192] = {0};
     ds4_token_score before[8];
@@ -165,10 +369,24 @@ static void test_session_snapshot_roundtrip(void) {
     int reference_positions[GLM_MTP_SNAPSHOT_CYCLES] = {0};
     int reference_total = 0;
     const bool test_glm_mtp = test_env_bool("DS4_TEST_GLM_MTP");
+#if defined(__APPLE__)
+    const bool test_macro_profile_exact =
+        test_glm_mtp && test_env_bool("DS4_TEST_GLM_MACRO_PROFILE_EXACT");
+#else
+    const bool test_macro_profile_exact = false;
+#endif
     char *saved_deferred_row1_head = NULL;
     char *saved_kda_verify2_snapshot = NULL;
+    char *saved_indexer_pair_exact = NULL;
     bool deferred_row1_head_env_managed = false;
     bool kda_verify2_snapshot_env_managed = false;
+    bool indexer_pair_exact_env_managed = false;
+#if defined(__APPLE__)
+    int saved_pair_override = -1;
+    bool pair_override_managed = false;
+    int saved_macro_profile_override = -1;
+    bool macro_profile_override_managed = false;
+#endif
     float *reference_cycle_logits = NULL;
     float *restored_cycle_logits = NULL;
     int vocab = 0;
@@ -206,6 +424,12 @@ static void test_session_snapshot_roundtrip(void) {
     if (!snapshot.ptr || snapshot.len == 0) goto cleanup;
 
     if (test_glm_mtp) {
+        saved_indexer_pair_exact = test_save_env(
+            "DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT");
+        indexer_pair_exact_env_managed = true;
+        TEST_ASSERT(setenv(
+            "DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT",
+            "1", 1) == 0);
         saved_deferred_row1_head =
             test_save_env("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD");
         saved_kda_verify2_snapshot = test_save_env(
@@ -227,6 +451,13 @@ static void test_session_snapshot_roundtrip(void) {
         if (!reference_cycle_logits || !restored_cycle_logits) {
             goto cleanup;
         }
+#if defined(__APPLE__)
+        if (test_macro_profile_exact) {
+            saved_macro_profile_override =
+                ds4_test_glm_macro_profile_override(0);
+            macro_profile_override_managed = true;
+        }
+#endif
         for (int cycle = 0; cycle < GLM_MTP_SNAPSHOT_CYCLES; cycle++) {
             const int first = ds4_session_argmax(reference);
             const int n = ds4_session_eval_speculative_argmax(
@@ -248,6 +479,10 @@ static void test_session_snapshot_roundtrip(void) {
                                      err, sizeof(err)) == 0);
     }
     TEST_ASSERT(ds4_session_top_logprobs(reference, reference_after, 8) == 8);
+    if (test_glm_mtp) {
+        TEST_ASSERT(ds4_session_save_snapshot(reference, &reference_final,
+                                              err, sizeof(err)) == 0);
+    }
     ds4_session_free(reference);
     reference = NULL;
 
@@ -271,8 +506,15 @@ static void test_session_snapshot_roundtrip(void) {
     }
 
     if (test_glm_mtp) {
-        TEST_ASSERT(setenv("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD",
-                           "1", 1) == 0);
+#if defined(__APPLE__)
+        if (test_macro_profile_exact) {
+            TEST_ASSERT(ds4_test_glm_macro_profile_override(1) == 0);
+        } else
+#endif
+        {
+            TEST_ASSERT(setenv("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD",
+                               "1", 1) == 0);
+        }
         int restored_total = 0;
         int single_cycles = 0;
         int double_cycles = 0;
@@ -283,6 +525,16 @@ static void test_session_snapshot_roundtrip(void) {
             const int n = ds4_session_eval_speculative_argmax(
                     restored, first, 2, -1,
                     restored_accepted, 2, err, sizeof(err));
+            if (n != reference_counts[cycle]) {
+                fprintf(stderr,
+                        "ds4-test: macro profiler schedule mismatch "
+                        "cycle=%d off=%d on=%d pos=%u err=%s\n",
+                        cycle,
+                        reference_counts[cycle],
+                        n,
+                        ds4_session_pos(restored),
+                        err);
+            }
             TEST_ASSERT(n == reference_counts[cycle]);
             if (n != reference_counts[cycle]) goto cleanup;
             for (int i = 0; i < n; i++) {
@@ -300,7 +552,33 @@ static void test_session_snapshot_roundtrip(void) {
             single_cycles += n == 1;
             double_cycles += n == 2;
         }
-        TEST_ASSERT(unsetenv("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD") == 0);
+        TEST_ASSERT(ds4_session_save_snapshot(restored, &restored_final,
+                                              err, sizeof(err)) == 0);
+        const bool deferred_state_exact =
+            reference_final.ptr != NULL && restored_final.ptr != NULL &&
+            reference_final.len == restored_final.len &&
+            memcmp(reference_final.ptr, restored_final.ptr,
+                   (size_t)reference_final.len) == 0;
+        TEST_ASSERT(deferred_state_exact);
+        fprintf(stderr,
+                "ds4-test: GLM %s serialized state=%s "
+                "bytes=%llu\n",
+                test_macro_profile_exact ?
+                    "macro profiler OFF/ON" : "deferred row1 head",
+                deferred_state_exact ? "exact" : "DIFF",
+                (unsigned long long)reference_final.len);
+        ds4_session_snapshot_free(&restored_final);
+#if defined(__APPLE__)
+        if (test_macro_profile_exact) {
+            TEST_ASSERT(ds4_test_glm_macro_profile_override(
+                            saved_macro_profile_override) == 1);
+            macro_profile_override_managed = false;
+        } else
+#endif
+        {
+            TEST_ASSERT(unsetenv(
+                            "DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD") == 0);
+        }
         TEST_ASSERT(restored_total == reference_total);
         fprintf(stderr,
                 "ds4-test: GLM MTP snapshot cycles=%d single=%d double=%d tokens=%d\n",
@@ -314,6 +592,69 @@ static void test_session_snapshot_roundtrip(void) {
         TEST_ASSERT(double_cycles > 0);
 
 #if defined(__APPLE__)
+        if (!test_macro_profile_exact) {
+        /* Isolate H25: both arms use the same deferred-head and KDA settings;
+         * only the thread-local indexer score-kernel selection changes. */
+        TEST_ASSERT(ds4_session_create(&pair_exact, engine, ctx) == 0);
+        if (!pair_exact) goto cleanup;
+        TEST_ASSERT(ds4_session_load_snapshot(pair_exact, &snapshot,
+                                              err, sizeof(err)) == 0);
+        saved_pair_override =
+            ds4_gpu_glm53_indexer_score_pair_exact_override(1);
+        pair_override_managed = true;
+        int pair_total = 0;
+        int pair_single = 0;
+        int pair_double = 0;
+        for (int cycle = 0; cycle < GLM_MTP_SNAPSHOT_CYCLES; cycle++) {
+            int pair_accepted[2] = {0};
+            const int first = ds4_session_argmax(pair_exact);
+            TEST_ASSERT(first == reference_accepted[pair_total]);
+            const int n = ds4_session_eval_speculative_argmax(
+                    pair_exact, first, 2, -1,
+                    pair_accepted, 2, err, sizeof(err));
+            TEST_ASSERT(n == reference_counts[cycle]);
+            if (n != reference_counts[cycle]) goto cleanup;
+            for (int i = 0; i < n; i++) {
+                TEST_ASSERT(pair_accepted[i] ==
+                            reference_accepted[pair_total + i]);
+            }
+            pair_total += n;
+            TEST_ASSERT(ds4_session_pos(pair_exact) ==
+                        reference_positions[cycle]);
+            TEST_ASSERT(ds4_session_copy_logits(pair_exact,
+                                                restored_cycle_logits,
+                                                vocab) == vocab);
+            TEST_ASSERT(memcmp(
+                restored_cycle_logits,
+                reference_cycle_logits + (size_t)cycle * vocab,
+                (size_t)vocab * sizeof(restored_cycle_logits[0])) == 0);
+            pair_single += n == 1;
+            pair_double += n == 2;
+        }
+        TEST_ASSERT(ds4_session_save_snapshot(pair_exact, &pair_final,
+                                              err, sizeof(err)) == 0);
+        const bool pair_state_exact =
+            reference_final.ptr != NULL && pair_final.ptr != NULL &&
+            reference_final.len == pair_final.len &&
+            memcmp(reference_final.ptr, pair_final.ptr,
+                   (size_t)reference_final.len) == 0;
+        TEST_ASSERT(pair_state_exact);
+        TEST_ASSERT(pair_total == reference_total);
+        TEST_ASSERT(pair_single > 1);
+        TEST_ASSERT(pair_double > 0);
+        TEST_ASSERT(ds4_gpu_glm53_indexer_score_pair_exact_override(
+                        saved_pair_override) == 1);
+        pair_override_managed = false;
+        fprintf(stderr,
+                "ds4-test: GLM indexer pair exact state=%s bytes=%llu "
+                "single=%d double=%d tokens=%d\n",
+                pair_state_exact ? "exact" : "DIFF",
+                (unsigned long long)reference_final.len,
+                pair_single, pair_double, pair_total);
+        ds4_session_snapshot_free(&pair_final);
+        ds4_session_free(pair_exact);
+        pair_exact = NULL;
+
         /* Isolate the KDA snapshot fusion from the deferred-head comparison.
          * Both sessions start at the same snapshot and must produce identical
          * speculative schedules and full-vocabulary logits cycle by cycle. */
@@ -365,6 +706,7 @@ static void test_session_snapshot_roundtrip(void) {
                 kda_rollback_total);
         ds4_session_free(kda_rollback);
         kda_rollback = NULL;
+        }
 #endif
     } else {
         TEST_ASSERT(ds4_session_eval(restored, before[0].id,
@@ -387,7 +729,7 @@ static void test_session_snapshot_roundtrip(void) {
                           reference_after[i].logit) <=
                     continued_logit_tolerance);
     }
-    if (test_glm_mtp) {
+    if (test_glm_mtp && !test_macro_profile_exact) {
         TEST_ASSERT(ds4_session_sync(restored, &prompt,
                                      err, sizeof(err)) == 0);
         TEST_ASSERT(ds4_session_top_logprobs(restored,
@@ -417,6 +759,21 @@ static void test_session_snapshot_roundtrip(void) {
     }
 
 cleanup:
+#if defined(__APPLE__)
+    if (macro_profile_override_managed) {
+        (void)ds4_test_glm_macro_profile_override(
+            saved_macro_profile_override);
+    }
+    if (pair_override_managed) {
+        (void)ds4_gpu_glm53_indexer_score_pair_exact_override(
+            saved_pair_override);
+    }
+#endif
+    if (indexer_pair_exact_env_managed) {
+        test_restore_env(
+            "DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT",
+            saved_indexer_pair_exact);
+    }
     if (kda_verify2_snapshot_env_managed) {
         test_restore_env(
             "DS4_METAL_DISABLE_GLM53_KDA_VERIFY2_SNAPSHOT_FUSION",
@@ -430,8 +787,12 @@ cleanup:
     free(reference_cycle_logits);
     free(prompt_text);
     ds4_tokens_free(&prompt);
+    ds4_session_snapshot_free(&pair_final);
+    ds4_session_snapshot_free(&restored_final);
+    ds4_session_snapshot_free(&reference_final);
     ds4_session_snapshot_free(&snapshot);
     ds4_session_free(kda_rollback);
+    ds4_session_free(pair_exact);
     ds4_session_free(restored);
     ds4_session_free(reference);
 }
@@ -923,6 +1284,53 @@ static void test_metal_pack_slot_rows_f32(void) {
     ds4_gpu_tensor_free(out);
 }
 
+#if defined(__APPLE__)
+static void test_metal_macro_profile_boundary_preserves_batch_order(void) {
+    const uint32_t count = 64;
+    float got[count];
+    ds4_gpu_tensor *tensor = ds4_gpu_tensor_alloc((uint64_t)count * sizeof(float));
+    ds4_gpu_tensor *one = ds4_gpu_tensor_alloc((uint64_t)count * sizeof(float));
+    TEST_ASSERT(tensor != NULL);
+    TEST_ASSERT(one != NULL);
+    if (!tensor || !one) goto cleanup;
+
+    TEST_ASSERT(ds4_gpu_tensor_fill_f32(one, 1.0f, count) != 0);
+
+    TEST_ASSERT(ds4_gpu_begin_commands() != 0);
+    TEST_ASSERT(ds4_gpu_macro_profile_boundary(
+                    "test", NULL, 99, 7, 1234, 1) != 0);
+    TEST_ASSERT(ds4_gpu_add_tensor(tensor, one, one, count) != 0);
+    TEST_ASSERT(ds4_gpu_macro_profile_boundary(
+                    "test", "first", 99, 7, 1234, 1) != 0);
+    TEST_ASSERT(ds4_gpu_add_tensor(tensor, tensor, one, count) != 0);
+    TEST_ASSERT(ds4_gpu_macro_profile_boundary(
+                    "test", "second", 99, 7, 1234, 1) != 0);
+    TEST_ASSERT(ds4_gpu_add_tensor(tensor, tensor, one, count) != 0);
+    TEST_ASSERT(ds4_gpu_macro_profile_label_current(
+                    "test", "third", 99, 7, 1234, 1) != 0);
+    TEST_ASSERT(ds4_gpu_end_commands() != 0);
+    TEST_ASSERT(ds4_gpu_tensor_read(tensor,
+                                    0,
+                                    got,
+                                    sizeof(got)) != 0);
+    for (uint32_t i = 0; i < count; i++) TEST_ASSERT(got[i] == 4.0f);
+    double labelled_gpu_ms = 0.0;
+    uint32_t records = 0;
+    uint32_t timed_records = 0;
+    TEST_ASSERT(ds4_gpu_macro_profile_cycle_summary(
+                    99, &labelled_gpu_ms, &records, &timed_records) != 0);
+    TEST_ASSERT(labelled_gpu_ms > 0.0);
+    TEST_ASSERT(records == 1u);
+    TEST_ASSERT(timed_records == 1u);
+    TEST_ASSERT(ds4_gpu_macro_profile_cycle_summary(
+                    99, &labelled_gpu_ms, &records, &timed_records) == 0);
+
+cleanup:
+    ds4_gpu_tensor_free(one);
+    ds4_gpu_tensor_free(tensor);
+}
+#endif
+
 static void test_metal_store_raw_kv_batch_wrap(void) {
     const uint32_t raw_cap = 5;
     const uint32_t head_dim = 3;
@@ -1122,6 +1530,126 @@ static void test_metal_q8_0_decode_pair_exact(void) {
 }
 
 #if defined(__APPLE__)
+static void test_metal_glm53_indexer_score_pair_exact_case(bool cache_f16) {
+    enum {
+        n_rows = 257,
+        n_tokens = 2,
+        pos0 = 1022,
+        pool_size = 4,
+        n_head = 32,
+        head_dim = 128,
+    };
+    const uint64_t q_bytes =
+        (uint64_t)n_tokens * n_head * head_dim * sizeof(float);
+    const uint64_t weights_bytes =
+        (uint64_t)n_tokens * n_head * sizeof(float);
+    const uint64_t cache_values = (uint64_t)n_rows * head_dim;
+    const uint64_t cache_bytes = cache_values *
+        (cache_f16 ? sizeof(uint16_t) : sizeof(float));
+    const uint64_t scores_bytes =
+        (uint64_t)n_tokens * n_rows * sizeof(float);
+
+    ds4_gpu_tensor *q = ds4_gpu_tensor_alloc(q_bytes);
+    ds4_gpu_tensor *weights = ds4_gpu_tensor_alloc(weights_bytes);
+    ds4_gpu_tensor *cache = ds4_gpu_tensor_alloc(cache_bytes);
+    ds4_gpu_tensor *baseline = ds4_gpu_tensor_alloc(scores_bytes);
+    ds4_gpu_tensor *candidate = ds4_gpu_tensor_alloc(scores_bytes);
+    float *q_host = malloc((size_t)q_bytes);
+    float *weights_host = malloc((size_t)weights_bytes);
+    void *cache_host = malloc((size_t)cache_bytes);
+    uint32_t *score_init = malloc((size_t)scores_bytes);
+    float *baseline_host = malloc((size_t)scores_bytes);
+    float *candidate_host = malloc((size_t)scores_bytes);
+    TEST_ASSERT(q && weights && cache && baseline && candidate);
+    TEST_ASSERT(q_host && weights_host && cache_host && score_init &&
+                baseline_host && candidate_host);
+    if (!q || !weights || !cache || !baseline || !candidate ||
+        !q_host || !weights_host || !cache_host || !score_init ||
+        !baseline_host || !candidate_host) {
+        goto cleanup;
+    }
+
+    for (uint64_t i = 0; i < q_bytes / sizeof(float); i++) {
+        const int value = (int)((i * 17u + (i >> 3u) * 5u) % 251u) - 125;
+        q_host[i] = (float)value / 127.0f;
+    }
+    for (uint64_t i = 0; i < weights_bytes / sizeof(float); i++) {
+        const int value = (int)((i * 29u + 7u) % 113u) - 56;
+        weights_host[i] = (float)value / 61.0f;
+    }
+    for (uint64_t i = 0; i < cache_values; i++) {
+        const int value = (int)((i * 13u + (i >> 5u) * 11u) % 239u) - 119;
+        const float f = (float)value / 121.0f;
+        if (cache_f16) {
+            ((uint16_t *)cache_host)[i] = test_float_to_f16(f);
+        } else {
+            ((float *)cache_host)[i] = f;
+        }
+    }
+    for (uint64_t i = 0; i < scores_bytes / sizeof(uint32_t); i++) {
+        score_init[i] = 0x7fc00000u ^ (uint32_t)(i * 0x101u);
+    }
+
+    TEST_ASSERT(ds4_gpu_tensor_write(q, 0, q_host, q_bytes) != 0);
+    TEST_ASSERT(ds4_gpu_tensor_write(weights, 0, weights_host,
+                                     weights_bytes) != 0);
+    TEST_ASSERT(ds4_gpu_tensor_write(cache, 0, cache_host, cache_bytes) != 0);
+    TEST_ASSERT(ds4_gpu_tensor_write(baseline, 0, score_init,
+                                     scores_bytes) != 0);
+    TEST_ASSERT(ds4_gpu_tensor_write(candidate, 0, score_init,
+                                     scores_bytes) != 0);
+    ds4_gpu_set_quality(false);
+
+    const int saved_override =
+        ds4_gpu_glm53_indexer_score_pair_exact_override(0);
+    TEST_ASSERT(ds4_gpu_glm53_indexer_scores_batch_tensor(
+        baseline, q, weights, cache, n_rows, n_tokens, pos0, pool_size,
+        n_head, head_dim, 0.08838834764831845f, cache_f16) != 0);
+    TEST_ASSERT(ds4_gpu_glm53_indexer_score_pair_exact_override(1) == 0);
+    TEST_ASSERT(ds4_gpu_glm53_indexer_scores_batch_tensor(
+        candidate, q, weights, cache, n_rows, n_tokens, pos0, pool_size,
+        n_head, head_dim, 0.08838834764831845f, cache_f16) != 0);
+    TEST_ASSERT(ds4_gpu_glm53_indexer_score_pair_exact_override(
+                    saved_override) == 1);
+
+    TEST_ASSERT(ds4_gpu_tensor_read(baseline, 0, baseline_host,
+                                    scores_bytes) != 0);
+    TEST_ASSERT(ds4_gpu_tensor_read(candidate, 0, candidate_host,
+                                    scores_bytes) != 0);
+    size_t mismatches = 0;
+    for (uint64_t i = 0; i < scores_bytes / sizeof(float); i++) {
+        mismatches += memcmp(&baseline_host[i], &candidate_host[i],
+                             sizeof(float)) != 0;
+    }
+    TEST_ASSERT(mismatches == 0);
+    TEST_ASSERT(isfinite(baseline_host[254]));
+    TEST_ASSERT(isinf(baseline_host[255]) && baseline_host[255] < 0.0f);
+    TEST_ASSERT(isfinite(baseline_host[n_rows + 255]));
+    TEST_ASSERT(isinf(baseline_host[n_rows + 256]) &&
+                baseline_host[n_rows + 256] < 0.0f);
+    fprintf(stderr,
+            "ds4-test: GLM53 indexer score pair exact cache=%s mismatches=%zu/%u\n",
+            cache_f16 ? "f16" : "f32", mismatches, n_tokens * n_rows);
+
+cleanup:
+    free(candidate_host);
+    free(baseline_host);
+    free(score_init);
+    free(cache_host);
+    free(weights_host);
+    free(q_host);
+    ds4_gpu_tensor_free(candidate);
+    ds4_gpu_tensor_free(baseline);
+    ds4_gpu_tensor_free(cache);
+    ds4_gpu_tensor_free(weights);
+    ds4_gpu_tensor_free(q);
+}
+
+static void test_metal_glm53_indexer_score_pair_exact(void) {
+    test_metal_glm53_indexer_score_pair_exact_case(false);
+    test_metal_glm53_indexer_score_pair_exact_case(true);
+}
+
 static void test_metal_f16_compressor_pair_state_store_exact_case(
         uint32_t width,
         uint32_t ratio,
@@ -4845,6 +5373,8 @@ static void test_metal_kernel_group(void) {
     test_dspark_cache_window_crop();
     test_metal_q8_0_decode_pair_exact();
 #if defined(__APPLE__)
+    test_metal_macro_profile_boundary_preserves_batch_order();
+    test_metal_glm53_indexer_score_pair_exact();
     test_metal_f16_compressor_pair_state_store_exact();
     test_metal_compressor_ape_add_exact();
     test_metal_compressor_ratio4_pack_exact();
@@ -6684,6 +7214,7 @@ static bool test_mtp_capture_speculative(ds4_engine *engine, const ds4_tokens *p
             session, token, max_tokens - n, eos, toks,
             (int)(sizeof(toks) / sizeof(toks[0])), err, sizeof(err));
         if (ntok < 0) { ok = false; TEST_ASSERT(false); break; }
+        TEST_ASSERT(ntok <= max_tokens - n);
         if (ntok > *max_chunk) *max_chunk = ntok;
 
         for (int j = 0; j < ntok; j++) {
@@ -6693,6 +7224,7 @@ static bool test_mtp_capture_speculative(ds4_engine *engine, const ds4_tokens *p
         }
     }
 
+    TEST_ASSERT(ds4_session_pos(session) <= prompt->len + max_tokens);
     *out_len = n;
     ds4_session_free(session);
     return ok;
@@ -6915,6 +7447,7 @@ typedef struct {
 
 static const ds4_test_entry test_entries[] = {
 #ifndef DS4_NO_GPU
+    {"--glm53-matched-nomtp", "glm53-matched-nomtp", "exact GLM matched-NOMTP target and nextn-state equivalence", test_glm53_matched_nomtp_equivalence},
     {"--session-snapshot", "session-snapshot", "session snapshot and recurrent-state round trip", test_session_snapshot_roundtrip},
     {"--long-context", "long-context", "long-context story fact-recall regression", test_long_story_fact_recall},
     {"--tool-call-quality", "tool-call-quality", "model tool call and post-result stop regression", test_tool_call_quality},

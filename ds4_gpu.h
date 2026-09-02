@@ -79,6 +79,29 @@ int ds4_gpu_flush_encoder(void);
 int ds4_gpu_flush_commands(void);
 int ds4_gpu_commands_active(void);
 #ifdef __APPLE__
+/* Label work in the active command buffer without changing encoder topology.
+ * NULL starts a scope; regions are reported together with the command buffer's
+ * GPU interval at its existing completion wait. */
+int ds4_gpu_macro_profile_boundary(const char *path,
+                                   const char *region,
+                                   uint64_t    cycle,
+                                   uint32_t    layer,
+                                   uint32_t    pos,
+                                   uint32_t    n_tokens);
+int ds4_gpu_macro_profile_label_current(const char *path,
+                                        const char *region,
+                                        uint64_t    cycle,
+                                        uint32_t    layer,
+                                        uint32_t    pos,
+                                        uint32_t    n_tokens);
+int ds4_gpu_macro_profile_cancel(void);
+/* Return and consume the completed labelled spans for one logical cycle.
+ * This is deliberately not a CPU-time estimate: unlabelled work remains
+ * unattributed. */
+int ds4_gpu_macro_profile_cycle_summary(uint64_t cycle,
+                                        double  *labelled_gpu_ms,
+                                        uint32_t *record_count,
+                                        uint32_t *timed_record_count);
 int ds4_gpu_parallel_ffn_finish(void);
 void ds4_gpu_parallel_ffn_abort(void);
 int ds4_gpu_parallel_ffn_start(
@@ -1432,6 +1455,10 @@ int ds4_gpu_glm53_indexer_scores_batch_tensor(
         uint32_t              head_dim,
         float                 scale,
         bool                  cache_f16);
+
+/* Thread-local diagnostic control: -1 follows environment policy, 0 forces
+ * the scalar kernel, 1 forces the exact width-2 kernel. Returns prior mode. */
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode);
 
 int ds4_gpu_glm_qk_lowrank_q8_0_tensor(
         ds4_gpu_tensor       *qk_low,

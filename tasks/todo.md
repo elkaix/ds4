@@ -1,48 +1,237 @@
 # S55-200 Active Plan
 
 Success: the minimum sustained generated decode rate at real 2K, 32K, 64K,
-128K, and ~200K context is at least 55.0 t/s, with MTP, unchanged semantics and
-quality, <=2% context decay, and <=2% 60-minute drift.
+128K, and ~200K context is at least 55.0 t/s, with unchanged semantics/quality,
+<=2% context decay, and <=2% 60-minute drift. `MTP_AUTO` may choose plain decode
+only when controlled measurement proves width-2 is slower.
 
-- [ ] Phase 0-1: freeze source/binary/model/config and preserve the measured
-      2K/32K/64K/128K/200K decode ladder.
-- [ ] Phase 2: measure `a200`, tokens/cycle, non-instrumented cycle budget, and
-      the remaining milliseconds to 55 t/s.
-- [ ] Phase 3-4: accept a <=3%-overhead macro profiler; run equal-byte
-      sequential/pattern/one-row-MoE/width-2-MoE M1.
-- [ ] Phase 5-8: optimize only the largest measured 200K component with a
-      plausible >=5% end-to-end ceiling; exact-output balanced A/B.
-- [ ] Phase 9-12: four real 200K workloads, consecutive growing-context blocks,
-      60 minutes, <=2% decay; repeat measured largest-component loop until pass.
+- [x] M0: finish one-request, warm-200K `MATCHED-STATE NOMTP` versus MTP
+      ABBA/BAAB, >=8 blocks and >=512 generated tokens per arm; score only
+      ms/generated-token and MTP ms/cycle/commits.
+- [x] Price indexed forward n=1 versus n=2 above 4096 through 200K.
+- [ ] Determine whether 4096 is a correctness/state-layout constraint; build an
+      exact sparse two-row verifier only if the measured n=2 penalty supports it.
+- [ ] Resolve width-2-versus-serial full-state equivalence before any
+      `MTP_AUTO` release; then measure its profitability crossover.
+- [ ] Only after M0: quality-first KDA/DSA quant trials, exact routed runtime
+      work, four-workload 200K validation, and the 60-minute stability gate.
 
-Current blocker: Claude's orchestrator still owns the machine lease. Its
-`ds4-server` and `attrib200.py` processes exited after a Metal out-of-memory
-restart failure, but absence of child PIDs is not an explicit lease release.
-Do not build or start a competing Metal process until release.
+The user confirmed Claude did not hold the lease. Idle launcher PID 77655 and
+server PID 77762 were stopped with `SIGTERM`; port 8000 is free, fans are back
+in Apple auto mode, and disk KV was untouched. `last_decode_tps=13.72` remains
+stale request telemetry, not an idle or contract-grade measurement.
 
-Current score: 22.48 t/s at actual 197,395-token context; 31.90% measured
-2K-to-200K decay. Research and three max-effort Sol review passes are consolidated
-in `docs/research/`; no theoretical or correlated metric receives S55 credit.
+Current screening, not yet the matched-state ABBA: plain 200K = 38.474 ms/token
+= 25.99 t/s; MTP 200K = 46.365 ms/token = 21.57 t/s, a 20.5% MTP penalty.
+Plain 2K-to-200K decay is about 4.9%; MTP decay is about 31.9%. Current S55
+score remains unproven because the complete ladder and 60-minute gate are absent.
 
-Phase 0 gap: the old executable is frozen by SHA-256 and its source head was
-recorded, but the binary has since been replaced, so their exact match cannot
-be re-attested. The 96.5 GB model SHA-256 waits for idle I/O after lease release.
+M0 is complete and diagnostic-only. At actual context 197,395, current MTP
+measured 44.1838 ms/token (22.6327 t/s), while MATCHED-STATE NOMTP measured
+39.7307 ms/token (25.1694 t/s): MTP is 11.2081% slower. Eight paired blocks,
+515/512 scored tokens, sign p=0.0078125, paired mean 95% CI
+[3.1080, 5.7085] ms/token. MTP commits 1.83929 tokens/cycle at 81.2666 ms/cycle.
+For 55 t/s its cycle budget is 33.4416 ms, leaving 47.8250 ms/cycle.
+MATCHED NOMTP needs 18.1818 ms/token, leaving 21.5489 ms/token. Credit: 0 t/s.
 
-Lease-safe validation completed on this branch: the GLM quantizer suite passes
-14/14; the S55 analyzer passes 4/4 and reproduces its historical cycle fixture;
-the frozen corpus reproduces its 1,157,096-byte SHA-256; all 39 tracked Python
-files AST-parse; all 7 tracked shell scripts pass syntax; and `git diff --check`
-passes. These are correctness gates only and add 0 t/s to S55.
+Current validation: Phase 2 driver 16/16, M0 driver 16/16, quantizer 14/14,
+MTP analyzer 4/4, five C syntax modes, launcher Bash/ShellCheck, and
+`git diff --check` pass.
+`ds4_test` and `ds4-server` build warning-free; GLM-5.3 KDA primitives and the
+existing GLM snapshot+MTP test pass. The exact target's two-session Metal batch
+gate also passes at its declared 0.001 logit tolerance (observed max abs
+0.000312805). Credit: 0 t/s.
 
-Two GPT-5.6 Sol max snapshot reviews rejected Claude's live ablation designs
-and `attrib200.py` result as S55 evidence. The replacement in-generation mask
-program still carries poisoned state, can split one MTP cycle across arms,
-breaks the CPU link, races across slots, and taxes the normal hot path. See
-`docs/research/claude-ablation-review.md`.
+The new real-model matched-state oracle proves three exact facts at both the
+short fixture and canonical long-context position 197,622: ordinary MTP
+seed versus MATCHED-STATE NOMTP target snapshots match byte-for-byte; their
+nextn compact-KV row matches byte-for-byte; and the post-NOMTP wash seed matches
+one ordinary target eval byte-for-byte. It also exposes a separate baseline
+gap: one accepted two-token MTP verify versus two sequential target evals keeps
+the same token IDs but changes 153606/154880 logits (max abs 5.98430634e-05)
+and target KDA state. All tested verifier rollback switches reproduce the same
+gap. The existing project gate permits tolerance for full batching; the S55
+contract asks for bit identity. Do not silently collapse those standards.
+
+The corrected M0 used one cold request, balanced ABBA/BAAB with five wash
+segments, exact response/raw-output/state sealing, max fans, 1,422 generated
+tokens, and final position 198,817. Control spread was 4.3021%; worst adjacent
+step 2.7252%. Model SHA-256 is
+`968b86f7ba7a6f70b1619aa678c6fbe446b3702a5c6f972f5c79e3109a22975a`;
+binary SHA-256 is
+`de408a431def6e8477c73849dd556a1ef9f9f8478ad770aac7ba9ddc6cfe587a`.
+
+Independent GPT-5.6 Sol max review `r4` (SHA-256
+`b4bd18336f8c56d9402cc7054c916c66333b1b6e5f51e62332fd62b04696289a`)
+returns `SPLIT`: the exact control and
+M0 diagnostic pass; exact-semantics authorization for `MTP_AUTO` remains blocked
+by the pre-existing verifier-versus-sequential state gap. The review also found
+and caused removal of test-only `ds4.c` linkage that changed Apple predicates.
 
 The untracked `competition/` C++/`metal-cpp` engine is also rejected. It is not
 integrated into DS4, lacks real KDA/DSA and IQ2_XXS/Q2_K execution, and contains
 fatal graph mismatches. See `docs/research/competition-greenfield-review.md`.
+
+## Current Review
+
+- Done: research-stack synthesis, independent Sol review, M0 evidence hardening,
+  contract-grade M0 diagnostic, 50 Python tests, five C syntax paths, Metal
+  builds, exact oracle at 197,622, the indexed n=1/n=2 ladder through 197K,
+  and H26 topology-neutral command-buffer validation at indexed position
+  197,623.
+- Pending: a stable H25 real-decode gate and a profiler capable of independent
+  macro-region timing. H26 passes exactness/overhead as a whole-command-buffer
+  diagnostic but cannot rank KDA versus routed MoE. Two H25 real-decode runs
+  failed the control-stability gate; do not credit them. Do not ship `MTP_AUTO`
+  until its separate verifier-versus-serial state gap is resolved.
+- The first H26 ~200K attribution request was cancelled at 126,976/176,915
+  uncached prefill tokens (71.8%) when the user requested runtime-cache
+  clearing. It reached no decode and earns no evidence. Server shutdown cleared
+  resident state, restored automatic fans, and DS4 discarded the active
+  20,480-token disk-KV entry as `prefill-failed`; all other KV files remained.
+- Deviation: kernel work began only after H24 measured a 20.594 ms n=2 excess
+  and source inspection isolated duplicated width-2 indexer-key reads.
+
+## H24 — Indexed Two-Row Cost Budget
+
+- Hypothesis: at ~200K, indexed n=2 costs >=1.7x n=1 and explains a large part
+  of the 81.2666 ms MTP cycle.
+- Current component cost: unknown; total MTP cycle 81.2666 ms at 197K.
+- Maximum removable cost: bounded by the 47.8250 ms MTP cycle deficit.
+- Expected whole-cycle gain: measurement itself 0 t/s. A 2.0x-to-1.2/1.3x
+  exact skinny-row change would plausibly remove 15-25 ms/cycle.
+- Measurement: actual pending pair, same process/state, KDA transaction restore,
+  direct operation timing, balanced n1/n2 order, >=8 reps.
+- Kill: n2/n1 <=1.3, n2-n1 <4 ms, or excess <5% of the current cycle.
+
+Observed at actual position 197,396, eight balanced samples/arm:
+
+- n=1: mean 54.708 ms; median 54.708; range [53.929, 55.514]; conservative
+  mean 95% CI [54.226, 55.189].
+- n=2: mean 75.301 ms; median 75.252; range [74.554, 76.156]; conservative
+  mean 95% CI [74.792, 75.810].
+- Ratio 1.3764x; excess 20.594 ms; excess 95% CI [19.893, 21.294].
+- Verdict: the >=1.7x hypothesis is rejected, but the candidate survives both
+  kill gates. The second row consumes 25.34% of the current MTP cycle.
+- Arithmetic ceiling only: deleting all 20.594 ms would reach about 30.31 t/s,
+  still far below S55. To beat MATCHED NOMTP, n=2 must fall below 67.111 ms
+  (ratio <=1.2267), saving at least 8.190 ms/cycle.
+
+Full indexed-forward ladder (eight balanced samples/arm at each point):
+
+| Position | n=1 mean | n=2 mean | Ratio | Excess |
+|---:|---:|---:|---:|---:|
+| 4,728 | 38.766 ms | 44.470 ms | 1.1471x | 5.704 ms |
+| 32,171 | 40.573 ms | 48.457 ms | 1.1943x | 7.884 ms |
+| 64,134 | 43.227 ms | 53.443 ms | 1.2364x | 10.217 ms |
+| 128,130 | 48.963 ms | 64.137 ms | 1.3099x | 15.173 ms |
+| 197,396 | 54.708 ms | 75.301 ms | 1.3764x | 20.594 ms |
+
+Linear fits against context Ktokens: n1 slope 0.084137 ms/Ktoken
+(R2=0.998826), n2 slope 0.161237 (R2=0.999663), and excess
+`5.336719 + 0.077099 * Ktokens` ms (R2=0.999917). The n2 context slope is
+1.91635x n1. Verdict: no 4K cliff; a smooth duplicated context-dependent path.
+
+## H25 — Exact GLM-5.3 Two-Row Indexer Score
+
+- Hypothesis: the below-8-token batch score kernel rereads each pooled indexer
+  key for both verification rows. One exact pair threadgroup can load the key
+  once and preserve each row's scalar accumulation/reduction order.
+- Current component budget: n2-n1 excess is 20.594 ms at 197K; at least
+  8.190 ms/cycle must be removed to beat MATCHED NOMTP.
+- Maximum removable cost: 20.594 ms/cycle; this is an upper bound, not a claim.
+- Expected whole-cycle gain: 8-15 ms if the nearly doubled context slope is
+  mainly indexer-score traffic; 0 t/s until exact A/B and real decode pass.
+- Measurement: bitwise score/hidden/logit/state gate first; same-process
+  balanced direct n2 A/B at 197K; then clean MTP decode A/B.
+- Kill: any bit difference, <4 ms n2 forward savings, or <5% whole-cycle gain.
+
+Short-context screen at actual position 4,728, eight balanced samples/arm:
+
+- Full two-row hidden output and vocabulary logits are byte-identical.
+- Baseline n=2 mean 44.223 ms (95% CI [43.661, 44.784]).
+- Exact-pair n=2 mean 43.633 ms (95% CI [43.497, 43.768]).
+- Delta -0.590 ms (paired conservative 95% CI [-1.168, -0.012]); 1.33% speedup.
+- Verdict: correctness passes, but 4K speed is below the long-context kill gate.
+  Continue only to the predeclared 197K test because the suspected duplicated
+  indexer-key traffic grows linearly with context.
+
+Long-context decision at actual position 197,402, eight balanced samples/arm:
+
+- Full two-row hidden output and vocabulary logits are byte-identical.
+- Baseline n=2 mean 86.781 ms (95% CI [85.867, 87.696]).
+- Exact-pair n=2 mean 68.769 ms (95% CI [68.271, 69.266]).
+- Delta -18.013 ms (conservative 95% CI [-19.053, -16.972]); 20.76% speedup.
+- One server, one request, queue zero, max fans. A separate idle 4K server
+  started 73 seconds after the A/B completed and therefore did not overlap.
+- Verdict: KEEP opt-in. The direct-operation and state gates pass; it remains
+  0 t/s S55 credit until clean real-decode passes.
+
+Promotion and follow-up gates:
+
+- Independent GPT-5.6 Sol max review says KEEP opt-in / REJECT default-on.
+  `DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT=1` enables the measured M5 Max
+  path; the disable variable remains a kill switch.
+- Forced baseline/candidate Metal calls produce bit-identical raw score buffers:
+  514/514 values for both FP32 and FP16 cache storage, including the visibility
+  boundary. The A/B scanner uses a thread-local override and preserves caller
+  environment policy.
+- At actual position 4,728, baseline versus candidate produced identical
+  serialized session state across 267,106,276 bytes after 16 MTP cycles. At
+  canonical ~197K, all 4,885,013,984 serialized bytes, per-cycle full logits,
+  and the 5 single / 11 double / 27-token schedule are identical.
+- The first clean 197K M0 attempt completed one request and all 1,422 tokens.
+  Raw candidate MTP was 25.915 t/s versus MATCHED NOMTP 22.939 t/s, but the
+  result is rejected: NOMTP control-block spread was 15.264% (gate <=5%).
+  Its 1,422 generated tokens, output, and trajectory hashes exactly match the
+  prior baseline M0 (`a6216dcb...`, `2e0427a9...`, `660ecb83...`).
+  External load during/after the run included OrbStack, WindowServer, an
+  Android emulator, and active Spotlight workers. Credit remains 0 t/s.
+- The second 197K attempt also completed exactly. Raw candidate MTP was
+  23.011 t/s, MATCHED NOMTP was 21.085 t/s, and MTP cycle time was 79.929 ms
+  versus the 33.442 ms S55 budget. It is `REJECTED_UNSTABLE`: NOMTP spread was
+  14.707% and worst adjacent movement 14.513%. Swap rose 11.4 -> 13.6 GiB
+  during decode; idle host memory before model residency was 31.2 GiB versus
+  23.4 GiB in the valid baseline. This is paging evidence, not H25 speed credit.
+- The M0 reporter now preserves completed unstable runs as sealed
+  `REJECTED_UNSTABLE` artifacts instead of deleting their evidence.
+
+## H26 — Topology-Neutral Command-Buffer Diagnostic
+
+- Hypothesis: the remaining cycle deficit can only be ranked without repeated
+  GPU drains; the current stage profiler changes scheduling by ending and
+  waiting at every boundary.
+- Current component cost: unknown; H25 raw cycle is invalid, while the last
+  valid baseline leaves 47.825 ms/cycle to S55.
+- Maximum removable cost: measurement-only, 0 ms. It enables selection of the
+  largest real component.
+- Expected whole-cycle gain: 0 t/s from profiling itself.
+- Measurement: attach structured labels to existing command buffers and read
+  `GPUStartTime`/`GPUEndTime` only at the existing normal completion wait.
+- Kill: profiler overhead >3%, any state/output change, unsupported counter
+  path without a correct coarse-timing fallback, or per-stage GPU waits.
+
+Observed on Apple M5 Max:
+
+- The public timestamp counter set exists, but dispatch-boundary sampling is
+  unsupported. H26 therefore uses command-buffer spans, not counter samples.
+- A tight boundary repro at position 20,987 proved the A/B scanner omitted the
+  persistent DSA indexer tails: before the fix HC/logits and the final state
+  differed. Scanner-local capture/restore of all 45,056 tail bytes made HC,
+  logits, and all 656,274,916 state bytes exact. Production speculation was not
+  changed.
+- At actual position 197,623, 32 balanced samples/arm measured OFF/ON means
+  85.992/86.345 ms and medians 88.662/89.214 ms. Mean/median overhead was
+  +0.41%/+0.62%; paired delta CI [-0.202, 0.910] ms.
+- The canonical 16-cycle OFF/ON replay matched every cycle's full logits and all
+  4,885,013,984 serialized bytes, with the same 5 single / 11 double / 27-token
+  schedule.
+- Independent GPT-5.6 Sol max review found the decisive limit: region names for
+  the selected layer are metadata attached to the whole indexed-forward command
+  buffer. They do not produce independent stage timings and cannot rank KDA
+  against routed MoE.
+- Verdict: backend `KEEP` for whole-command-buffer diagnosis; H26 `REJECTED` as
+  the macro-region target selector; zero S55 throughput credit.
 
 ## Prior Investigation — 4K Boundary Work
 
@@ -401,3 +590,43 @@ paragraph still says "keep 45-50 as a stretch target". The headline was taken.
 6. **Costing exercise, not yet a task:** tree / multi-candidate speculation.
    Verification amortizes rows at 13.57 ms each; the open question is whether
    any drafter can produce candidates for less than that.
+
+## REVIEW — 2026-09-01, third pass (handoff realigned)
+
+Handoff note verified against disk: HEAD b05ecd7, 13 modified + 5 untracked
+files, port 8000 free. Prior roadmap (H25 canonical run first) reordered on
+three findings:
+
+- F1: H25 ceiling is ~29.08 t/s (E4) against a 55 t/s target. A 200K canonical
+  run buys at most 20.76% of a cycle that needs 2.43x. Gate value only.
+- F2: H25 A/B lives inside MTP, which is 11.21% slower than matched NOMTP at
+  197K (E1), and `MTP_AUTO` stays blocked on the verifier-vs-sequential state
+  gap. A KEEP cannot ship.
+- F3: The gap is structural: 55 t/s needs 18.18 ms/token; matched NOMTP is
+  39.73. Decode uses ~25% of memory bandwidth. Routed-MoE byte/access-pattern
+  attribution is the only lever sized to the gap.
+
+All S55 work is now in one WIP commit so no session can lose it to a clean or
+checkout. `competition/` is not in this worktree; the rejected engine sits in
+`ds4-glm53` untracked and stays rejected.
+
+### Next session starts here (supersedes the list above)
+
+1. **Routed-MoE decode attribution, plain decode, 200K.** Same-byte, same
+   access-pattern kernel measurement of the expert gather/GEMV against the
+   memory-bandwidth roofline. Needs the non-serializing profiler (item 0 of the
+   prior list) or stage-group bisection. Output: ms/token attributable to MoE,
+   and the ratio of bytes moved to bytes required. This decides whether S55 is
+   reachable at all before any more MTP work.
+2. **H25 as a cheap gate, not an experiment.** Run the canonical one-request
+   H25 A/B only when the host is quiet and only to KEEP or discard code already
+   written. Keep rule unchanged: >3% gain, positive paired CI, sign p<=0.05,
+   both-arm drift <=5%, exact counters/trajectory, thermal pass. A KEEP grants
+   zero S55 credit until `MTP_AUTO` unblocks.
+3. **Resume Sol review of the H25 gate; rerun build, `ds4_test --server`,
+   33 Python tests, ShellCheck, diff check** before item 2.
+4. **Unblock `MTP_AUTO` or retire it.** Resolve the verifier-vs-sequential
+   logit/KDA-state gap (max abs 5.98e-05, 153606/154880 logits) or record that
+   the S55 bit-identity contract excludes MTP at long context.
+5. Context ladder, four workloads, 60-minute stability: only after item 1
+   shows a path to <=18.18 ms/token.

@@ -56,6 +56,15 @@ static BOOL g_batch_encoder_concurrent;
 static BOOL g_batch_has_work;
 static void ds4_gpu_parallel_ffn_reset_state(BOOL close_encoder);
 static NSMutableArray<id<MTLCommandBuffer>> *g_pending_cbs;
+static NSMapTable *g_macro_profile_records;
+static NSMutableDictionary *g_macro_profile_cycle_totals;
+static id<MTLCommandBuffer> g_macro_profile_scope_cb;
+static NSMutableArray<NSString *> *g_macro_profile_scope_regions;
+static NSString *g_macro_profile_scope_path;
+static uint64_t g_macro_profile_scope_cycle;
+static uint32_t g_macro_profile_scope_layer;
+static uint32_t g_macro_profile_scope_pos;
+static uint32_t g_macro_profile_scope_tokens;
 static id<MTLSharedEvent> g_selected_readback_event;
 static uint64_t g_selected_readback_event_value;
 static id<MTLComputePipelineState> g_set_rows_f32_i32_pipeline;
@@ -218,6 +227,7 @@ static id<MTLComputePipelineState> g_glm_indexer_rope_tail_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_direct_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_batch_pipeline;
+static id<MTLComputePipelineState> g_glm53_indexer_scores_pair_exact_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_f32_pipeline;
 static id<MTLComputePipelineState> g_glm_qk_lowrank_pipeline;
@@ -558,6 +568,7 @@ static NSUInteger g_moe_q4_down_slots_bytes;
 static NSUInteger g_attn_out_group_ids_bytes;
 static int g_initialized;
 static int g_quality_mode;
+static _Thread_local int g_glm53_indexer_score_pair_exact_override = -1;
 static int g_mpp_invalid_env_reported;
 #define DS4_METAL_MAX_ROUTED_EXPERT_USED 8
 static int32_t g_routed_moe_selected_override[DS4_METAL_MAX_ROUTED_EXPERT_USED];
@@ -989,6 +1000,7 @@ static void ds4_gpu_close_batch_encoder(void) {
 
 static double g_gpu_busy_accum;
 static uint64_t g_gpu_busy_cbs;
+static NSString *const g_macro_profile_label_prefix = @"ds4-macro|";
 
 /* A failed command buffer can leave a cross-threadgroup arrival counter at an
  * arbitrary partial value.  Drop cached ownership instead of CPU-resetting
@@ -1001,7 +1013,70 @@ static void ds4_gpu_invalidate_completion_counters(void) {
     g_dsv4_hc_producer_last_completion = nil;
 }
 
+static void ds4_gpu_macro_profile_scope_clear(void) {
+    g_macro_profile_scope_cb = nil;
+    g_macro_profile_scope_regions = nil;
+    g_macro_profile_scope_path = nil;
+    g_macro_profile_scope_cycle = 0;
+    g_macro_profile_scope_layer = 0;
+    g_macro_profile_scope_pos = 0;
+    g_macro_profile_scope_tokens = 0;
+}
+
+static int ds4_gpu_macro_profile_attach_record(
+        id<MTLCommandBuffer> cb,
+        NSDictionary       *record) {
+    if (!cb || !record || !g_macro_profile_records) return 0;
+    NSMutableArray<NSDictionary *> *records =
+        [g_macro_profile_records objectForKey:cb];
+    if (!records) {
+        records = [NSMutableArray array];
+        [g_macro_profile_records setObject:records forKey:cb];
+    }
+    [records addObject:record];
+    return 1;
+}
+
+static void ds4_gpu_macro_profile_record_span(NSDictionary *record,
+                                               NSString     *region,
+                                               double        gpu_ms,
+                                               BOOL          timed) {
+    if (!record || !region) return;
+    const NSNumber *const cycle_key = record[@"cycle"];
+    NSDictionary *const prior = g_macro_profile_cycle_totals[cycle_key];
+    const uint32_t record_count =
+        [prior[@"records"] unsignedIntValue] + 1u;
+    uint32_t timed_record_count =
+        [prior[@"timed_records"] unsignedIntValue];
+    double labelled_gpu_ms = [prior[@"gpu_ms"] doubleValue];
+    const char *gpu_ms_text = "unavailable";
+    char gpu_ms_buf[64];
+    if (timed && isfinite(gpu_ms) && gpu_ms > 0.0) {
+        labelled_gpu_ms += gpu_ms;
+        timed_record_count++;
+        snprintf(gpu_ms_buf, sizeof(gpu_ms_buf), "%.6f", gpu_ms);
+        gpu_ms_text = gpu_ms_buf;
+    }
+    fprintf(stderr,
+            "ds4: metal macro cycle=%llu path=%s region=%s "
+            "layer=%u pos=%u tokens=%u gpu_ms=%s\n",
+            [cycle_key unsignedLongLongValue],
+            [record[@"path"] UTF8String],
+            [region UTF8String],
+            [record[@"layer"] unsignedIntValue],
+            [record[@"pos"] unsignedIntValue],
+            [record[@"tokens"] unsignedIntValue],
+            gpu_ms_text);
+    g_macro_profile_cycle_totals[cycle_key] = @{
+        @"gpu_ms": @(labelled_gpu_ms),
+        @"records": @(record_count),
+        @"timed_records": @(timed_record_count),
+    };
+}
+
 static int ds4_gpu_wait_command_buffer(id<MTLCommandBuffer> cb, const char *label) {
+    NSArray<NSDictionary *> *const macro_records =
+        [[g_macro_profile_records objectForKey:cb] copy];
     [cb waitUntilCompleted];
     if (getenv("DS4_METAL_GPU_BUSY_PROFILE")) {
         const double busy = cb.GPUEndTime - cb.GPUStartTime;
@@ -1015,9 +1090,65 @@ static int ds4_gpu_wait_command_buffer(id<MTLCommandBuffer> cb, const char *labe
     if (cb.status == MTLCommandBufferStatusError) {
         fprintf(stderr, "ds4: Metal %s failed: %s\n",
                 label, [[cb.error localizedDescription] UTF8String]);
+        if (macro_records) [g_macro_profile_records removeObjectForKey:cb];
         ds4_gpu_invalidate_completion_counters();
         return 0;
     }
+    if (macro_records.count != 0) {
+        NSDictionary *const first = macro_records[0];
+        const uint64_t cycle = [first[@"cycle"] unsignedLongLongValue];
+        BOOL one_cycle = cycle != 0;
+        NSMutableOrderedSet<NSString *> *paths =
+            [NSMutableOrderedSet orderedSet];
+        NSMutableOrderedSet<NSString *> *regions =
+            [NSMutableOrderedSet orderedSet];
+        for (NSDictionary *record in macro_records) {
+            if ([record[@"cycle"] unsignedLongLongValue] != cycle) {
+                one_cycle = NO;
+            }
+            NSString *path = record[@"path"];
+            if (path.length != 0) [paths addObject:path];
+            for (NSString *region in record[@"regions"]) {
+                if (region.length != 0) [regions addObject:region];
+            }
+        }
+        const double start = cb.GPUStartTime;
+        const double end = cb.GPUEndTime;
+        const BOOL timed =
+            one_cycle && cb.status == MTLCommandBufferStatusCompleted &&
+            isfinite(start) && isfinite(end) && end > start;
+        if (one_cycle) {
+            NSString *const path = paths.count == 0 ? @"unlabelled" :
+                [[paths array] componentsJoinedByString:@"+"];
+            NSString *const region_list = regions.count == 0 ? @"unlabelled" :
+                [[regions array] componentsJoinedByString:@"+"];
+            NSString *const region = [NSString stringWithFormat:
+                @"command_buffer[%@]", region_list];
+            NSDictionary *const combined = @{
+                @"cycle": @(cycle),
+                @"path": path,
+                @"layer": first[@"layer"],
+                @"pos": first[@"pos"],
+                @"tokens": first[@"tokens"],
+            };
+            ds4_gpu_macro_profile_record_span(
+                combined, region, timed ? (end - start) * 1000.0 : 0.0, timed);
+        } else {
+            for (NSDictionary *record in macro_records) {
+                NSArray<NSString *> *record_regions = record[@"regions"];
+                NSString *const region_list = record_regions.count == 0 ?
+                    @"unlabelled" :
+                    [record_regions componentsJoinedByString:@"+"];
+                ds4_gpu_macro_profile_record_span(
+                    record,
+                    [NSString stringWithFormat:
+                        @"command_buffer_unattributed[%@]", region_list],
+                    0.0,
+                    NO);
+            }
+        }
+    }
+    if (macro_records) [g_macro_profile_records removeObjectForKey:cb];
     return 1;
 }
 
@@ -6403,11 +6534,16 @@ int ds4_gpu_init(void) {
         g_dsv4_completion_cache.countLimit = 256u;
         g_transient_buffers = [NSMutableArray array];
         g_pending_cbs = [NSMutableArray array];
+        g_macro_profile_records = [NSMapTable strongToStrongObjectsMapTable];
+        g_macro_profile_cycle_totals = [NSMutableDictionary dictionary];
         if (!g_model_buffer_cache || !g_q4_expert_table_cache ||
             !g_q4_expert_layer_residency_cache ||
             !g_pipeline_cache || !g_dsv4_completion_cache ||
-            !g_transient_buffers || !g_pending_cbs) {
+            !g_transient_buffers || !g_pending_cbs ||
+            !g_macro_profile_records || !g_macro_profile_cycle_totals) {
             fprintf(stderr, "ds4: Metal bookkeeping allocation failed\n");
+            g_macro_profile_cycle_totals = nil;
+            g_macro_profile_records = nil;
             g_pending_cbs = nil;
             g_transient_buffers = nil;
             g_dsv4_completion_cache = nil;
@@ -8505,6 +8641,8 @@ int ds4_gpu_init(void) {
             ds4_gpu_get_pipeline("kernel_glm_indexer_score_one_direct");
         g_glm_indexer_scores_batch_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_indexer_scores_batch");
+        g_glm53_indexer_scores_pair_exact_pipeline =
+            ds4_gpu_get_pipeline("kernel_glm53_indexer_scores_pair_exact");
         g_glm_indexer_scores_tiled_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_indexer_scores_tiled");
         g_glm_indexer_scores_tiled_f32_pipeline =
@@ -8624,6 +8762,7 @@ int ds4_gpu_init(void) {
             !g_glm_indexer_score_one_pipeline ||
             !g_glm_indexer_score_one_direct_pipeline ||
             !g_glm_indexer_scores_batch_pipeline ||
+            !g_glm53_indexer_scores_pair_exact_pipeline ||
             !g_glm_indexer_scores_tiled_pipeline ||
             !g_glm_indexer_scores_tiled_f32_pipeline ||
             !g_glm_qk_lowrank_pipeline ||
@@ -9045,6 +9184,116 @@ int ds4_gpu_flush_commands(void) {
         return 0;
     }
     return 1;
+}
+
+int ds4_gpu_macro_profile_label_current(const char *path,
+                                        const char *region,
+                                        uint64_t    cycle,
+                                        uint32_t    layer,
+                                        uint32_t    pos,
+                                        uint32_t    n_tokens) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    if (!g_batch_cb || !g_batch_has_work || !path || !path[0] ||
+        !region || !region[0] || cycle == 0 || n_tokens == 0) {
+        return 0;
+    }
+    NSString *const path_string = [NSString stringWithUTF8String:path];
+    NSString *const region_string = [NSString stringWithUTF8String:region];
+    if (!path_string || !region_string) return 0;
+    NSArray<NSString *> *regions = @[region_string];
+    if (g_macro_profile_scope_cb) {
+        if (g_batch_cb != g_macro_profile_scope_cb ||
+            ![path_string isEqualToString:g_macro_profile_scope_path] ||
+            cycle != g_macro_profile_scope_cycle ||
+            layer != g_macro_profile_scope_layer ||
+            pos != g_macro_profile_scope_pos ||
+            n_tokens != g_macro_profile_scope_tokens) {
+            return 0;
+        }
+        [g_macro_profile_scope_regions addObject:region_string];
+        regions = [g_macro_profile_scope_regions copy];
+    }
+    NSDictionary *const record = @{
+        @"cycle": @(cycle),
+        @"path": path_string,
+        @"regions": regions,
+        @"layer": @(layer),
+        @"pos": @(pos),
+        @"tokens": @(n_tokens),
+    };
+    const int attached =
+        ds4_gpu_macro_profile_attach_record(g_batch_cb, record);
+    if (g_macro_profile_scope_cb) ds4_gpu_macro_profile_scope_clear();
+    if (!attached) return 0;
+    g_batch_cb.label = [NSString stringWithFormat:
+        @"%@cycle=%llu|path=%s|mode=command-buffer|layer=%u|pos=%u|tokens=%u",
+        g_macro_profile_label_prefix,
+        (unsigned long long)cycle,
+        path,
+        layer,
+        pos,
+        n_tokens];
+    return 1;
+}
+
+int ds4_gpu_macro_profile_boundary(const char *path,
+                                   const char *region,
+                                   uint64_t    cycle,
+                                   uint32_t    layer,
+                                   uint32_t    pos,
+                                   uint32_t    n_tokens) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    if (!g_batch_cb || !path || !path[0] || cycle == 0 || n_tokens == 0) {
+        return 0;
+    }
+    NSString *const path_string = [NSString stringWithUTF8String:path];
+    if (!path_string) return 0;
+    if (region == NULL) {
+        if (g_macro_profile_scope_cb) return 0;
+        g_macro_profile_scope_regions = [NSMutableArray array];
+        if (!g_macro_profile_scope_regions) return 0;
+        g_macro_profile_scope_cb = g_batch_cb;
+        g_macro_profile_scope_path = path_string;
+        g_macro_profile_scope_cycle = cycle;
+        g_macro_profile_scope_layer = layer;
+        g_macro_profile_scope_pos = pos;
+        g_macro_profile_scope_tokens = n_tokens;
+        return 1;
+    }
+    NSString *const region_string = [NSString stringWithUTF8String:region];
+    if (!region_string || g_batch_cb != g_macro_profile_scope_cb ||
+        ![path_string isEqualToString:g_macro_profile_scope_path] ||
+        cycle != g_macro_profile_scope_cycle ||
+        layer != g_macro_profile_scope_layer ||
+        pos != g_macro_profile_scope_pos ||
+        n_tokens != g_macro_profile_scope_tokens) {
+        return 0;
+    }
+    [g_macro_profile_scope_regions addObject:region_string];
+    return 1;
+}
+
+int ds4_gpu_macro_profile_cancel(void) {
+    ds4_gpu_macro_profile_scope_clear();
+    return 1;
+}
+
+int ds4_gpu_macro_profile_cycle_summary(uint64_t cycle,
+                                        double  *labelled_gpu_ms,
+                                        uint32_t *record_count,
+                                        uint32_t *timed_record_count) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    if (cycle == 0 || !labelled_gpu_ms || !record_count ||
+        !timed_record_count) {
+        return 0;
+    }
+    const NSNumber *const cycle_key = @(cycle);
+    NSDictionary *const total = g_macro_profile_cycle_totals[cycle_key];
+    *labelled_gpu_ms = [total[@"gpu_ms"] doubleValue];
+    *record_count = [total[@"records"] unsignedIntValue];
+    *timed_record_count = [total[@"timed_records"] unsignedIntValue];
+    if (total) [g_macro_profile_cycle_totals removeObjectForKey:cycle_key];
+    return total != nil;
 }
 
 int ds4_gpu_commands_active(void) {
@@ -10190,6 +10439,7 @@ void ds4_gpu_cleanup(void) {
             g_stream_expert_cache_batch_seq = 0;
         }
         (void)ds4_gpu_wait_pending_command_buffers("cleanup");
+        ds4_gpu_macro_profile_scope_clear();
         if (ds4_gpu_stream_expert_timing_summary_enabled() &&
             getenv("DS4_METAL_MEMORY_REPORT") == NULL) {
             ds4_gpu_print_memory_report("at cleanup");
@@ -10369,6 +10619,7 @@ void ds4_gpu_cleanup(void) {
         g_glm_indexer_score_one_pipeline = nil;
         g_glm_indexer_score_one_direct_pipeline = nil;
         g_glm_indexer_scores_batch_pipeline = nil;
+        g_glm53_indexer_scores_pair_exact_pipeline = nil;
         g_glm_indexer_scores_tiled_pipeline = nil;
         g_glm_indexer_scores_tiled_f32_pipeline = nil;
         g_glm_qk_lowrank_pipeline = nil;
@@ -10504,6 +10755,10 @@ void ds4_gpu_cleanup(void) {
         [g_model_buffer_cache removeAllObjects];
         g_model_buffer_cache = nil;
         g_transient_buffers = nil;
+        [g_macro_profile_records removeAllObjects];
+        g_macro_profile_records = nil;
+        [g_macro_profile_cycle_totals removeAllObjects];
+        g_macro_profile_cycle_totals = nil;
         g_pending_cbs = nil;
         g_library = nil;
         g_queue = nil;
@@ -34155,11 +34410,25 @@ static int ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
         }
 
         const bool force_scalar = g_quality_mode;
+        const char *pair_env =
+            getenv("DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT");
+        const bool pair_requested =
+            g_glm53_indexer_score_pair_exact_override >= 0
+                ? g_glm53_indexer_score_pair_exact_override != 0
+                : pair_env != NULL && pair_env[0] != '\0' &&
+                  strcmp(pair_env, "0") != 0 &&
+                  getenv("DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT") == NULL;
+        const bool use_pair_exact =
+            !force_scalar && pair_requested && row_group_size == 4u &&
+            n_tokens == 2u && n_head == 32u && head_dim == 128u;
         const bool use_tiled_f32 = false;
         const bool use_tiled = !force_scalar && n_tokens >= 8u &&
                                n_head == 32u && head_dim == 128u;
         id<MTLComputePipelineState> pipeline =
-            use_tiled
+            use_pair_exact
+                ? ds4_gpu_hot_pipeline(g_glm53_indexer_scores_pair_exact_pipeline,
+                                       "kernel_glm53_indexer_scores_pair_exact")
+                : use_tiled
                 ? ds4_gpu_hot_pipeline(use_tiled_f32 ? g_glm_indexer_scores_tiled_f32_pipeline
                                                      : g_glm_indexer_scores_tiled_pipeline,
                                        use_tiled_f32 ? "kernel_glm_indexer_scores_tiled_f32"
@@ -34196,7 +34465,12 @@ static int ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
         [enc setBuffer:weightsbuf offset:ds4_gpu_tensor_offset(weights) atIndex:2];
         [enc setBuffer:cachebuf offset:ds4_gpu_tensor_offset(indexer_key_cache) atIndex:3];
         [enc setBuffer:scoresbuf offset:ds4_gpu_tensor_offset(scores) atIndex:4];
-        if (use_tiled) {
+        if (use_pair_exact) {
+            [enc setThreadgroupMemoryLength:(128u + 2u * nth) * sizeof(float)
+                                    atIndex:0];
+            [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_rows, 1, 1)
+                 threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+        } else if (use_tiled) {
             const NSUInteger q_shared = 8u * 128u;
             const NSUInteger k_shared = 32u * 128u;
             const NSUInteger dot_shared = 8u * 32u;
@@ -34260,6 +34534,13 @@ int ds4_gpu_glm53_indexer_scores_batch_tensor(
     return ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
             scores, q, weights, indexer_key_cache, n_rows, n_tokens, pos0,
             pool_size, n_head, head_dim, scale, cache_f16);
+}
+
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode) {
+    if (mode < -1 || mode > 1) return -2;
+    const int previous = g_glm53_indexer_score_pair_exact_override;
+    g_glm53_indexer_score_pair_exact_override = mode;
+    return previous;
 }
 
 int ds4_gpu_glm_qk_lowrank_typed_tensor(

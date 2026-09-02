@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the GLM 5.3 Flash server (upstream branch glm-5.3-flash, worktree ../ds4-glm53) and print one-line health/resource
+# Start the GLM 5.3 Flash server from this checkout and print one-line health/resource
 # snapshots while it runs. Server logs remain attached to this terminal.
 #
 # Usage:
@@ -10,27 +10,35 @@
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-GLM_DIR="${GLM_DS4_DIR:-$ROOT_DIR/../ds4-glm53}"
+GLM_DIR=$(cd -- "${GLM_DS4_DIR:-$ROOT_DIR}" && pwd -P)
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="$HOME/models/gguf/GLM-5.3-Flash-Q2.gguf"
+MODEL="$HOME/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/glm-5.3-flash-q2"
+KV_DIR="$HOME/.ds4/server-kv/glm-5.3-flash-uncen-q2"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
 # Model-embedded GLM 5.3 MTP speculation. Required for the Metal width-2
 # verify fast path; set GLM_DS4_MTP=0 to fall back to plain decode.
 MTP="${GLM_DS4_MTP:-1}"
+# Per-cycle MTP logging is diagnostic and must stay off for scored decode.
+MTP_TIMING="${GLM_DS4_MTP_TIMING:-0}"
+S55_MODE="${GLM_DS4_S55:-0}"
+MTP_COUNTERS="${GLM_DS4_MTP_COUNTERS:-$S55_MODE}"
+S55_M0_SEGMENT_TOKENS="${GLM_DS4_S55_M0_SEGMENT_TOKENS:-0}"
+S55_M0_REPEATS="${GLM_DS4_S55_M0_REPEATS:-0}"
+S55_H25_PAIR_AB="${GLM_DS4_S55_H25_PAIR_AB:-0}"
+INDEXER_PAIR_EXACT="${DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT:-0}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
-THERMALFORGE="$HOME/.mtplx/bin/thermalforge"
+THERMALFORGE=$(command -v thermalforge || true)
 FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RAMP_TIMEOUT_SECONDS=20
 FAN_RESTORE_TIMEOUT_SECONDS=5
-FAN_RAMP_MIN_PERCENT=95
+FAN_RAMP_MIN_PERCENT=98
 fan_max_owned=false
 
 usage() {
@@ -43,6 +51,16 @@ Fans run at maximum while the server runs and return to Apple auto when it stops
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
+  GLM_DS4_MTP=0               Disable model-embedded MTP speculation
+  GLM_DS4_MTP_TIMING=1        Enable diagnostic --mtp-timing logging
+  GLM_DS4_MTP_COUNTERS=0|1    Toggle cycle counters (Phase 2 default: 1; M0: 0)
+  GLM_DS4_S55=1               Require a clean Phase 2 measurement environment
+  GLM_DS4_S55_M0_SEGMENT_TOKENS=64
+                              Enable wash-separated MATCHED-STATE NOMTP M0
+  GLM_DS4_S55_M0_REPEATS=2    ABBA/BAAB repetitions (minimum contract: 2)
+  GLM_DS4_S55_H25_PAIR_AB=1   Compare H25 baseline/candidate in the M0 schedule
+  DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT=1
+                              Enable the measured exact width-2 indexer kernel
 EOF
 }
 
@@ -60,7 +78,53 @@ if [[ ! $MONITOR_INTERVAL_SECONDS =~ ^[1-9][0-9]*$ || ${#MONITOR_INTERVAL_SECOND
     exit 2
 fi
 
-for command in lsof macmon python3 ps sudo sysctl; do
+if [[ $S55_MODE != 0 ]]; then
+    if [[ $MONITOR_INTERVAL_SECONDS != 15 ]]; then
+        echo "S55 Phase 2 mode requires MONITOR_INTERVAL_SECONDS=15" >&2
+        exit 2
+    fi
+    forbidden_env=()
+    while IFS='=' read -r name _; do
+        case $name in
+            DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT) ;;
+            DS4_*|MTL_*|METAL_*|DYLD_*) forbidden_env+=("$name") ;;
+        esac
+    done < <(env)
+    if (( ${#forbidden_env[@]} != 0 )); then
+        printf 'S55 Phase 2 mode refuses environment override: %s\n' \
+            "${forbidden_env[*]}" >&2
+        exit 2
+    fi
+fi
+if [[ $INDEXER_PAIR_EXACT != 0 && $INDEXER_PAIR_EXACT != 1 ]]; then
+    echo "DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT must be 0 or 1" >&2
+    exit 2
+fi
+if [[ $S55_H25_PAIR_AB != 0 && $S55_H25_PAIR_AB != 1 ]]; then
+    echo "GLM_DS4_S55_H25_PAIR_AB must be 0 or 1" >&2
+    exit 2
+fi
+if [[ $S55_M0_SEGMENT_TOKENS != 0 || $S55_M0_REPEATS != 0 ]]; then
+    if [[ $S55_MODE == 0 || $MTP == 0 || $MTP_TIMING != 0 ||
+          ! $S55_M0_SEGMENT_TOKENS =~ ^[0-9]+$ ||
+          ! $S55_M0_REPEATS =~ ^[0-9]+$ ]] ||
+       (( 10#$S55_M0_SEGMENT_TOKENS < 32 ||
+          10#$S55_M0_SEGMENT_TOKENS > 4096 ||
+          10#$S55_M0_REPEATS < 2 || 10#$S55_M0_REPEATS > 64 ||
+          10#$S55_M0_SEGMENT_TOKENS * 4 * 10#$S55_M0_REPEATS < 512 )); then
+        echo "S55 M0 requires S55=1, MTP on, timing off, and >=512 scored tokens per arm" >&2
+        exit 2
+    fi
+    MTP_COUNTERS=0
+fi
+if [[ $S55_H25_PAIR_AB == 1 &&
+      ($S55_M0_SEGMENT_TOKENS == 0 ||
+       -n "${DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT+x}") ]]; then
+    echo "S55 H25 pair A/B requires M0 and refuses a global H25 override" >&2
+    exit 2
+fi
+
+for command in lsof macmon python3 ps sysctl; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Required command not found: $command" >&2
         exit 1
@@ -69,7 +133,7 @@ done
 MACMON=$(command -v macmon)
 if [[ ! -x $SERVER_BIN ]]; then
     echo "Server binary not found or not executable: $SERVER_BIN" >&2
-    echo "Build it first with: git worktree add ../ds4-glm53 origin/glm-5.3-flash && make -C ../ds4-glm53 ds4-server" >&2
+    echo "Build it first with: make -C \"$GLM_DIR\" ds4-server" >&2
     exit 1
 fi
 if [[ ! -r $MODEL ]]; then
@@ -78,7 +142,7 @@ if [[ ! -r $MODEL ]]; then
 fi
 if [[ ! -x $THERMALFORGE ]]; then
     echo "Fan controller not found or not executable: $THERMALFORGE" >&2
-    echo "Install it with: mtplx max --install" >&2
+    echo "Install it with: thermalforge install" >&2
     exit 1
 fi
 
@@ -100,8 +164,6 @@ if action not in valid_actions:
 
 command_action = action if action in {"max", "auto"} else "status"
 command = [path, command_action]
-if action in {"probe", "max", "auto"}:
-    command = ["sudo", "-n", *command]
 
 try:
     result = subprocess.run(
@@ -186,8 +248,8 @@ for fan in hardware_fans:
         raise SystemExit(1)
 
 summary = " ".join(
-    f"{fan.get('name', 'fan?')}={int(fan['rpm'])}/{int(fan['max_rpm'])}RPM"
-    for fan in hardware_fans
+    "fan{}={}/{}RPM".format(index, int(fan["rpm"]), int(fan["max_rpm"]))
+    for index, fan in enumerate(hardware_fans)
 )
 print(summary)
 PY
@@ -243,7 +305,7 @@ restore_fans() {
 
 if ! fan_control probe; then
     echo "Non-interactive verified fan control is unavailable; refusing to start ds4-server." >&2
-    echo "Repair it with: mtplx max --grant-sudo" >&2
+    echo "Repair it with: thermalforge install" >&2
     exit 1
 fi
 
@@ -373,6 +435,7 @@ start_monitor() {
     python3 -u -c '
 import datetime
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -465,19 +528,39 @@ def fan_snapshot():
         payload = json.loads(lines[-1]) if result.returncode == 0 and lines else {}
         fans = payload.get("fans") if isinstance(payload, dict) else None
         if not isinstance(fans, list) or not fans:
-            return "-", None
+            return "-", None, "-", "-", "-", "-", "-", "-"
         values = []
         at_max = True
-        for fan in fans:
+        for index, fan in enumerate(fans):
             actual = int(fan["rpm"])
             maximum = int(fan["max_rpm"])
-            if maximum <= 0:
-                return "-", None
-            values.append("{}={}/{}".format(fan.get("name", "fan?"), actual, maximum))
+            if actual < 0 or maximum <= 0:
+                return "-", None, "-", "-", "-", "-", "-", "-"
+            values.append("fan{}={}/{}".format(index, actual, maximum))
             at_max = at_max and actual >= maximum * fan_minimum_fraction
-        return ",".join(values) + "RPM", at_max
+        temp = payload.get("temp") if isinstance(payload.get("temp"), dict) else {}
+        memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+
+        def metric(source, key, allow_zero=False):
+            if key not in source:
+                raise ValueError("missing metric " + key)
+            value = float(source[key])
+            if not math.isfinite(value) or value < 0 or (not allow_zero and value == 0):
+                raise ValueError("invalid metric " + key)
+            return value
+
+        gpu_power = "{:.1f}W".format(metric(payload, "gpu_power"))
+        sys_power = "{:.1f}W".format(metric(payload, "sys_power"))
+        gpu_temp = "{:.1f}C".format(metric(temp, "gpu_temp_avg"))
+        cpu_temp = "{:.1f}C".format(metric(temp, "cpu_temp_avg"))
+        ram_used = "{:.1f}GiB".format(metric(memory, "ram_usage") / (1024 ** 3))
+        swap_used = "{:.1f}GiB".format(
+            metric(memory, "swap_usage", allow_zero=True) / (1024 ** 3)
+        )
+        return (",".join(values) + "RPM", at_max, gpu_power, sys_power,
+                gpu_temp, cpu_temp, ram_used, swap_used)
     except (IndexError, KeyError, OSError, TypeError, ValueError, subprocess.SubprocessError):
-        return "-", None
+        return "-", None, "-", "-", "-", "-", "-", "-"
 
 
 def cache_size():
@@ -515,7 +598,7 @@ def restore_fans_after_server():
     emit(f"[monitor {timestamp}] fans=restore-attempt reason=server-stopped")
     try:
         reset = subprocess.run(
-            ["sudo", "-n", fan_controller, "auto"],
+            [fan_controller, "auto"],
             check=False,
             capture_output=True,
             text=True,
@@ -548,9 +631,9 @@ def restore_fans_after_server():
 
 
 while server_alive():
-    # Upstream branch has no /health or /stats; /v1/models is the liveness probe.
+    # /v1/models proves liveness; the local /stats endpoint supplies telemetry.
     health = fetch_json("/v1/models")
-    stats = None
+    stats = fetch_json("/stats")
 
     if health is not None and health.get("object") == "list":
         health_status = "ok"
@@ -584,7 +667,8 @@ while server_alive():
         )
 
     cpu_percent, memory_percent, rss_kib = process_stats()
-    fan_status, fans_at_max = fan_snapshot()
+    (fan_status, fans_at_max, gpu_power, sys_power, gpu_temp, cpu_temp,
+     ram_used, swap_used) = fan_snapshot()
     used_bytes = cache_size()
     used_gib = used_bytes / (1024 ** 3)
     budget_gib = budget_bytes / (1024 ** 3)
@@ -601,7 +685,9 @@ while server_alive():
     emit(
         f"[monitor {timestamp}] health={health_status} {summary} "
         f"cpu={cpu_percent}% mem={memory_percent}% rss={rss_kib / 1048576:.1f}GiB "
-        f"fans={fan_status} "
+        f"fans={fan_status} gpu_power={gpu_power} sys_power={sys_power} "
+        f"gpu_temp={gpu_temp} cpu_temp={cpu_temp} "
+        f"ram_used={ram_used} swap_used={swap_used} "
         f"kv={used_gib:.1f}/{budget_gib:.1f}GiB({cache_percent:.1f}%) "
         f"disk_free={free_gib:.1f}GiB{warning}"
     )
@@ -629,16 +715,40 @@ except OSError:
 MTP_ARGS=()
 if [[ $MTP != 0 ]]; then
     MTP_ARGS+=(--mtp)
+    if [[ $MTP_COUNTERS != 0 ]]; then
+        MTP_ARGS+=(--mtp-counters)
+    fi
+    if [[ $MTP_TIMING != 0 ]]; then
+        MTP_ARGS+=(--mtp-timing)
+    fi
+fi
+M0_ARGS=()
+KV_ARGS=(
+    --kv-disk-dir "$KV_DIR" --kv-disk-space-mb "$KV_BUDGET_MB"
+    --kv-cache-min-tokens "$KV_MIN_TOKENS"
+    --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS"
+    --kv-cache-reject-different-quant
+)
+if [[ $S55_M0_SEGMENT_TOKENS != 0 ]]; then
+    M0_ARGS+=(--s55-m0-segment-tokens "$S55_M0_SEGMENT_TOKENS")
+    M0_ARGS+=(--s55-m0-repeats "$S55_M0_REPEATS")
+    if [[ $S55_H25_PAIR_AB == 1 ]]; then
+        M0_ARGS+=(--s55-h25-pair-ab)
+    fi
+    KV_ARGS=()
 fi
 
 cat <<EOF
 Starting monitored ds4-server (GLM 5.3 Flash, branch glm-5.3-flash)
+  binary:     $SERVER_BIN
   model:      $MODEL
   endpoint:   http://$HOST:$PORT
   context:    $CTX
   max tokens: $TOKENS
-  KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)
-  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp)"; else echo "disabled"; fi)
+  KV cache:   $(if [[ $S55_M0_SEGMENT_TOKENS != 0 ]]; then echo -n "disabled for checkpoint-bound M0"; else echo -n "$KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)"; fi)
+  MTP:        $(if [[ $MTP != 0 ]]; then echo -n "enabled (--mtp, width 2)"; else echo -n "disabled"; fi)$(if [[ $MTP != 0 && $MTP_COUNTERS != 0 ]]; then echo -n " + counters (--mtp-counters)"; fi)$(if [[ $MTP != 0 && $MTP_TIMING != 0 ]]; then echo -n " + timing (--mtp-timing)"; fi)
+  H25 pair:   $(if [[ $S55_H25_PAIR_AB == 1 ]]; then echo -n "balanced baseline/candidate"; elif [[ $INDEXER_PAIR_EXACT == 1 ]]; then echo -n "enabled (exact width-2 indexer)"; else echo -n "disabled"; fi)
+  S55:        $(if [[ $S55_H25_PAIR_AB == 1 ]]; then echo -n "H25 contract-locked (ABBA/BAAB + wash)"; elif [[ $S55_M0_SEGMENT_TOKENS != 0 ]]; then echo -n "M0 contract-locked (ABBA/BAAB + wash; only declared H25 override permitted)"; elif [[ $S55_MODE != 0 ]]; then echo -n "Phase 2 contract-locked (no DS4/Metal/DYLD overrides)"; else echo -n "off"; fi)
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
   fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB
@@ -656,13 +766,11 @@ os.execv(sys.argv[2], sys.argv[2:])
 ' "$GLM_DIR" "$SERVER_BIN" --metal \
     --model "$MODEL" \
     ${MTP_ARGS[@]+"${MTP_ARGS[@]}"} \
+    ${M0_ARGS[@]+"${M0_ARGS[@]}"} \
     --ctx "$CTX" --tokens "$TOKENS" \
     --power 100 \
     --host "$HOST" --port "$PORT" \
-    --kv-disk-dir "$KV_DIR" --kv-disk-space-mb "$KV_BUDGET_MB" \
-    --kv-cache-min-tokens "$KV_MIN_TOKENS" \
-    --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS" \
-    --kv-cache-reject-different-quant &
+    ${KV_ARGS[@]+"${KV_ARGS[@]}"} &
 server_pid=$!
 
 start_monitor "$server_pid"

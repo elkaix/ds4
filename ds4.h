@@ -149,6 +149,7 @@ typedef struct {
     bool quality;
     bool glm_mtp;
     bool glm_mtp_timing;
+    bool glm_mtp_counters;
     bool dspark;
     bool dspark_strict;
     bool dspark_exact_sampling;
@@ -467,6 +468,9 @@ int ds4_test_speculative_delta_sample(const float *target_logits,
 int ds4_test_argmax_excluding_logits(const float *logits, uint32_t n_vocab,
                                      int excluded_id);
 uint64_t ds4_test_mixed_native_count(void);
+bool ds4_test_glm_mtp_cache_row_equal(ds4_session *a, ds4_session *b,
+                                      uint32_t pos, char *err, size_t errlen);
+int ds4_test_glm_macro_profile_override(int enabled);
 #endif
 int ds4_session_top_logprobs(ds4_session *s, ds4_token_score *out, int k);
 int ds4_session_token_logprob(ds4_session *s, int token, ds4_token_score *out);
@@ -481,6 +485,13 @@ typedef struct {
     ds4_session *session;
     int token;
 } ds4_decode_item;
+
+typedef struct {
+    uint64_t cycles;
+    uint64_t accepted;
+    uint64_t rejected;
+    uint64_t committed;
+} ds4_glm_mtp_stats;
 
 /* Advance independent sessions by one token each. Batch size one is exactly
  * ds4_session_eval(). Backends without native batching use a correctness-first
@@ -512,6 +523,20 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                                  float top_p, float min_p, uint64_t *rng,
                                  int *accepted, int accepted_cap,
                                  char *err, size_t errlen);
+/* Measurement control: evaluate one ordinary GLM target token and advance the
+ * nextn recurrent state without producing or verifying a draft. */
+int ds4_session_eval_glm_matched_nomtp(ds4_session *s, int first_token,
+                                       ds4_think_mode think_mode,
+                                       int *accepted, int accepted_cap,
+                                       char *err, size_t errlen);
+/* Exact pre-call predicate used by the M0 evidence path. The caller must hold
+ * the session's inference lock until the corresponding speculative eval. */
+bool ds4_session_glm_mtp_next_call_is_verify(ds4_session *s, int first_token,
+                                             int accepted_cap);
+/* Thread-local H25 measurement control. -1 follows environment policy, 0
+ * forces the scalar indexer score path, and 1 forces the exact width-2 path.
+ * Returns the previous mode, or -2 when unavailable. */
+int ds4_glm53_indexer_score_pair_exact_override(int mode);
 /* TP worker side of a mirrored speculative-verify block: run its half of the
  * batch verify for KV side effects, then obey the leader's commit frame
  * (keep, or roll back and replay). Only called from ds4_tp_worker_run. */
@@ -527,6 +552,10 @@ int ds4_engine_routed_quant_bits(ds4_engine *e);
 bool ds4_engine_has_output_head(ds4_engine *e);
 bool ds4_engine_has_mtp(ds4_engine *e);
 int ds4_engine_mtp_draft_tokens(ds4_engine *e);
+bool ds4_engine_glm_mtp_enabled(ds4_engine *e);
+bool ds4_engine_glm_mtp_timing_enabled(ds4_engine *e);
+bool ds4_engine_glm_mtp_counters_enabled(ds4_engine *e);
+void ds4_session_glm_mtp_stats(ds4_session *s, ds4_glm_mtp_stats *out);
 const ds4_tokens *ds4_session_tokens(ds4_session *s);
 
 /* Low-level graph slice entry points used by distributed inference.  The
