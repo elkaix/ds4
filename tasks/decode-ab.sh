@@ -28,6 +28,7 @@
 set -uo pipefail
 
 LABEL="${1:?usage: decode-ab.sh <label> [ENV=VAL ...]}"; shift
+case "$LABEL" in *=*|*" "*) echo "decode-ab.sh: label '$LABEL' looks like it swallowed an ENV=VAL; pass label and envs as separate args" >&2; exit 2;; esac
 OUT="${DECODE_AB_OUT:-$HOME/.ds4/decode-ab}"
 D="$(cd "$(dirname "$0")/.." && pwd)"
 M="${DECODE_AB_MODEL:-$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf}"
@@ -63,8 +64,7 @@ done
 
 THR=$(grep -oE 'decode indexer sparse threshold=[0-9]+' "$LOG" | grep -oE '[0-9]+$' || true)
 echo "$LABEL: env=[$*] thr_active=${THR:-default} ngram_env=${DS4_NGRAM_SPEC:-unset}"
-[[ -n "${DS4_METAL_DECODE_INDEXER_SPARSE_THRESHOLD:-}" && -z "$THR" ]] && \
-  echo "  !! threshold env set but the server never parsed it" >&2
+# (threshold line prints on first decode, so the real assertion is post-run below)
 
 # Prompts. deep = first ~120 KB of ds4_server.c (~30K tokens); mid = first ~8 KB (~2K).
 PY=python3
@@ -105,6 +105,8 @@ for pass in 1 2; do
   echo "$LABEL pass$pass $(run deep  "$(mk "@$OUT/deep.txt" 256)")"
 done | tee -a "$RES"
 
+THR=$(grep -oE 'decode indexer sparse threshold=[0-9]+' "$LOG" | grep -oE '[0-9]+$' || true)
+echo "$LABEL post-run: thr_active=${THR:-default}" | tee -a "$RES"
 grep -q "THINKING" "$LOG" && echo "  !! THINKING seen in log — sampling params were discarded, arm invalid" >&2
 
 kill -INT $SRV 2>/dev/null; sleep 8; kill $SRV 2>/dev/null; sleep 2   # -INT so DSpark/n-gram stats print

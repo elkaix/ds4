@@ -17,7 +17,7 @@ set -uo pipefail
 D="$(cd "$(dirname "$0")/.." && pwd)"
 HF="$HOME/models/hf/DeepSeek-V4-Flash-Vision-Exp-Abliterated/Reference-Native-FP8"
 T="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
-IM="$HOME/models/ds4/assets/imatrix/DeepSeek-V4-Flash-chat-v2-routed-moe-ds4-1p5m.dat"
+IM="$HOME/models/ds4/assets/imatrix/DeepSeek-V4-Flash-chat-v2-routed-1p5m-plus-dense-220k-merged.dat"  # routed from 1p5m + dense/shexp from PR #621 refs/pr/22 220k (merged 2026-09-02)
 OUT="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf"
 LOG="$HOME/models/gguf/logs/vision-exp-q4k-build.log"
 Q="$D/gguf-tools/deepseek4-quantize"
