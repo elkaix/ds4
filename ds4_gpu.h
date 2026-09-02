@@ -1433,6 +1433,12 @@ int ds4_gpu_glm53_indexer_scores_batch_tensor(
         float                 scale,
         bool                  cache_f16);
 
+/* Thread-local diagnostic/measurement control for the exact width-2 GLM-5.3
+ * indexer score kernel: -1 follows environment policy, 0 forces the scalar
+ * kernel, 1 forces the pair kernel. Returns the prior mode, or -2 when the
+ * backend cannot honour it. */
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode);
+
 int ds4_gpu_glm_qk_lowrank_q8_0_tensor(
         ds4_gpu_tensor       *qk_low,
         const ds4_gpu_tensor *q,

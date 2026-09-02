@@ -6,6 +6,9 @@
 #include <math.h>
 
 bool ds4_test_dspark_cache_window_crop(void);
+#if defined(__APPLE__)
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode);
+#endif
 
 static ds4_engine *test_engine_fast;
 static ds4_engine *test_engine_quality;
@@ -151,8 +154,11 @@ static void test_session_snapshot_roundtrip(void) {
 
     ds4_session *reference = NULL;
     ds4_session *restored = NULL;
+    ds4_session *pair_exact = NULL;
     ds4_session *kda_rollback = NULL;
     ds4_session_snapshot snapshot = {0};
+    ds4_session_snapshot reference_final = {0};
+    ds4_session_snapshot pair_final = {0};
     ds4_tokens prompt = {0};
     char err[192] = {0};
     ds4_token_score before[8];
@@ -169,6 +175,10 @@ static void test_session_snapshot_roundtrip(void) {
     char *saved_kda_verify2_snapshot = NULL;
     bool deferred_row1_head_env_managed = false;
     bool kda_verify2_snapshot_env_managed = false;
+#if defined(__APPLE__)
+    int saved_pair_override = -1;
+    bool pair_override_managed = false;
+#endif
     float *reference_cycle_logits = NULL;
     float *restored_cycle_logits = NULL;
     int vocab = 0;
@@ -248,6 +258,10 @@ static void test_session_snapshot_roundtrip(void) {
                                      err, sizeof(err)) == 0);
     }
     TEST_ASSERT(ds4_session_top_logprobs(reference, reference_after, 8) == 8);
+    if (test_glm_mtp) {
+        TEST_ASSERT(ds4_session_save_snapshot(reference, &reference_final,
+                                              err, sizeof(err)) == 0);
+    }
     ds4_session_free(reference);
     reference = NULL;
 
@@ -314,6 +328,72 @@ static void test_session_snapshot_roundtrip(void) {
         TEST_ASSERT(double_cycles > 0);
 
 #if defined(__APPLE__)
+        /* Isolate H25: this arm changes only the thread-local indexer score
+         * kernel selection.  The exact width-2 kernel must reproduce the scalar
+         * path's speculative schedule, every accepted token, the full-vocabulary
+         * logits of every cycle, and the final serialized session state
+         * byte-for-byte.  Anything less is not an admissible speed candidate. */
+        TEST_ASSERT(ds4_session_create(&pair_exact, engine, ctx) == 0);
+        if (!pair_exact) goto cleanup;
+        TEST_ASSERT(ds4_session_load_snapshot(pair_exact, &snapshot,
+                                              err, sizeof(err)) == 0);
+        saved_pair_override =
+            ds4_gpu_glm53_indexer_score_pair_exact_override(1);
+        TEST_ASSERT(saved_pair_override != -2);
+        pair_override_managed = true;
+        int pair_total = 0;
+        int pair_single = 0;
+        int pair_double = 0;
+        for (int cycle = 0; cycle < GLM_MTP_SNAPSHOT_CYCLES; cycle++) {
+            int pair_accepted[2] = {0};
+            const int first = ds4_session_argmax(pair_exact);
+            TEST_ASSERT(first == reference_accepted[pair_total]);
+            const int n = ds4_session_eval_speculative_argmax(
+                    pair_exact, first, 2, -1,
+                    pair_accepted, 2, err, sizeof(err));
+            TEST_ASSERT(n == reference_counts[cycle]);
+            if (n != reference_counts[cycle]) goto cleanup;
+            for (int i = 0; i < n; i++) {
+                TEST_ASSERT(pair_accepted[i] ==
+                            reference_accepted[pair_total + i]);
+            }
+            pair_total += n;
+            TEST_ASSERT(ds4_session_pos(pair_exact) ==
+                        reference_positions[cycle]);
+            TEST_ASSERT(ds4_session_copy_logits(pair_exact,
+                                                restored_cycle_logits,
+                                                vocab) == vocab);
+            TEST_ASSERT(memcmp(
+                restored_cycle_logits,
+                reference_cycle_logits + (size_t)cycle * vocab,
+                (size_t)vocab * sizeof(restored_cycle_logits[0])) == 0);
+            pair_single += n == 1;
+            pair_double += n == 2;
+        }
+        TEST_ASSERT(ds4_session_save_snapshot(pair_exact, &pair_final,
+                                              err, sizeof(err)) == 0);
+        const bool pair_state_exact =
+            reference_final.ptr != NULL && pair_final.ptr != NULL &&
+            reference_final.len == pair_final.len &&
+            memcmp(reference_final.ptr, pair_final.ptr,
+                   (size_t)reference_final.len) == 0;
+        TEST_ASSERT(pair_state_exact);
+        TEST_ASSERT(pair_total == reference_total);
+        TEST_ASSERT(pair_single > 1);
+        TEST_ASSERT(pair_double > 0);
+        TEST_ASSERT(ds4_gpu_glm53_indexer_score_pair_exact_override(
+                        saved_pair_override) == 1);
+        pair_override_managed = false;
+        fprintf(stderr,
+                "ds4-test: GLM indexer pair exact state=%s bytes=%llu "
+                "single=%d double=%d tokens=%d\n",
+                pair_state_exact ? "exact" : "DIFF",
+                (unsigned long long)pair_final.len,
+                pair_single, pair_double, pair_total);
+        ds4_session_snapshot_free(&pair_final);
+        ds4_session_free(pair_exact);
+        pair_exact = NULL;
+
         /* Isolate the KDA snapshot fusion from the deferred-head comparison.
          * Both sessions start at the same snapshot and must produce identical
          * speculative schedules and full-vocabulary logits cycle by cycle. */
@@ -417,6 +497,12 @@ static void test_session_snapshot_roundtrip(void) {
     }
 
 cleanup:
+#if defined(__APPLE__)
+    if (pair_override_managed) {
+        (void)ds4_gpu_glm53_indexer_score_pair_exact_override(
+                saved_pair_override);
+    }
+#endif
     if (kda_verify2_snapshot_env_managed) {
         test_restore_env(
             "DS4_METAL_DISABLE_GLM53_KDA_VERIFY2_SNAPSHOT_FUSION",
@@ -430,7 +516,10 @@ cleanup:
     free(reference_cycle_logits);
     free(prompt_text);
     ds4_tokens_free(&prompt);
+    ds4_session_snapshot_free(&pair_final);
+    ds4_session_snapshot_free(&reference_final);
     ds4_session_snapshot_free(&snapshot);
+    ds4_session_free(pair_exact);
     ds4_session_free(kda_rollback);
     ds4_session_free(restored);
     ds4_session_free(reference);

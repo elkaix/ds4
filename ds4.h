@@ -543,6 +543,10 @@ int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);
 int ds4_engine_routed_quant_bits(ds4_engine *e);
 bool ds4_engine_has_output_head(ds4_engine *e);
+/* Thread-local H25 measurement control. -1 follows environment policy, 0 forces
+ * the scalar indexer score path, and 1 forces the exact width-2 path. Returns
+ * the previous mode, or -2 when unavailable. */
+int ds4_glm53_indexer_score_pair_exact_override(int mode);
 bool ds4_engine_has_mtp(ds4_engine *e);
 int ds4_engine_mtp_draft_tokens(ds4_engine *e);
 const ds4_tokens *ds4_session_tokens(ds4_session *s);

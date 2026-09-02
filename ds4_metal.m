@@ -220,6 +220,7 @@ static id<MTLComputePipelineState> g_glm_indexer_rope_tail_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_direct_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_batch_pipeline;
+static id<MTLComputePipelineState> g_glm53_indexer_scores_pair_exact_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_f32_pipeline;
 static id<MTLComputePipelineState> g_glm_qk_lowrank_pipeline;
@@ -560,6 +561,7 @@ static NSUInteger g_moe_q4_down_slots_bytes;
 static NSUInteger g_attn_out_group_ids_bytes;
 static int g_initialized;
 static int g_quality_mode;
+static _Thread_local int g_glm53_indexer_score_pair_exact_override = -1;
 static int g_mpp_invalid_env_reported;
 #define DS4_METAL_MAX_ROUTED_EXPERT_USED 8
 static int32_t g_routed_moe_selected_override[DS4_METAL_MAX_ROUTED_EXPERT_USED];
@@ -8518,6 +8520,8 @@ int ds4_gpu_init(void) {
             ds4_gpu_get_pipeline("kernel_glm_indexer_score_one_direct");
         g_glm_indexer_scores_batch_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_indexer_scores_batch");
+        g_glm53_indexer_scores_pair_exact_pipeline =
+            ds4_gpu_get_pipeline("kernel_glm53_indexer_scores_pair_exact");
         g_glm_indexer_scores_tiled_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_indexer_scores_tiled");
         g_glm_indexer_scores_tiled_f32_pipeline =
@@ -8638,6 +8642,7 @@ int ds4_gpu_init(void) {
             !g_glm_indexer_score_one_pipeline ||
             !g_glm_indexer_score_one_direct_pipeline ||
             !g_glm_indexer_scores_batch_pipeline ||
+            !g_glm53_indexer_scores_pair_exact_pipeline ||
             !g_glm_indexer_scores_tiled_pipeline ||
             !g_glm_indexer_scores_tiled_f32_pipeline ||
             !g_glm_qk_lowrank_pipeline ||
@@ -10384,6 +10389,7 @@ void ds4_gpu_cleanup(void) {
         g_glm_indexer_score_one_pipeline = nil;
         g_glm_indexer_score_one_direct_pipeline = nil;
         g_glm_indexer_scores_batch_pipeline = nil;
+        g_glm53_indexer_scores_pair_exact_pipeline = nil;
         g_glm_indexer_scores_tiled_pipeline = nil;
         g_glm_indexer_scores_tiled_f32_pipeline = nil;
         g_glm_qk_lowrank_pipeline = nil;
@@ -34326,11 +34332,28 @@ static int ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
         }
 
         const bool force_scalar = g_quality_mode;
+        /* Opt-in: the pair kernel is bit-exact against the scalar path (proven
+         * by the session-snapshot gate) but stays behind a flag until a
+         * controlled A/B credits it, so the default schedule is unchanged. */
+        const char *pair_env =
+            getenv("DS4_METAL_GLM53_INDEXER_SCORE_PAIR_EXACT");
+        const bool pair_requested =
+            g_glm53_indexer_score_pair_exact_override >= 0
+                ? g_glm53_indexer_score_pair_exact_override != 0
+                : pair_env != NULL && pair_env[0] != '\0' &&
+                  strcmp(pair_env, "0") != 0 &&
+                  getenv("DS4_METAL_DISABLE_GLM53_INDEXER_SCORE_PAIR_EXACT") == NULL;
+        const bool use_pair_exact =
+            !force_scalar && pair_requested && row_group_size == 4u &&
+            n_tokens == 2u && n_head == 32u && head_dim == 128u;
         const bool use_tiled_f32 = false;
         const bool use_tiled = !force_scalar && n_tokens >= 8u &&
                                n_head == 32u && head_dim == 128u;
         id<MTLComputePipelineState> pipeline =
-            use_tiled
+            use_pair_exact
+                ? ds4_gpu_hot_pipeline(g_glm53_indexer_scores_pair_exact_pipeline,
+                                       "kernel_glm53_indexer_scores_pair_exact")
+                : use_tiled
                 ? ds4_gpu_hot_pipeline(use_tiled_f32 ? g_glm_indexer_scores_tiled_f32_pipeline
                                                      : g_glm_indexer_scores_tiled_pipeline,
                                        use_tiled_f32 ? "kernel_glm_indexer_scores_tiled_f32"
@@ -34367,7 +34390,12 @@ static int ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
         [enc setBuffer:weightsbuf offset:ds4_gpu_tensor_offset(weights) atIndex:2];
         [enc setBuffer:cachebuf offset:ds4_gpu_tensor_offset(indexer_key_cache) atIndex:3];
         [enc setBuffer:scoresbuf offset:ds4_gpu_tensor_offset(scores) atIndex:4];
-        if (use_tiled) {
+        if (use_pair_exact) {
+            [enc setThreadgroupMemoryLength:(128u + 2u * nth) * sizeof(float)
+                                    atIndex:0];
+            [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_rows, 1, 1)
+                 threadsPerThreadgroup:MTLSizeMake(nth, 1, 1)];
+        } else if (use_tiled) {
             const NSUInteger q_shared = 8u * 128u;
             const NSUInteger k_shared = 32u * 128u;
             const NSUInteger dot_shared = 8u * 32u;
@@ -34431,6 +34459,13 @@ int ds4_gpu_glm53_indexer_scores_batch_tensor(
     return ds4_gpu_glm_indexer_scores_batch_grouped_tensor(
             scores, q, weights, indexer_key_cache, n_rows, n_tokens, pos0,
             pool_size, n_head, head_dim, scale, cache_f16);
+}
+
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode) {
+    if (mode < -1 || mode > 1) return -2;
+    const int previous = g_glm53_indexer_score_pair_exact_override;
+    g_glm53_indexer_score_pair_exact_override = mode;
+    return previous;
 }
 
 int ds4_gpu_glm_qk_lowrank_typed_tensor(

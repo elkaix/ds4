@@ -2069,6 +2069,92 @@ kernel void kernel_glm_indexer_scores_batch(
     if (tid == 0) *dst = score;
 }
 
+/* Exact GLM-5.3 width-2 indexer scoring.  The scalar batch kernel dispatches
+ * one threadgroup per (pooled row, token), so both verification tokens reread
+ * the same 128-value key for every head.  This kernel dispatches one
+ * threadgroup per pooled row, stages that key once, and keeps each token's
+ * float multiply/add and tree-reduction order identical to the scalar path, so
+ * the scores are bit-identical and only the key traffic changes. */
+kernel void kernel_glm53_indexer_scores_pair_exact(
+        constant ds4_metal_args_glm_indexer_scores_batch &args,
+        device const char *q,
+        device const char *weights,
+        device const char *indexer_key_cache,
+        device char *scores,
+        threadgroup float *shared [[threadgroup(0)]],
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        uint tid [[thread_index_in_threadgroup]],
+        ushort3 ntg_u [[threads_per_threadgroup]]) {
+    const uint row = tgpig.x;
+    if (row >= args.n_rows || args.n_tokens != 2u ||
+        args.n_head != 32u || args.head_dim != 128u ||
+        args.row_group_size != 4u) {
+        return;
+    }
+
+    device float *dst0 = (device float *)scores + row;
+    device float *dst1 = (device float *)(scores + args.score_token_stride) + row;
+    const uint visible0 = glm_indexer_batch_visible_rows(args, 0u);
+    const uint visible1 = glm_indexer_batch_visible_rows(args, 1u);
+    if (row >= visible1) {
+        if (tid == 0u) {
+            *dst0 = -INFINITY;
+            *dst1 = -INFINITY;
+        }
+        return;
+    }
+
+    const uint nth = ntg_u.x;
+    threadgroup float *key = shared;
+    threadgroup float *scratch0 = key + 128u;
+    threadgroup float *scratch1 = scratch0 + nth;
+    for (uint d = tid; d < 128u; d += nth) {
+        key[d] = glm_cache_load_f32_or_f16(
+            indexer_key_cache, (uint64_t)row * 128u + d, args.cache_f16);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float score0 = 0.0f;
+    float score1 = 0.0f;
+    device const float *w0 = (device const float *)weights;
+    device const float *w1 = (device const float *)(weights +
+        args.weights_token_stride);
+    for (uint h = 0; h < 32u; h++) {
+        device const float *q0 = (device const float *)(q +
+            (uint64_t)h * args.q_head_stride);
+        device const float *q1 = (device const float *)(q +
+            args.q_token_stride + (uint64_t)h * args.q_head_stride);
+        float partial0 = 0.0f;
+        float partial1 = 0.0f;
+        for (uint d = tid; d < 128u; d += nth) {
+            const float k = key[d];
+            partial0 += q0[d] * k;
+            partial1 += q1[d] * k;
+        }
+        scratch0[tid] = partial0;
+        scratch1[tid] = partial1;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint step = nth >> 1; step > 0; step >>= 1) {
+            if (tid < step) {
+                scratch0[tid] += scratch0[tid + step];
+                scratch1[tid] += scratch1[tid + step];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (tid == 0u) {
+            score0 += max(scratch0[0] * args.scale, 0.0f) * w0[h];
+            score1 += max(scratch1[0] * args.scale, 0.0f) * w1[h];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (tid == 0u) {
+        *dst0 = row < visible0 ? score0 : -INFINITY;
+        *dst1 = score1;
+    }
+}
+
 kernel void kernel_glm_indexer_scores_tiled_f32(
         constant ds4_metal_args_glm_indexer_scores_batch & args,
         device const char *q,

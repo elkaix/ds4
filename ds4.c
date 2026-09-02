@@ -65794,6 +65794,22 @@ static bool glm53_spec_verify(glm53_spec_transaction *tx,
  * compares two different kernels.  Gated on DS4_GLM_VERIFY_SCAN=<reps>, runs
  * once, off by default.  Valid only while pos + n stays inside the dense
  * window, so run it at short context. */
+/* H25 measurement control: select the exact width-2 indexer score kernel for
+ * this thread. Backends without it report -2 rather than silently ignoring the
+ * request, so an A/B arm can prove the path it claims to be measuring. */
+static int glm53_indexer_pair_exact_override(int mode) {
+#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+    return ds4_gpu_glm53_indexer_score_pair_exact_override(mode);
+#else
+    (void)mode;
+    return -2;
+#endif
+}
+
+int ds4_glm53_indexer_score_pair_exact_override(int mode) {
+    return glm53_indexer_pair_exact_override(mode);
+}
+
 static void glm53_verify_scan(ds4_session *s, int first_token, int reps) {
     ds4_engine *e = s->engine;
     ds4_glm_gpu_graph *g = &s->glm_graph;
