@@ -20541,6 +20541,10 @@ static uint32_t metal_graph_decode_indexer_sparse_threshold(const ds4_gpu_graph 
                  v == 1024ul || v == 2048ul || v == 4096ul)) {
                 cached = (uint32_t)v;
                 parsed = 1;
+                fprintf(stderr,
+                        "ds4: decode indexer sparse threshold=%u rows "
+                        "(DS4_METAL_DECODE_INDEXER_SPARSE_THRESHOLD)\n",
+                        cached);
             } else {
                 fprintf(stderr,
                         "ds4: invalid DS4_METAL_DECODE_INDEXER_SPARSE_THRESHOLD=%s; "
