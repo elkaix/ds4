@@ -65798,6 +65798,24 @@ static int glm_session_logits_argmax(const float *logits) {
     return best;
 }
 
+/* Greedy pick for the GLM speculative cycle.  Under ignore_eos the cycle
+ * must never accept or seed a stop token -- the server would have skipped
+ * it through ds4_session_argmax_ignoring_eos -- so the pick excludes the
+ * same tokens; otherwise it is the plain argmax. */
+static int glm_spec_argmax(const ds4_session *s, const float *logits,
+                           bool ignore_eos, ds4_think_mode think_mode) {
+    if (!ignore_eos) return glm_session_logits_argmax(logits);
+    int best = -1;
+    float bv = DS4_NEG_INF;
+    for (uint32_t i = 0; i < DS4_N_VOCAB; i++) {
+        if (ds4_token_is_stop_for_think_mode(s->engine, (int)i, think_mode)) {
+            continue;
+        }
+        if (best < 0 || logits[i] > bv) { bv = logits[i]; best = (int)i; }
+    }
+    return best < 0 ? glm_session_logits_argmax(logits) : best;
+}
+
 static bool speculative_point_accept(float target_p, float draft_p,
                                      uint64_t *rng);
 static int speculative_point_replacement(ds4_session *s,
@@ -66161,6 +66179,8 @@ static int ds4_session_glm_spec_cycle_inner(
         float        min_p,
         uint64_t    *rng,
         bool         exact_sampling,
+        bool         ignore_eos,
+        ds4_think_mode think_mode,
         int         *accepted,
         int          accepted_cap,
         char        *err,
@@ -66176,6 +66196,8 @@ static int ds4_session_glm_spec_cycle_impl(
         float        min_p,
         uint64_t    *rng,
         bool         exact_sampling,
+        bool         ignore_eos,
+        ds4_think_mode think_mode,
         int         *accepted,
         int          accepted_cap,
         char        *err,
@@ -66183,7 +66205,8 @@ static int ds4_session_glm_spec_cycle_impl(
     const double t0 = now_sec();
     const int rc = ds4_session_glm_spec_cycle_inner(
             s, first_token, eos_token, temperature, top_k, top_p, min_p,
-            rng, exact_sampling, accepted, accepted_cap, err, errlen);
+            rng, exact_sampling, ignore_eos, think_mode,
+            accepted, accepted_cap, err, errlen);
     glm_spec_ms += (now_sec() - t0) * 1000.0;
     glm_spec_cycles++;
     if (rc > 0) glm_spec_committed += (uint64_t)rc;
@@ -66200,6 +66223,8 @@ static int ds4_session_glm_spec_cycle_inner(
         float        min_p,
         uint64_t    *rng,
         bool         exact_sampling,
+        bool         ignore_eos,
+        ds4_think_mode think_mode,
         int         *accepted,
         int          accepted_cap,
         char        *err,
@@ -66246,7 +66271,7 @@ static int ds4_session_glm_spec_cycle_inner(
         const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
         s->glm_spec_inside = 0;
         if (rc != 0) return -1;
-        const int n1 = glm_session_logits_argmax(s->logits);
+        const int n1 = glm_spec_argmax(s, s->logits, ignore_eos, think_mode);
         if (s->glm_mtp_min_pos == 0 || s->glm_mtp_min_pos > pos) {
             s->glm_mtp_min_pos = pos;
         }
@@ -66264,7 +66289,7 @@ static int ds4_session_glm_spec_cycle_inner(
         const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
         s->glm_spec_inside = 0;
         if (rc != 0) return -1;
-        const int n1 = glm_session_logits_argmax(s->logits);
+        const int n1 = glm_spec_argmax(s, s->logits, ignore_eos, think_mode);
         if (s->glm_mtp_min_pos == 0 || s->glm_mtp_min_pos > pos) {
             s->glm_mtp_min_pos = pos;
         }
@@ -66378,7 +66403,7 @@ static int ds4_session_glm_spec_cycle_inner(
         s->checkpoint_valid = false;
         return -1;
     }
-    const int n1 = glm_session_logits_argmax(s->glm_mtp_logits0);
+    const int n1 = glm_spec_argmax(s, s->glm_mtp_logits0, ignore_eos, think_mode);
     int replacement = -1;
     int accept = n1 == d;
     double rollback_ms = 0.0;
@@ -66446,7 +66471,7 @@ static int ds4_session_glm_spec_cycle_inner(
         if (!g->glm53) ds4_session_glm_note_dense_cache(s, pos, 2);
         n_committed = 2;
         /* s->logits already holds row1 (position pos+1) logits. */
-        const int n2 = glm_session_logits_argmax(s->logits);
+        const int n2 = glm_spec_argmax(s, s->logits, ignore_eos, think_mode);
         int nd = -1;
         /* Kill switch: the first draft step's token was previously computed
          * into a variable named `dummy` and never read.  Set this to 0 to
@@ -66531,7 +66556,7 @@ static int ds4_session_glm_spec_cycle_inner(
             accepted[0] = first_token;
             accepted[1] = replacement;
 
-            const int next = glm_session_logits_argmax(s->logits);
+            const int next = glm_spec_argmax(s, s->logits, ignore_eos, think_mode);
             int nd = -1;
             s->glm_mtp_have = 0;
             const double draft_t0 = timing ? now_sec() : 0.0;
@@ -66693,6 +66718,8 @@ static bool ds4_session_glm_mtp_ctx_gated(ds4_session *s) {
 }
 
 static int ds4_session_glm_spec_cycle(ds4_session *s, int first_token,
+                                      bool ignore_eos,
+                                      ds4_think_mode think_mode,
                                       int *accepted, int accepted_cap,
                                       char *err, size_t errlen) {
     return ds4_session_glm_spec_cycle_impl(s,
@@ -66704,6 +66731,8 @@ static int ds4_session_glm_spec_cycle(ds4_session *s, int first_token,
                                            0.0f,
                                            NULL,
                                            false,
+                                           ignore_eos,
+                                           think_mode,
                                            accepted,
                                            accepted_cap,
                                            err,
@@ -69419,7 +69448,9 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
             !e->dspark_exact_sampling &&
             e->tp.active && e->tp.rank != 0) {
             int acc[2];
-            const int rc = ds4_session_glm_spec_cycle(s, token, acc, 2, err, errlen);
+            const int rc = ds4_session_glm_spec_cycle(s, token, false,
+                                                      DS4_THINK_NONE,
+                                                      acc, 2, err, errlen);
             (void)probe_mtp;
             return rc < 0 ? 1 : 0;
         }
@@ -74978,8 +75009,13 @@ static int ds4_session_eval_speculative_argmax_impl(
                     return -1;
                 }
             }
-            int rc = ds4_session_glm_spec_cycle(s, first_token, accepted,
-                                                accepted_cap, err, errlen);
+            /* Every TP rank runs this cycle from the same EVAL frame with
+             * no view of the request, so the stop-token exclusion is only
+             * applied when there is a single rank to keep consistent. */
+            int rc = ds4_session_glm_spec_cycle(
+                    s, first_token,
+                    ignore_eos && !s->engine->tp.active, think_mode,
+                    accepted, accepted_cap, err, errlen);
 #if defined(__APPLE__)
             if (rc >= 0 && s->engine && s->engine->tp.active && ds4_gpu_tp_failed()) {
                 snprintf(err, errlen, "tp: gate transport failed");
@@ -75005,6 +75041,8 @@ static int ds4_session_eval_speculative_argmax_impl(
         int cycle_cap = accepted_cap;
         if (cycle_cap > max_tokens) cycle_cap = max_tokens;
         return ds4_session_glm_spec_cycle(s, first_token,
+                                          ignore_eos && !e->tp.active,
+                                          think_mode,
                                           accepted, cycle_cap,
                                           err, errlen);
     }
@@ -75790,6 +75828,8 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                 min_p,
                 rng,
                 e->dspark_exact_sampling,
+                false,
+                DS4_THINK_NONE,
                 accepted,
                 accepted_cap,
                 err,
