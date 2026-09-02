@@ -1,0 +1,115 @@
+// quant_common.metalh — shared unpack primitives for the W4A16 / W2A16 kernels.
+//
+// Included by fused_gemv_w4a16.metal and swiglu_fused.metal so the two cannot
+// drift apart on the quantization contract. Everything here is `inline` and
+// operates on registers only: no device writes, no threadgroup memory, no
+// barriers.
+//
+// Layout (structure of arrays, deliberately not a blocked struct):
+//   quants  uchar[M][K/2]      two 4-bit values per byte, low nibble first
+//   scales  half [M][K/QK4]
+//   zeros   half [M][K/QK4]    asymmetric: w = scale * q + zero
+//
+// A blocked `{half d; half m; uchar qs[16];}` is 20 bytes, so block n starts at
+// byte 20n and consecutive blocks straddle 128-byte cache lines. Splitting the
+// three streams keeps the quant stream, which is 94% of the bytes, contiguous
+// and line-aligned.
+
+#pragma once
+
+#include <metal_stdlib>
+using namespace metal;
+
+constant constexpr int SIMD_WIDTH = 32;
+
+constant constexpr int QK4 = 32;                 // 4-bit weights per group
+constant constexpr int BYTES_PER_GROUP = QK4 / 2;   // 16 = one aligned lane load
+
+constant constexpr int QK2 = 64;                 // 2-bit weights per group
+constant constexpr int BYTES_PER_GROUP_Q2 = 16;
+
+// Unpack 16 bytes (= one QK4 group = 32 nibbles) and dot them against 32
+// activations. The zero point is folded in once via the separate activation
+// sum rather than being applied per element, which removes 32 subtractions.
+// Accumulating in float rather than half costs nothing on Apple GPUs, whose
+// FP16 pipes widen to FP32 accumulators anyway, and removes any question about
+// error growth over K = 4096.
+inline float dot_group_q4(const thread ulong2 &packed,
+                          const device half   *a,
+                          const float          scale,
+                          const float          zero) {
+    const thread uchar *bytes = reinterpret_cast<const thread uchar *>(&packed);
+    float acc_q = 0.0f;
+    float acc_a = 0.0f;
+
+#pragma clang loop unroll(full)
+    for (int b = 0; b < BYTES_PER_GROUP; ++b) {
+        const uchar byte = bytes[b];
+        const float a_lo = (float)a[2 * b + 0];
+        const float a_hi = (float)a[2 * b + 1];
+        acc_q = fma((float)(byte & 0x0Fu), a_lo, acc_q);
+        acc_q = fma((float)(byte >> 4),    a_hi, acc_q);
+        acc_a += a_lo + a_hi;
+    }
+    return fma(scale, acc_q, zero * acc_a);
+}
+
+// 2-bit unpack. GLM-5.3-Flash-UNCEN-Q2 stores its expert tensors as
+// 86 IQ2_XXS + 43 Q2_K, so this, not the 4-bit path, is the one that runs on
+// this repository's checkpoint. One 16-byte lane load now covers 64 weights.
+inline float dot_group_q2(const thread ulong2 &packed,
+                          const device half   *a,
+                          const float          scale,
+                          const float          zero) {
+    const thread uchar *bytes = reinterpret_cast<const thread uchar *>(&packed);
+    float acc_q = 0.0f;
+    float acc_a = 0.0f;
+
+#pragma clang loop unroll(full)
+    for (int b = 0; b < BYTES_PER_GROUP_Q2; ++b) {
+        const uchar byte = bytes[b];
+        const float a0 = (float)a[4 * b + 0];
+        const float a1 = (float)a[4 * b + 1];
+        const float a2 = (float)a[4 * b + 2];
+        const float a3 = (float)a[4 * b + 3];
+        acc_q = fma((float)((byte >> 0) & 0x3u), a0, acc_q);
+        acc_q = fma((float)((byte >> 2) & 0x3u), a1, acc_q);
+        acc_q = fma((float)((byte >> 4) & 0x3u), a2, acc_q);
+        acc_q = fma((float)((byte >> 6) & 0x3u), a3, acc_q);
+        acc_a += a0 + a1 + a2 + a3;
+    }
+    return fma(scale, acc_q, zero * acc_a);
+}
+
+// Same, but against a threadgroup-resident activation slice. The fused SwiGLU
+// down-projection reads its input from threadgroup memory, where the SiLU
+// product was just written, so it never crosses the bus.
+inline float dot_group_q4_tg(const thread ulong2   &packed,
+                             const threadgroup half *a,
+                             const float             scale,
+                             const float             zero) {
+    const thread uchar *bytes = reinterpret_cast<const thread uchar *>(&packed);
+    float acc_q = 0.0f;
+    float acc_a = 0.0f;
+
+#pragma clang loop unroll(full)
+    for (int b = 0; b < BYTES_PER_GROUP; ++b) {
+        const uchar byte = bytes[b];
+        const float a_lo = (float)a[2 * b + 0];
+        const float a_hi = (float)a[2 * b + 1];
+        acc_q = fma((float)(byte & 0x0Fu), a_lo, acc_q);
+        acc_q = fma((float)(byte >> 4),    a_hi, acc_q);
+        acc_a += a_lo + a_hi;
+    }
+    return fma(scale, acc_q, zero * acc_a);
+}
+
+// Butterfly reduction across one SIMD group. Register-to-register, lockstep,
+// therefore no barrier of any kind.
+inline float simd_reduce_add(float v) {
+#pragma clang loop unroll(full)
+    for (uint off = SIMD_WIDTH / 2; off > 0; off >>= 1) v += simd_shuffle_down(v, off);
+    return v;
+}
+
+inline float silu(float v) { return v / (1.0f + exp(-v)); }
