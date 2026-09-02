@@ -424,3 +424,22 @@ free, 4.09 GB swap) another ~7%; the rest is the documented context term plus
 pressure drift, all stacking. `last_prefill_tps` is not a prefill rate —
 `(prompt_tokens - cached) / prefill_sec` puts ~1,300 tokens over a denominator
 that includes cache lookup and KV restore.
+
+## 2026-09-02 — A1: GLM MTP context ceiling (shipped, unmeasured)
+
+`DS4_GLM_MTP_MAX_CTX` (default 65536, 0 = off). Past the ceiling both
+speculative entry points (`ds4_session_eval_speculative_argmax_impl`,
+`ds4_session_eval_speculative`) fall through to plain `ds4_session_eval`, skip
+the nextn block, and drop the carried draft. Never gates under TP. Logs once
+per session on the transition so the arm proves it fired.
+
+Basis: F32 (MTP off is flat in context, MTP on is not; crossover bracketed
+64K–100K, not pinned). #915's decode/verify threshold mismatch does NOT apply
+to GLM — both sides use `glm_graph_dense_compact_attention_limit`
+(ds4.c:49782 vs :52317), which closes the question from the upstream sweep.
+
+Next: restart on this build, replay the 72K request (dashboard read 28.5 t/s
+MTP-on). Gated should land near the F32 MTP-off curve (~26.8 t/s at 72K); if
+it does, the default sits below the true crossover and should move to ~98K.
+Contract-grade placement needs an in-process per-segment toggle
+(attribseg-style file program), not a restart pair.
