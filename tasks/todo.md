@@ -355,3 +355,72 @@ paragraph still says "keep 45-50 as a stretch target". The headline was taken.
 6. **Costing exercise, not yet a task:** tree / multi-candidate speculation.
    Verification amortizes rows at 13.57 ms each; the open question is whether
    any drafter can produce candidates for less than that.
+
+---
+
+## 2026-09-02 — upstream sweep: applied #953, #903, and #954's profiler
+
+Reviewed every open PR on `antirez/ds4` for GLM-5.3-Flash / M5 Max value.
+Three landed, verified against the diffs rather than the PR prose.
+
+### Applied
+
+| Commit | Upstream | Why |
+|---|---|---|
+| `865ca9f` | #953 | Exact-fp32 batched router matmul for GLM prefill. Measured **on our exact config** (M5 Max, GLM-5.3-Flash Q2): prefill 491/407/394/386 → 528/426/411/402 t/s at 4k/8k/12k/16k (+7.5% / +4.2%). Decode unchanged. `DS4_METAL_DISABLE_ROUTER_MM=1` forces the old matvec for A/B. |
+| `bd6d120` | #903 | Continued KV saves required `live_tokens % step == 0`; after an unaligned restore, fixed chunks cross every frontier without landing on one, so nothing is written. Complements `ec9201a` (which fixed *lookup*, not *writing*). |
+| `3a54678` | #954 `eb18f57` | Commit-only GPU stage-counter profiler. **This is "next session item 0".** Per-stage `GPUEndTime - GPUStartTime` per command buffer, committed at stage boundaries with no per-stage `waitUntilCompleted` — Option A as written, not the 5-6x end-and-wait. Enable with `DS4_METAL_STAGE_COUNTERS=1`. |
+
+### Verification state
+
+- `make -j8 ds4-server ds4_test ds4 ds4-bench` — clean, no warnings.
+- `./ds4_test --server` — OK (covers #903's crossed-interval / restore / `INT_MAX` tests).
+- **GPU gates NOT yet run.** Blocked by the live server holding the process lock
+  (`ds4: another ds4 process is already running (pid 40495); refusing to start`).
+  Run after stopping it:
+
+      DS4_TEST_MODEL=~/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf ./ds4_test --metal-moe-ground-truth
+      DS4_TEST_MODEL=~/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf ./ds4_test --metal-tensor-equivalence
+
+  #953 notes one long equivalence case moves 10/20 → 9/20 token overlap
+  deterministically, with the floor recalibrated at the assert. Expect that.
+- The profiler still needs its own gate before it is trusted: instrumented
+  decode must land within a few percent of normal decode. Splitting one
+  command buffer into N per token adds submission overhead, and per-CB busy
+  sums *exclude* inter-CB gaps — which is the very thing being hunted.
+
+### Rejected, with reasons
+
+- **#954 bulk** — the PR body says it outright: "pre-M5 GPUs (M1–M4 resident
+  path)". 54 `pre_m5_apple_silicon` / `PRE_M5` gates.
+  `ds4_session_chain_greedy_supported()` returns false on
+  `ds4_session_is_glm(s)` *and* on `support_kind != DS4_SUPPORT_NONE`, so the
+  +5-8.6% greedy chain excludes us twice over. Its one M5-ported item
+  (indexer-query pruning) lives in `metal_graph_encode_layer_attention_batch`
+  — the DeepSeek DSA path; GLM uses `glm53_graph_encode_native_session_batch`.
+- **#915** — same DSA path, not GLM's `glm53_verify_attention_done`.
+- **#936** — for `n_rot == 64` (GLM-5.2 / full 5.3). Flash is `n_rot == 0`.
+- **#942**, **#909** — no decode win, and both conflict.
+- **#952** (AProjQ4) — the only open PR aimed at bytes/token, our one real
+  lever, but +78,663/-8,167 across 117 files. Merge cost looks prohibitive.
+  Not merge-tested.
+
+### New question this raised (untested, ours to answer)
+
+#915 found decode gating indexed-vs-dense on threshold 1024 while batched
+verify gated on 512 — the verifier checking a different candidate set than
+decode produced. **The fix is DeepSeek's; the question is ours.** Does GLM's
+`glm_graph_indexer_top_k_limit()` agree with what `glm53_graph_mtp_fast_verify`
+uses? There is a live symptom that fits: at 2K, MTP-on measured 36.5 t/s
+against the 39.4 t/s non-MTP `m5_max.csv` figure — MTP is currently a net
+negative, and a candidate-set mismatch would show up exactly as low acceptance.
+
+### Also measured this session (not a code change)
+
+Decode was 15.1 t/s at 63,713 ctx against a 28.24 t/s baseline. Attributed:
+concurrent `deepseek4-quantize` (~930% CPU, 2h+) costs ~10% by interleaved
+SIGSTOP A/B (32.9 vs 36.5 t/s at 2K, two rounds); memory exhaustion (116 MB
+free, 4.09 GB swap) another ~7%; the rest is the documented context term plus
+pressure drift, all stacking. `last_prefill_tps` is not a prefill rate —
+`(prompt_tokens - cached) / prefill_sec` puts ~1,300 tokens over a denominator
+that includes cache lookup and KV restore.
