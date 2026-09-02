@@ -63,6 +63,12 @@ curl -fsS http://127.0.0.1:8000/stats | python3 -m json.tool
 Expect `resident model 80.76 GiB + KV 3.37 + buffers 3.00 = 87.13 GiB planned`,
 `context buffers 6523.67 MiB`, `compressed_kv_rows=98306`.
 
+`run-ds4-monitored.sh` uses `--ctx 262144` instead, which measures
+`KV 2.36 + buffers 2.00 + resident model 80.76 = 85.13 GiB planned` (verified
+2026-09-02). `resident model 80.76 GiB` is identical for both, so **the model fits
+under the default Metal cap** — §1's sysctl is what `run-ds4-monitored.sh` insists on,
+not what the weights actually require.
+
 ## 3b. Live dashboard
 
 ```bash
