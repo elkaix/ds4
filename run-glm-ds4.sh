@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Start the GLM 5.3 Flash server (upstream branch glm-5.3-flash, worktree ../ds4-glm53) and print one-line health/resource
+# Start the GLM 5.3 Flash server (worktree ../ds4-glm53; branch/commit printed at startup) and print one-line health/resource
 # snapshots while it runs. Server logs remain attached to this terminal.
 #
 # Usage:
 #   ./run-glm-ds4.sh
 #   MONITOR_INTERVAL_SECONDS=30 ./run-glm-ds4.sh
+#   GLM_DS4_MODEL=~/models/gguf/GLM-5.3-Flash-ABLIT-Q2.gguf ./run-glm-ds4.sh
 # Fans run at verified maximum while ds4-server runs, then return to Apple auto.
 
 set -Eeuo pipefail
@@ -12,21 +13,24 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 GLM_DIR="${GLM_DS4_DIR:-$ROOT_DIR/../ds4-glm53}"
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="$HOME/models/gguf/GLM-5.3-Flash-Q2.gguf"
+MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf}"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/glm-5.3-flash-q2"
+KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm-5.3-flash-uncen-q2}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
 # Model-embedded GLM 5.3 MTP speculation. Required for the Metal width-2
 # verify fast path; set GLM_DS4_MTP=0 to fall back to plain decode.
 MTP="${GLM_DS4_MTP:-1}"
+# Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
+# perturbs the decode rate it measures, so leave it off for benchmarks.
+MTP_TIMING="${GLM_DS4_MTP_TIMING:-0}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
-THERMALFORGE="$HOME/.mtplx/bin/thermalforge"
+THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
 FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RAMP_TIMEOUT_SECONDS=20
 FAN_RESTORE_TIMEOUT_SECONDS=5
@@ -37,12 +41,17 @@ usage() {
     cat <<'EOF'
 Usage: ./run-glm-ds4.sh
 
-Starts the glm-5.3-flash branch ds4-server with GLM 5.3 Flash Q2 (ctx 262144) and prints
-health, throughput, process memory, KV disk-cache use, and free disk space.
+Starts the glm-5.3-flash branch ds4-server with GLM 5.3 Flash Uncensored Q2
+(orcarouter, ctx 262144) and prints health, throughput, process memory,
+KV disk-cache use, and free disk space.
 Fans run at maximum while the server runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
+  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-Q2.gguf)
+  GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
+  GLM_DS4_MTP=0               Disable model-embedded MTP speculation
+  GLM_DS4_MTP_TIMING=1        Print MTP acceptance/verify timing (diagnostic)
 EOF
 }
 
@@ -78,8 +87,21 @@ if [[ ! -r $MODEL ]]; then
 fi
 if [[ ! -x $THERMALFORGE ]]; then
     echo "Fan controller not found or not executable: $THERMALFORGE" >&2
-    echo "Install it with: mtplx max --install" >&2
+    echo "Install it with: brew install producerguy/tap/thermalforge" >&2
     exit 1
+fi
+# The root daemon (com.thermalforge.daemon) executes its own copy under
+# /usr/local/bin, so a `brew upgrade` alone leaves the daemon on the old
+# binary. Warn rather than fail: fan control still works, just at the older
+# version. Deliberately not symlinked -- /opt/homebrew/bin is user-writable
+# and the daemon runs as root.
+DAEMON_THERMALFORGE=/usr/local/bin/thermalforge
+if [[ -x $DAEMON_THERMALFORGE && $DAEMON_THERMALFORGE != "$THERMALFORGE" ]] &&
+    ! cmp -s "$THERMALFORGE" "$DAEMON_THERMALFORGE"; then
+    echo "Warning: fan controller drift -- the ThermalForge daemon runs a different build." >&2
+    echo "  CLI:    $THERMALFORGE ($("$THERMALFORGE" --version 2>/dev/null || echo unknown))" >&2
+    echo "  daemon: $DAEMON_THERMALFORGE ($("$DAEMON_THERMALFORGE" --version 2>/dev/null || echo unknown))" >&2
+    echo "  Realign: sudo thermalforge install" >&2
 fi
 
 fan_control() {
@@ -99,9 +121,9 @@ if action not in valid_actions:
     raise SystemExit(f"unsupported fan action: {action}")
 
 command_action = action if action in {"max", "auto"} else "status"
+# ThermalForge's privileged daemon (com.thermalforge.daemon, installed by
+# `sudo thermalforge install`) owns the SMC writes, so the CLI needs no sudo.
 command = [path, command_action]
-if action in {"probe", "max", "auto"}:
-    command = ["sudo", "-n", *command]
 
 try:
     result = subprocess.run(
@@ -243,7 +265,7 @@ restore_fans() {
 
 if ! fan_control probe; then
     echo "Non-interactive verified fan control is unavailable; refusing to start ds4-server." >&2
-    echo "Repair it with: mtplx max --grant-sudo" >&2
+    echo "Repair it with: sudo thermalforge install" >&2
     exit 1
 fi
 
@@ -515,7 +537,7 @@ def restore_fans_after_server():
     emit(f"[monitor {timestamp}] fans=restore-attempt reason=server-stopped")
     try:
         reset = subprocess.run(
-            ["sudo", "-n", fan_controller, "auto"],
+            [fan_controller, "auto"],
             check=False,
             capture_output=True,
             text=True,
@@ -548,9 +570,9 @@ def restore_fans_after_server():
 
 
 while server_alive():
-    # Upstream branch has no /health or /stats; /v1/models is the liveness probe.
+    # /v1/models is the liveness probe; /stats carries the serving counters.
     health = fetch_json("/v1/models")
-    stats = None
+    stats = fetch_json("/stats")
 
     if health is not None and health.get("object") == "list":
         health_status = "ok"
@@ -560,9 +582,16 @@ while server_alive():
     else:
         health_status = "unreachable" if ever_healthy else "starting"
 
+    # A transient /stats failure must not look like the parser regressed, so the
+    # line always carries an explicit stats= state next to the dashes.
     if stats is None:
+        stats_status = "unreachable"
+        summary = "state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=-"
+    elif "queue_depth" not in stats or "slot_count" not in stats:
+        stats_status = "unexpected"
         summary = "state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=-"
     else:
+        stats_status = "ok"
         busy = stats.get("busy")
         state = "busy" if busy is True else "idle" if busy is False else "-"
         cache = stats.get("cache") if isinstance(stats.get("cache"), dict) else {}
@@ -599,7 +628,7 @@ while server_alive():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     emit(
-        f"[monitor {timestamp}] health={health_status} {summary} "
+        f"[monitor {timestamp}] health={health_status} stats={stats_status} {summary} "
         f"cpu={cpu_percent}% mem={memory_percent}% rss={rss_kib / 1048576:.1f}GiB "
         f"fans={fan_status} "
         f"kv={used_gib:.1f}/{budget_gib:.1f}GiB({cache_percent:.1f}%) "
@@ -629,16 +658,62 @@ except OSError:
 MTP_ARGS=()
 if [[ $MTP != 0 ]]; then
     MTP_ARGS+=(--mtp)
+    if [[ $MTP_TIMING != 0 ]]; then
+        MTP_ARGS+=(--mtp-timing)
+    fi
+fi
+
+ds4_branch=$(git -C "$GLM_DIR" branch --show-current 2>/dev/null || true)
+ds4_commit=$(git -C "$GLM_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)
+BUILD_INPUTS=('*.c' '*.h' '*.m' '*.metal' 'Makefile')
+if [[ -n $(git -C "$GLM_DIR" status --porcelain 2>/dev/null) ]]; then
+    ds4_tree="dirty"
+else
+    ds4_tree="clean"
+fi
+if [[ -n $(git -C "$GLM_DIR" status --porcelain -- "${BUILD_INPUTS[@]}" 2>/dev/null) ]]; then
+    ds4_code="dirty"
+else
+    ds4_code="clean"
+fi
+model_stamp=$(stat -f '%z bytes, mtime %Sm' -t '%Y-%m-%dT%H:%M:%S' "$MODEL" 2>/dev/null || echo unknown)
+# A binary older than the newest source commit means the tree was edited but not
+# rebuilt: the number you measure then belongs to code that is not running.
+binary_stamp=$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S' "$SERVER_BIN" 2>/dev/null || echo unknown)
+binary_epoch=$(stat -f '%m' "$SERVER_BIN" 2>/dev/null || echo 0)
+# When the build inputs are clean their content is HEAD's, so the commit date is
+# the honest comparison; checkouts and merges rewrite mtimes without changing a
+# byte and would otherwise report a false STALE. Only once something is actually
+# edited does the mtime of the edit become the thing to compare against.
+if [[ $ds4_code == "clean" ]]; then
+    source_epoch=$(git -C "$GLM_DIR" log -1 --format=%ct -- "${BUILD_INPUTS[@]}" 2>/dev/null || echo 0)
+    stale_reason="older than the newest source commit"
+else
+    source_epoch=$( (cd "$GLM_DIR" && git ls-files -z -- "${BUILD_INPUTS[@]}" \
+        | xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1) || echo 0)
+    stale_reason="older than an uncommitted source edit"
+fi
+source_epoch=${source_epoch:-0}
+if (( binary_epoch > 0 && source_epoch > 0 && binary_epoch < source_epoch )); then
+    binary_state="STALE: $stale_reason; rebuild before benchmarking"
+elif [[ $ds4_code != "clean" ]]; then
+    binary_state="current, but uncommitted source edits are present"
+else
+    binary_state="current"
 fi
 
 cat <<EOF
-Starting monitored ds4-server (GLM 5.3 Flash, branch glm-5.3-flash)
+Starting monitored ds4-server (GLM 5.3 Flash Uncensored Q2)
   model:      $MODEL
   endpoint:   http://$HOST:$PORT
   context:    $CTX
   max tokens: $TOKENS
   KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)
-  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp)"; else echo "disabled"; fi)
+  build:      ${ds4_branch:-unknown} @ ${ds4_commit:-unknown}
+  repo:       $ds4_tree (code: $ds4_code)
+  binary:     $binary_state, built $binary_stamp
+  model file: $model_stamp
+  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp, width 2)"; else echo "disabled"; fi)$(if [[ $MTP != 0 && $MTP_TIMING != 0 ]]; then echo " + timing (--mtp-timing)"; fi)
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
   fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB

@@ -44159,6 +44159,12 @@ static double glm_graph_streaming_async_profile_ms(void) {
  * attn_out stale for those layers -- garbage text, same dispatch count
  * everywhere else, which is the whole point of this family of flags. */
 #define DS4_GLM_ABLATE_KDA       (1u << 7)
+/* Not a stage: this one runs the plain decode path for the token, so an
+ * MTP-on/MTP-off A/B can be interleaved inside one warm session instead of
+ * compared across two server restarts, which contract 19 does not admit.  The
+ * nextn state is still advanced (with the head skipped), so the cache stays
+ * coherent and the arm that follows pays no replay. */
+#define DS4_GLM_ABLATE_NOMTP     (1u << 8)
 
 static uint32_t glm_ablate_parse(const char *env) {
     uint32_t mask = 0;
@@ -44171,6 +44177,7 @@ static uint32_t glm_ablate_parse(const char *env) {
     if (strstr(env, "shared")) mask |= DS4_GLM_ABLATE_SHARED;
     if (strstr(env, "qklow")) mask |= DS4_GLM_ABLATE_QKLOW;
     if (strstr(env, "kda")) mask |= DS4_GLM_ABLATE_KDA;
+    if (strstr(env, "nomtp")) mask |= DS4_GLM_ABLATE_NOMTP;
     return mask;
 }
 
@@ -44259,12 +44266,12 @@ static uint32_t glm_decode_ablate_mask(void) {
  *
  * Counts are site visits, not layers: a stage gated in more than one place
  * (the fast row verifier and the n=1 decoder, say) contributes once per gate. */
-#define DS4_GLM_ABLATE_NBITS 8
+#define DS4_GLM_ABLATE_NBITS 9
 static uint64_t glm_ablate_visits[DS4_GLM_ABLATE_NBITS];
 static uint64_t glm_ablate_skips[DS4_GLM_ABLATE_NBITS];
 static const char *const glm_ablate_names[DS4_GLM_ABLATE_NBITS] = {
     "attn_out", "attn_core", "qpath", "indexer",
-    "routed", "shared", "qklow", "kda"
+    "routed", "shared", "qklow", "kda", "nomtp"
 };
 
 /* True when this call site must skip its work; records the visit either way. */
@@ -65249,6 +65256,25 @@ static int ds4_session_glm_spec_cycle_inner(
     s->glm_mtp_rollback_valid = false;
     if (s->glm_mtp_have && first_token != s->glm_mtp_parent) {
         s->glm_mtp_have = 0;
+    }
+    if (glm_ablate_take(DS4_GLM_ABLATE_NOMTP)) {
+        /* Plain decode for this token: no draft, no verify.  The nextn layer is
+         * still stepped, with the output head skipped, so the following MTP arm
+         * does not have to replay this arm's positions -- the switch costs one
+         * nextn block per token here rather than a 64-position replay there. */
+        s->glm_spec_inside = 1;
+        const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
+        s->glm_spec_inside = 0;
+        if (rc != 0) return -1;
+        const int n1 = glm_session_logits_argmax(s->logits);
+        if (s->glm_mtp_min_pos == 0 || s->glm_mtp_min_pos > pos) {
+            s->glm_mtp_min_pos = pos;
+        }
+        s->glm_mtp_have = 0;
+        (void)glm_graph_mtp_step(g, &e->model, &e->weights, n1, pos,
+                                 s->glm_mtp_min_pos, NULL);
+        accepted[0] = first_token;
+        return 1;
     }
     if (!s->glm_mtp_have || accepted_cap < 2 ||
         pos + 2 > g->ctx_size ||
