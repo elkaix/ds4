@@ -40695,6 +40695,7 @@ static double glm_graph_memory_guard_default_reserve_gib(
 
 static uint64_t glm_graph_memory_guard_budget_bytes(
         uint64_t budget_base,
+        uint64_t device_ws,
         uint64_t wired_limit,
         double   fraction,
         double   reserve_gib) {
@@ -40706,6 +40707,18 @@ static uint64_t glm_graph_memory_guard_budget_bytes(
         reserve_bytes >= budget_base ? 0 : budget_base - reserve_bytes;
     uint64_t budget = fraction_budget;
     if (reserve_bytes != 0 && reserve_budget < budget) budget = reserve_budget;
+    if (device_ws != 0) {
+        /* The host-RAM heuristics can plan past what the device can wire:
+         * a 128 GiB Mac caps the working set near 107.5 GiB, so a 110 GiB
+         * resident-Q2 plan failed its first prefill chunk with
+         * kIOGPUCommandBufferCallbackErrorOutOfMemory (#890). A raised
+         * iogpu.wired_limit_mb is reflected in the device limit, and the
+         * explicit grant below still lifts the budget. */
+        const uint64_t margin = 2ull * 1024ull * 1024ull * 1024ull;
+        const uint64_t capped =
+            device_ws > margin ? device_ws - margin : device_ws;
+        if (capped < budget) budget = capped;
+    }
     if (wired_limit != 0) {
         /* An explicitly raised iogpu.wired_limit_mb is the user granting
          * the GPU that much wired memory; it overrides the heuristics. */
@@ -41240,8 +41253,17 @@ static bool glm_graph_memory_guard_budget(
                              default_reserve_gib,
                              0.0,
                              1024.0);
+#if defined(__APPLE__)
+    /* Metal reports the working set the device can actually wire; on other
+     * backends the same probe reports aggregate total VRAM, not a
+     * Metal-style working-set ceiling. */
+    const uint64_t device_ws = ds4_gpu_recommended_working_set_size();
+#else
+    const uint64_t device_ws = 0;
+#endif
     const uint64_t budget = glm_graph_memory_guard_budget_bytes(
             budget_base,
+            device_ws,
             glm_graph_wired_limit_bytes(),
             fraction,
             reserve_gib);
@@ -41426,6 +41448,17 @@ static bool glm_graph_memory_guard_for_compact_cap(
             fraction,
             reserve_gib,
             glm_graph_bytes_to_gib(transient_extra_bytes));
+#if defined(__APPLE__)
+    if (glm_graph_wired_limit_bytes() == 0) {
+        const uint64_t device_ws = ds4_gpu_recommended_working_set_size();
+        if (device_ws != 0)
+            fprintf(stderr,
+                    "ds4:   device working-set limit %.2f GiB; a raised "
+                    "iogpu.wired_limit_mb grants plans up to it "
+                    "(sudo sysctl iogpu.wired_limit_mb=<mb>, not persistent)\n",
+                    glm_graph_bytes_to_gib(device_ws));
+    }
+#endif
     fprintf(stderr,
             "ds4:   set DS4_GLM_MEMORY_GUARD=0 to bypass, use a smaller --ctx, "
             "tensor parallelism, or SSD streaming\n");
@@ -63005,8 +63038,10 @@ uint64_t ds4_test_glm_memory_guard_default_budget(
     const double reserve_gib =
         glm_graph_memory_guard_default_reserve_gib(
                 host_bytes, model_bytes, glm53);
+    /* Pin the host-RAM heuristic: the test asserts the host-derived
+     * budget, so the device working-set clamp stays out (device_ws = 0). */
     return glm_graph_memory_guard_budget_bytes(
-            host_bytes, 0, 0.99, reserve_gib);
+            host_bytes, 0, 0, 0.99, reserve_gib);
 }
 
 int ds4_test_glm_memory_guard_disabled(void) {
@@ -63356,7 +63391,10 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->placement_ctx_hint = opt->placement_ctx_hint;
     e->placement_session_count_hint = opt->placement_session_count_hint;
     e->share_session_prefill_workspace = opt->share_session_prefill_workspace;
-    ds4_acquire_instance_lock();
+    /* --inspect only reads GGUF metadata and returns before any residency or
+     * GPU allocation, so it does not need the single-instance guard. Taking it
+     * would make inspecting a model impossible while a server is running. */
+    if (!opt->inspect_only) ds4_acquire_instance_lock();
 
     if (opt->simulate_used_memory_bytes != 0 &&
         !ds4_ssd_memory_lock_acquire(&e->simulated_memory,
@@ -64353,6 +64391,14 @@ int ds4_engine_vocab_size(ds4_engine *e) {
 
 uint32_t ds4_engine_prefill_chunk(ds4_engine *e) {
     return e ? e->prefill_chunk : 0;
+}
+
+/* The chunk size a long prompt actually prefills with: the explicit
+ * --prefill-chunk when set, otherwise the model's automatic cap (4096 for
+ * Flash, 8192 for PRO, DS4_METAL_PREFILL_CHUNK honored). */
+uint32_t ds4_engine_prefill_quantum(ds4_engine *e) {
+    if (!e) return 0;
+    return ds4_prefill_cap_for_prompt(INT32_MAX, e->prefill_chunk);
 }
 
 
