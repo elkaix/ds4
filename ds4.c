@@ -38356,6 +38356,8 @@ struct ds4_engine {
     ds4_model model;
     ds4_model mtp_model;
     ds4_model vision_model;
+    /* Lazily computed by ds4_engine_weights_fp24(); 0 = not computed yet. */
+    uint32_t weights_fp24;
     ds4_vocab vocab;
     ds4_weights weights;
     ds4_mtp_weights mtp_weights;
@@ -38714,14 +38716,123 @@ static int bpe_rank(const ds4_vocab *vocab, const owned_str *a, const owned_str 
     return rank;
 }
 
-/* Apply byte-level BPE to one regex-like pre-tokenized piece and emit token ids. */
+/* Doubly-linked BPE symbol used by bpe_emit_piece's merge heap (see below):
+ * `prev`/`next` are indices into the backing array, -1 meaning "no neighbor". */
+typedef struct {
+    char *ptr;
+    uint64_t len;
+    int prev, next;
+    bool deleted;
+} bpe_sym;
+
+/* One candidate adjacent-pair merge, keyed by BPE rank (lower merges first).
+ * left_len/right_len snapshot sym[left]/sym[right]'s lengths at push time;
+ * since a merge only ever *grows* the left symbol (see bpe_merge below), a
+ * length mismatch at pop time cheaply proves the pair changed since this
+ * candidate was queued, without needing a separate version counter. */
+typedef struct {
+    int left, right;
+    int rank;
+    uint64_t left_len, right_len;
+} bpe_bigram;
+
+/* True if `a` must sink below `b` in the min-heap: higher rank loses, and
+ * among equal ranks the rightmost (larger `left` index) loses, so pop order
+ * matches the original left-to-right full rescan's tie-break exactly. */
+static bool bpe_bigram_gt(bpe_bigram a, bpe_bigram b) {
+    if (a.rank != b.rank) return a.rank > b.rank;
+    return a.left > b.left;
+}
+
+static void bpe_heap_sift_up(bpe_bigram *heap, uint32_t idx) {
+    while (idx > 0) {
+        const uint32_t parent = (idx - 1u) / 2u;
+        if (!bpe_bigram_gt(heap[parent], heap[idx])) break;
+        bpe_bigram tmp = heap[parent];
+        heap[parent] = heap[idx];
+        heap[idx] = tmp;
+        idx = parent;
+    }
+}
+
+static void bpe_heap_sift_down(bpe_bigram *heap, uint32_t n, uint32_t idx) {
+    for (;;) {
+        const uint32_t left = idx * 2u + 1u;
+        const uint32_t right = left + 1u;
+        uint32_t smallest = idx;
+        if (left < n && bpe_bigram_gt(heap[smallest], heap[left])) smallest = left;
+        if (right < n && bpe_bigram_gt(heap[smallest], heap[right])) smallest = right;
+        if (smallest == idx) break;
+        bpe_bigram tmp = heap[idx];
+        heap[idx] = heap[smallest];
+        heap[smallest] = tmp;
+        idx = smallest;
+    }
+}
+
+static void bpe_heap_push(bpe_bigram **heap, uint32_t *n, uint32_t *cap, bpe_bigram e) {
+    if (*n == *cap) {
+        *cap = (*cap == 0) ? 16 : (*cap * 2);
+        *heap = xrealloc(*heap, (size_t)(*cap) * sizeof(**heap));
+    }
+    (*heap)[*n] = e;
+    bpe_heap_sift_up(*heap, *n);
+    (*n)++;
+}
+
+static bpe_bigram bpe_heap_pop(bpe_bigram *heap, uint32_t *n) {
+    bpe_bigram top = heap[0];
+    (*n)--;
+    heap[0] = heap[*n];
+    bpe_heap_sift_down(heap, *n, 0);
+    return top;
+}
+
+/* Look up the rank for (sym[left], sym[left].next) and, if a merge exists
+ * for that pair, push it as a new candidate. */
+static void bpe_push_candidate(const ds4_vocab *vocab, bpe_sym *sym,
+                                bpe_bigram **heap, uint32_t *heap_n, uint32_t *heap_cap,
+                                int left) {
+    int right = sym[left].next;
+    if (right < 0) return;
+    int rank = bpe_rank(vocab, &(owned_str){ sym[left].ptr, sym[left].len },
+                                &(owned_str){ sym[right].ptr, sym[right].len });
+    if (rank < 0) return;
+    bpe_heap_push(heap, heap_n, heap_cap, (bpe_bigram){
+        .left = left, .right = right, .rank = rank,
+        .left_len = sym[left].len, .right_len = sym[right].len });
+}
+
+/* Merge sym[left]'s right neighbor into sym[left] and splice it out of the list. */
+static void bpe_merge(bpe_sym *sym, int left) {
+    int right = sym[left].next;
+    uint64_t new_len = sym[left].len + sym[right].len;
+    sym[left].ptr = xrealloc(sym[left].ptr, (size_t)new_len);
+    memcpy(sym[left].ptr + sym[left].len, sym[right].ptr, (size_t)sym[right].len);
+    sym[left].len = new_len;
+
+    free(sym[right].ptr);
+    sym[right].ptr = NULL;
+    sym[right].deleted = true;
+
+    sym[left].next = sym[right].next;
+    if (sym[right].next >= 0) sym[sym[right].next].prev = left;
+}
+
+/* Apply byte-level BPE to one regex-like pre-tokenized piece and emit token ids.
+ *
+ * Merges are found via a min-heap of candidate adjacent pairs over a doubly-
+ * linked symbol list, instead of rescanning every pair on every merge: O(n log n)
+ * instead of O(n^2), fixing large CJK/no-space prompts taking minutes to
+ * tokenize (github.com/antirez/ds4 issue #853). Tie-breaking (leftmost pair
+ * wins when ranks are equal) and the final token sequence are unchanged. */
 static void bpe_emit_piece(const ds4_vocab *vocab, ds4_str raw_piece, token_vec *out) {
     uint64_t encoded_len = 0;
     char *encoded = byte_encode(raw_piece, &encoded_len);
 
     int n_sym = 0;
     int cap_sym = 32;
-    owned_str *sym = xcalloc((size_t)cap_sym, sizeof(sym[0]));
+    bpe_sym *sym = xcalloc((size_t)cap_sym, sizeof(sym[0]));
 
     for (uint64_t off = 0; off < encoded_len;) {
         int n = utf8_len_from_first_byte((uint8_t)encoded[off]);
@@ -38730,41 +38841,42 @@ static void bpe_emit_piece(const ds4_vocab *vocab, ds4_str raw_piece, token_vec 
             cap_sym *= 2;
             sym = xrealloc(sym, (size_t)cap_sym * sizeof(sym[0]));
         }
-        sym[n_sym++] = owned_copy(encoded + off, (uint64_t)n);
+        owned_str piece = owned_copy(encoded + off, (uint64_t)n);
+        sym[n_sym] = (bpe_sym){ .ptr = piece.ptr, .len = piece.len,
+                                 .prev = n_sym - 1, .next = -1, .deleted = false };
+        if (n_sym > 0) sym[n_sym - 1].next = n_sym;
+        n_sym++;
         off += (uint64_t)n;
     }
 
-    for (;;) {
-        int best_i = -1;
-        int best_rank = INT32_MAX;
+    bpe_bigram *heap = NULL;
+    uint32_t heap_n = 0, heap_cap = 0;
 
-        for (int i = 0; i + 1 < n_sym; i++) {
-            int rank = bpe_rank(vocab, &sym[i], &sym[i + 1]);
-            if (rank >= 0 && rank < best_rank) {
-                best_rank = rank;
-                best_i = i;
-            }
-        }
-
-        if (best_i < 0) break;
-
-        owned_str merged;
-        merged.len = sym[best_i].len + sym[best_i + 1].len;
-        merged.ptr = xmalloc((size_t)merged.len);
-        memcpy(merged.ptr, sym[best_i].ptr, (size_t)sym[best_i].len);
-        memcpy(merged.ptr + sym[best_i].len, sym[best_i + 1].ptr, (size_t)sym[best_i + 1].len);
-
-        free(sym[best_i].ptr);
-        free(sym[best_i + 1].ptr);
-        sym[best_i] = merged;
-
-        for (int j = best_i + 1; j + 1 < n_sym; j++) {
-            sym[j] = sym[j + 1];
-        }
-        n_sym--;
+    for (int i = 0; i + 1 < n_sym; i++) {
+        bpe_push_candidate(vocab, sym, &heap, &heap_n, &heap_cap, i);
     }
 
-    for (int i = 0; i < n_sym; i++) {
+    while (heap_n > 0) {
+        bpe_bigram top = bpe_heap_pop(heap, &heap_n);
+        int left = top.left, right = top.right;
+
+        if (sym[left].deleted || sym[right].deleted) continue;
+        if (sym[left].next != right) continue;
+        if (sym[left].len != top.left_len || sym[right].len != top.right_len) continue;
+
+        bpe_merge(sym, left);
+
+        if (sym[left].prev >= 0) {
+            bpe_push_candidate(vocab, sym, &heap, &heap_n, &heap_cap, sym[left].prev);
+        }
+        bpe_push_candidate(vocab, sym, &heap, &heap_n, &heap_cap, left);
+    }
+    free(heap);
+
+    /* sym[0] can never be deleted (a merge only ever deletes its right side,
+     * and sym[0] has no left neighbor to be absorbed by), so it's always the
+     * surviving list's head. */
+    for (int i = 0; n_sym > 0 && i >= 0; i = sym[i].next) {
         int token = -1;
         if (table_get(&vocab->token_to_id, sym[i].ptr, sym[i].len, &token)) {
             token_vec_push(out, token);
@@ -38775,9 +38887,9 @@ static void bpe_emit_piece(const ds4_vocab *vocab, ds4_str raw_piece, token_vec 
                 }
             }
         }
-        free(sym[i].ptr);
     }
 
+    for (int i = 0; i < n_sym; i++) free(sym[i].ptr);
     free(sym);
     free(encoded);
 }
@@ -64472,6 +64584,84 @@ bool ds4_engine_glm_layer_payload_bytes(ds4_engine *e,
 int ds4_engine_model_id(ds4_engine *e) {
     (void)e;
     return (int)DS4_MODEL_VARIANT;
+}
+
+static uint32_t weights_fp24_step(uint32_t h, const uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+
+/* FNV-1a over the file size plus 64 evenly spaced 64-byte windows of the
+ * tensor data region.  Reads via pread when a descriptor is available, else
+ * from the mapping -- under SSD streaming the mapping is partial on purpose,
+ * so the descriptor path is the safe default.  Cost is a few dozen page
+ * reads once per engine, off the hot path. */
+static uint32_t weights_fp24_compute(int fd, const uint8_t *map,
+                                     uint64_t data_start, uint64_t file_size) {
+    enum { FP_WINDOWS = 64, FP_WINDOW_BYTES = 64 };
+    uint32_t h = 2166136261u;
+    uint8_t size_le[8];
+    for (int i = 0; i < 8; i++) size_le[i] = (uint8_t)(file_size >> (i * 8));
+    h = weights_fp24_step(h, size_le, sizeof(size_le));
+    if ((fd >= 0 || map) && file_size > data_start) {
+        const uint64_t span = file_size - data_start;
+        uint8_t buf[FP_WINDOW_BYTES];
+        for (uint32_t w = 0; w < FP_WINDOWS; w++) {
+            uint64_t off = data_start + (span / FP_WINDOWS) * w;
+            if (off >= file_size) break;
+            size_t want = FP_WINDOW_BYTES;
+            if (off + want > file_size) want = (size_t)(file_size - off);
+            if (fd >= 0) {
+                ssize_t got = pread(fd, buf, want, (off_t)off);
+                if (got > 0) h = weights_fp24_step(h, buf, (size_t)got);
+            } else {
+                h = weights_fp24_step(h, map + off, want);
+            }
+        }
+    }
+    uint32_t fp = (h ^ (h >> 24)) & 0xffffffu;
+    return fp ? fp : 1u; /* 0 is reserved for "header predates fingerprints" */
+}
+
+uint32_t ds4_weights_fp24_of_fd(int fd, uint64_t data_start, uint64_t file_size) {
+    return weights_fp24_compute(fd, NULL, data_start, file_size);
+}
+
+uint32_t ds4_engine_weights_fp24(ds4_engine *e) {
+    /* Benign race under concurrent first calls: both compute the same
+     * value from the same file and store it, so no synchronization. */
+    if (e->weights_fp24 != 0) return e->weights_fp24;
+    const ds4_model *m = &e->model;
+    if (m->tensors && m->n_tensors > 0 && (m->fd >= 0 || m->map)) {
+        /* Sample the head of EVERY tensor, so no single-tensor edit can
+         * slip between windows.  ~1000 reads of 64 bytes, once. */
+        uint32_t h = 2166136261u;
+        uint8_t meta[16];
+        for (int i = 0; i < 8; i++) meta[i] = (uint8_t)(m->size >> (i * 8));
+        for (int i = 0; i < 8; i++) meta[8 + i] = (uint8_t)(m->n_tensors >> (i * 8));
+        h = weights_fp24_step(h, meta, sizeof(meta));
+        for (uint64_t t = 0; t < m->n_tensors; t++) {
+            const ds4_tensor *ten = &m->tensors[t];
+            uint64_t off = ten->abs_offset;
+            if (off >= m->size) continue;
+            size_t want = 64;
+            if (want > ten->bytes) want = (size_t)ten->bytes;
+            if (off + want > m->size) want = (size_t)(m->size - off);
+            if (m->fd >= 0) {
+                uint8_t buf[64];
+                ssize_t got = pread(m->fd, buf, want, (off_t)off);
+                if (got > 0) h = weights_fp24_step(h, buf, (size_t)got);
+            } else {
+                h = weights_fp24_step(h, m->map + off, want);
+            }
+        }
+        uint32_t fp = (h ^ (h >> 24)) & 0xffffffu;
+        e->weights_fp24 = fp ? fp : 1u;
+    } else {
+        e->weights_fp24 = weights_fp24_compute(m->fd, m->map,
+                                               m->tensor_data_pos, m->size);
+    }
+    return e->weights_fp24;
 }
 
 bool ds4_engine_is_glm53(ds4_engine *e) {

@@ -443,3 +443,34 @@ MTP-on). Gated should land near the F32 MTP-off curve (~26.8 t/s at 72K); if
 it does, the default sits below the true crossover and should move to ~98K.
 Contract-grade placement needs an in-process per-segment toggle
 (attribseg-style file program), not a restart pair.
+
+## 2026-09-02 — second upstream batch (applied after the A1 ceiling)
+
+Evaluated 46 open PRs against our path (three read-only reviewers, findings
+verified in-tree). Applied, all built clean and `ds4_test --server` OK:
+
+| PR | What it fixes for us |
+|---|---|
+| #894 | GLM toolless-thinking cache key used the DeepSeek replay shape -> guaranteed miss every thinking turn |
+| #904 | GLM tool-call replay dropped the `\n` before `<tool_call>` -> live-KV prefix reuse broke on tool calls |
+| #899 | answer after a prompt-closed `</think>` was misfiled as reasoning |
+| #787 | streaming held the whole answer until end-of-stream after one reasoning block (TTFT of the visible answer) |
+| #785 | Darwin `poll()` never reports a plain FIN -> disconnected clients decoded to max_tokens; now `recv(MSG_PEEK)` + cancel logging (our tree has two prefill-cancel sites, both covered) |
+| #815 | final flush / non-stream body could ship a partial UTF-8 sequence |
+| #873 | BPE merge loop O(n^2) -> heap; long-prompt tokenization |
+| #882 | KV disk headers carry a 24-bit weights fingerprint; a requant with the same shape can no longer restore another requant's checkpoint (old headers = 0 stay accepted) |
+| #814 | eviction: only COLD checkpoints get the anchor boost, live dumps no longer outrank them |
+| #909 | memory guard clamped at the device working set (120 GiB here, above every plan we run) |
+| #827 | idle prefill quantum 2048 -> engine cap (4096) |
+| #843, #885, #824, #777 | --inspect without the lock; NaN CLI floats rejected; ds4quant overflow bound; mm_id_mpp B-tile extents spelled correctly (no-op at NR1==NK==32) |
+
+Not applied, with reasons:
+- #850 prefill watchdog ladder: runtime clamp lives in `metal_graph_prefill_chunked_range` (DeepSeek graph); inert for GLM, and it would halve chunks at 200K if it ever were reached. Reverted after test-apply.
+- #864 IQ2_XXS half-LUT + split MPP: reaches our routed-MoE prefill via the generic path, but numbers are DeepSeek-measured and it conflicts with our MPP env-override code. Needs a GLM prefill A/B; candidate for the next perf pass.
+- #930 resident sessions vs active requests: only pays with `--batched-session`; we run one slot. Revisit with the multi-client TTFT item.
+- #789 tool-turn checkpoint fixes: 1 of 4 items already in tree; the other three are small and should be hand-ported, not taken as the 1915-line diff.
+- #942 tokenizer off-mmap, #806 --idle-timeout, #886 --version (ships a stray binary blob): defer.
+- #939 (our GGUF has bos_token_id), #856 (DeepSeek renderer + deletes trace diagnostics), #936 (n_rot==64 only), #915 (GLM shares the threshold on both sides), Metal PRs 832/830/831/782/794/846/799/852/778/797/833/874/902 (DeepSeek/DSpark/TP/pre-M5/M2 only): skip.
+
+Still needs the server stopped: the two GPU gates (`--metal-moe-ground-truth`,
+`--metal-tensor-equivalence`) and the profiler acceptance gate.
