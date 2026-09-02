@@ -56009,6 +56009,24 @@ int ds4_engine_mtp_draft_tokens(ds4_engine *e) {
         e->dspark_weights.block_size > 1) {
         return (int)e->dspark_weights.block_size;
     }
+    /* Experimental n-gram (prompt-lookup) speculation drives the same
+     * speculative entry points without any support model.  DS4_NGRAM_SPEC=N
+     * sets the draft block size.  --quality keeps target-only decoding,
+     * matching the DSpark contract. */
+    if (e &&
+        e->backend != DS4_BACKEND_CPU &&
+        e->distributed.role == DS4_DISTRIBUTED_NONE &&
+        e->support_kind == DS4_SUPPORT_NONE &&
+        !e->quality &&
+        !e->ssd_streaming &&
+        !e->tp.active) {
+        const char *env = getenv("DS4_NGRAM_SPEC");
+        if (env && env[0]) {
+            int n = atoi(env);
+            if (n > DS4_DSPARK_MAX_BLOCK_SIZE) n = DS4_DSPARK_MAX_BLOCK_SIZE;
+            if (n > 1) return n;
+        }
+    }
 #endif
     return 0;
 }
@@ -64758,6 +64776,8 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
     const bool need_spec_verifier =
         e->mtp_ready ||
         (e->support_kind == DS4_SUPPORT_DSPARK && e->dspark) ||
+        (e->support_kind == DS4_SUPPORT_NONE &&
+         getenv("DS4_NGRAM_SPEC") != NULL) ||
         e->tp.active; /* TP worker mirrors the leader's verify blocks */
     const int *placement = e->multi_tier ? e->placement : NULL;
     const ds4_gpu_graph *shared_prefill_workspace =
@@ -70545,6 +70565,374 @@ static int ds4_session_eval_dspark_speculative_argmax(
     return n_accept;
 }
 
+/* -------------------------------------------------------------------------
+ * Experimental n-gram (prompt-lookup) speculation.
+ *
+ * Drafts come from the session token history instead of a support model:
+ * when the tail of the transcript repeats an earlier n-gram, the tokens
+ * that followed that occurrence are proposed and checked with the same
+ * batched verifier used by DSpark.  A missing draft costs nothing, no
+ * support GGUF is needed, and greedy output is exact by construction:
+ * every committed token equals the target argmax.  Opt-in via
+ * DS4_NGRAM_SPEC=N (block size, 2..16; 5 keeps partial accepts on the
+ * cheap prefix-frontier path).  DS4_NGRAM_MIN_MATCH=M sets the minimum
+ * suffix match (default 3).  Stats reuse the DSpark counters, so run with
+ * DS4_DSPARK_STATS=1 to see acceptance rates. */
+
+static int ds4_ngram_spec_tokens(void) {
+    const char *env = getenv("DS4_NGRAM_SPEC");
+    if (!env || !env[0]) return 0;
+    int n = atoi(env);
+    if (n < 2) return 0;
+    if (n > DS4_DSPARK_MAX_BLOCK_SIZE) n = DS4_DSPARK_MAX_BLOCK_SIZE;
+    return n;
+}
+
+static int ds4_ngram_min_match(void) {
+    const char *env = getenv("DS4_NGRAM_MIN_MATCH");
+    int n = (env && env[0]) ? atoi(env) : 3;
+    if (n < 1) n = 1;
+    if (n > 16) n = 16;
+    return n;
+}
+
+/* Longest-then-most-recent suffix match over the token history; copies up
+ * to draft_cap continuation tokens into drafts.  O(len * max_match) worst
+ * case, sub-millisecond at the context sizes this prototype targets. */
+static int ds4_ngram_propose(const ds4_tokens *tokens, int min_match,
+                             int draft_cap, int *drafts) {
+    if (!tokens || !tokens->v || draft_cap <= 0) return 0;
+    const int len = tokens->len;
+    if (len < min_match + 1) return 0;
+    const int *v = tokens->v;
+    const int max_match = 24;
+    int best_len = 0;
+    int best_pos = -1; /* exclusive end of the earlier occurrence */
+    for (int i = len - 1; i >= min_match; i--) {
+        if (v[i - 1] != v[len - 1]) continue;
+        int k = 1;
+        while (k < max_match && k < i && v[i - 1 - k] == v[len - 1 - k]) k++;
+        if (k >= min_match && k > best_len) {
+            best_len = k;
+            best_pos = i;
+            if (k >= max_match) break;
+        }
+    }
+    if (best_pos < 0) return 0;
+    int n = len - best_pos;
+    if (n > draft_cap) n = draft_cap;
+    /* Measured on M1 Ultra: with the current ~110 ms fixed verify cost the
+     * profitable regime is full-length high-confidence blocks; truncating
+     * weak matches to the prefix-slot window multiplied low-yield verifies
+     * and lost ~13% end-to-end, so drafts always use the full cap. */
+    for (int j = 0; j < n; j++) drafts[j] = v[best_pos + j];
+    return n;
+}
+
+static int ds4_session_eval_ngram_speculative_argmax(
+        ds4_session *s,
+        int          n_accept,
+        int          max_tokens,
+        int          eos_token,
+        int         *accepted,
+        int          accepted_cap,
+        char        *err,
+        size_t       errlen) {
+    const bool spec_log = getenv("DS4_NGRAM_SPEC_LOG") != NULL;
+    const bool stats_enabled = s && ds4_dspark_stats_enabled();
+    const double stats_t0 = stats_enabled ? now_sec() : 0.0;
+#define DS4_NGRAM_STATS_FINISH() do {                                       \
+        if (stats_enabled) {                                                \
+            s->dspark_stats.total_ms += (now_sec() - stats_t0) * 1000.0;    \
+        }                                                                   \
+    } while (0)
+    if (stats_enabled) {
+        s->dspark_stats.cycles++;
+        if (n_accept > 0) s->dspark_stats.first_tokens++;
+    }
+
+    int draft_cap = ds4_ngram_spec_tokens();
+    if (draft_cap > max_tokens - n_accept) draft_cap = max_tokens - n_accept;
+    if (draft_cap > accepted_cap - n_accept) draft_cap = accepted_cap - n_accept;
+    const int room = s->ctx_size - s->checkpoint.len;
+    if (draft_cap > room - 1) draft_cap = room - 1;
+    if (draft_cap < 2) {
+        if (stats_enabled) {
+            s->dspark_stats.no_room++;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+        }
+        DS4_NGRAM_STATS_FINISH();
+        return n_accept;
+    }
+
+    int drafts[DS4_DSPARK_MAX_BLOCK_SIZE];
+    int draft_n;
+    /* Test hook: DS4_NGRAM_FAKE_PROPOSAL forces a verify on every token.
+     * The first draft is the live argmax (always passes the free check) and
+     * the rest are throwaway ids, so exactly one token commits per cycle:
+     * the output stream matches plain greedy decode while the verifier runs
+     * at full block width each step.  This is the harness for benchmarking
+     * and bit-comparing verifier implementations. */
+    if (getenv("DS4_NGRAM_FAKE_PROPOSAL") != NULL) {
+        draft_n = draft_cap;
+        drafts[0] = sample_argmax(s->logits, DS4_N_VOCAB);
+        for (int i = 1; i < draft_n; i++) {
+            drafts[i] = (drafts[0] + i) % (int)DS4_N_VOCAB;
+        }
+    } else {
+        draft_n = ds4_ngram_propose(&s->checkpoint, ds4_ngram_min_match(),
+                                    draft_cap, drafts);
+    }
+    /* Never draft across a stop or thinking-control token: the history the
+     * n-gram copies from contains previous turn boundaries, and committing
+     * one mid-block would leave overshoot tokens in the live KV that
+     * incremental callers (the agent) cannot cheaply retract. The real stop
+     * is left for the caller to sample and handle before any eval. */
+    for (int i = 0; i < draft_n; i++) {
+        if (ds4_token_is_stop(s->engine, drafts[i]) ||
+            ds4_token_is_thinking_control(s->engine, drafts[i])) {
+            draft_n = i;
+            break;
+        }
+    }
+    /* A single-token draft is exactly one ordinary decode; only blocks of
+     * two or more repay the batched verifier. */
+    if (draft_n < 2) {
+        if (stats_enabled) {
+            s->dspark_stats.no_draft++;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+        }
+        if (spec_log) fprintf(stderr, "ds4: ngram spec skip no-draft\n");
+        DS4_NGRAM_STATS_FINISH();
+        return n_accept;
+    }
+    if (stats_enabled) {
+        s->dspark_stats.proposed_tokens += (uint64_t)draft_n;
+        ds4_dspark_stats_note_len(s->dspark_stats.draft_len_hist,
+                                  (uint32_t)draft_n);
+    }
+
+    /* The live logits already score the next position: the first draft is
+     * checked for free, and an EOS continuation is left to the caller. */
+    const int target_top = sample_argmax(s->logits, DS4_N_VOCAB);
+    if (target_top != drafts[0] || drafts[0] == eos_token) {
+        if (stats_enabled) {
+            s->dspark_stats.first_misses++;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+        }
+        if (spec_log) {
+            fprintf(stderr, "ds4: ngram spec miss first draft=%d base=%d\n",
+                    drafts[0], target_top);
+        }
+        DS4_NGRAM_STATS_FINISH();
+        return n_accept;
+    }
+
+    ds4_engine *e = s->engine;
+    ds4_spec_frontier frontier;
+    memset(&frontier, 0, sizeof(frontier));
+    int row_tops_buf[DS4_DSPARK_MAX_BLOCK_SIZE];
+    int *row_tops = row_tops_buf;
+    float *row_logits = s->spec_row_logits;
+    const int start = s->checkpoint.len;
+    bool have_frontier = spec_frontier_snapshot(&frontier, s);
+    bool ok = have_frontier && row_logits != NULL;
+    bool verifier_may_have_mutated = false;
+    if (ok) {
+        for (int i = 0; i < draft_n; i++) {
+            token_vec_push(&s->checkpoint, drafts[i]);
+        }
+        verifier_may_have_mutated = true;
+        ds4_verify_suffix_timing verify_timing;
+        const double verify_t0 = stats_enabled ? now_sec() : 0.0;
+        ok = metal_graph_verify_suffix_tops(&s->graph,
+                                            &e->model,
+                                            &e->weights,
+                                            &s->checkpoint,
+                                            (uint32_t)start,
+                                            (uint32_t)draft_n,
+                                            draft_n <=
+                                                (int)DS4_SPEC_PREFIX_SLOTS + 1,
+                                            false,
+                                            row_tops,
+                                            NULL,
+                                            stats_enabled ? &verify_timing
+                                                          : NULL);
+        if (stats_enabled) {
+            s->dspark_stats.verify_ms += (now_sec() - verify_t0) * 1000.0;
+            s->dspark_stats.verify_upload_ms += verify_timing.upload_ms;
+            s->dspark_stats.verify_layer_ms += verify_timing.layer_ms;
+            s->dspark_stats.verify_head_ms += verify_timing.head_ms;
+            s->dspark_stats.verify_read_ms += verify_timing.read_ms;
+        }
+    }
+
+    int commit_drafts = 0;
+    if (ok) {
+        commit_drafts = 1;
+        for (int i = 1; i < draft_n; i++) {
+            if (row_tops[i - 1] != drafts[i]) break;
+            commit_drafts++;
+        }
+    }
+
+    bool final_logits_ok = false;
+    if (ok && commit_drafts == draft_n) {
+        final_logits_ok = metal_graph_read_spec_logits_row(
+                &s->graph, (uint32_t)(draft_n - 1), row_logits);
+    }
+    if (ok && commit_drafts == draft_n && final_logits_ok) {
+        memcpy(s->logits, row_logits,
+               (size_t)DS4_N_VOCAB * sizeof(s->logits[0]));
+        int emitted = 0;
+        for (int i = 0; i < draft_n && n_accept < accepted_cap; i++) {
+            accepted[n_accept++] = drafts[i];
+            emitted++;
+            if (drafts[i] == eos_token) break;
+        }
+        s->checkpoint_valid = true;
+        if (stats_enabled) {
+            s->dspark_stats.full_accepts++;
+            s->dspark_stats.direct_full_commits++;
+            s->dspark_stats.accepted_draft_tokens += (uint64_t)emitted;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist,
+                                      (uint32_t)emitted);
+        }
+        if (spec_log) {
+            fprintf(stderr, "ds4: ngram spec direct-full drafted=%d accepted=%d\n",
+                    draft_n, n_accept);
+        }
+        spec_frontier_free(&frontier);
+        DS4_NGRAM_STATS_FINISH();
+        return n_accept;
+    }
+
+    if (ok && commit_drafts > 0 && commit_drafts < draft_n &&
+        commit_drafts <= (int)DS4_SPEC_PREFIX_SLOTS) {
+        bool prefix_ok = metal_graph_read_spec_logits_row(
+                &s->graph, (uint32_t)(commit_drafts - 1), row_logits);
+        s->checkpoint.len = start;
+        if (prefix_ok) {
+            prefix_ok = spec_frontier_commit_prefix(s, (uint32_t)commit_drafts);
+        }
+        if (prefix_ok) {
+            memcpy(s->logits, row_logits,
+                   (size_t)DS4_N_VOCAB * sizeof(s->logits[0]));
+            int emitted = 0;
+            for (int i = 0; i < commit_drafts && n_accept < accepted_cap; i++) {
+                token_vec_push(&s->checkpoint, drafts[i]);
+                accepted[n_accept++] = drafts[i];
+                emitted++;
+                if (drafts[i] == eos_token) break;
+            }
+            s->checkpoint_valid = true;
+            if (stats_enabled) {
+                s->dspark_stats.partial_accepts++;
+                s->dspark_stats.direct_partial_commits++;
+                s->dspark_stats.accepted_draft_tokens += (uint64_t)emitted;
+                ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist,
+                                          (uint32_t)emitted);
+            }
+            if (spec_log) {
+                fprintf(stderr,
+                        "ds4: ngram spec direct-partial drafted=%d committed=%d accepted=%d\n",
+                        draft_n, emitted, n_accept);
+            }
+            spec_frontier_free(&frontier);
+            DS4_NGRAM_STATS_FINISH();
+            return n_accept;
+        }
+    }
+
+    if (verifier_may_have_mutated) {
+        s->checkpoint.len = start;
+        if (!have_frontier || !spec_frontier_restore(&frontier, s)) {
+            snprintf(err, errlen, "ngram verifier rollback failed");
+            s->checkpoint_valid = false;
+            if (stats_enabled) {
+                s->dspark_stats.verifier_errors++;
+                ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+            }
+            spec_frontier_free(&frontier);
+            DS4_NGRAM_STATS_FINISH();
+            return -1;
+        }
+    }
+
+    if (!ok) {
+        if (stats_enabled) {
+            s->dspark_stats.verifier_unavailable++;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+        }
+        if (spec_log) fprintf(stderr, "ds4: ngram spec verifier unavailable\n");
+        spec_frontier_free(&frontier);
+        DS4_NGRAM_STATS_FINISH();
+        return n_accept;
+    }
+
+    /* Rollback happened above; replay the verified prefix through ordinary
+     * decode so the committed state matches one-token execution exactly. */
+    int replay_budget = commit_drafts;
+    if (replay_budget > accepted_cap - n_accept) {
+        replay_budget = accepted_cap - n_accept;
+    }
+    if (replay_budget < 0) replay_budget = 0;
+    for (int i = 0; i < replay_budget; i++) {
+        if (drafts[i] == eos_token) { replay_budget = i + 1; break; }
+    }
+    int replayed = 0;
+    if (stats_enabled && replay_budget > 0) {
+        s->dspark_stats.replay_fallbacks++;
+    }
+    for (int i = 0; i < replay_budget; i++) {
+        ok = metal_graph_eval_token_raw_swa(&s->graph,
+                                            &e->model,
+                                            &e->weights,
+                                            drafts[i],
+                                            (uint32_t)s->checkpoint.len,
+                                            row_logits);
+        if (!ok) {
+            snprintf(err, errlen, "%s decode failed",
+                     ds4_backend_name(e->backend));
+            s->checkpoint_valid = false;
+            if (stats_enabled) {
+                s->dspark_stats.verifier_errors++;
+                ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+            }
+            spec_frontier_free(&frontier);
+            DS4_NGRAM_STATS_FINISH();
+            return -1;
+        }
+        token_vec_push(&s->checkpoint, drafts[i]);
+        accepted[n_accept++] = drafts[i];
+        replayed++;
+        if (drafts[i] == eos_token) break;
+    }
+    if (replayed > 0) {
+        memcpy(s->logits, row_logits,
+               (size_t)DS4_N_VOCAB * sizeof(s->logits[0]));
+        s->checkpoint_valid = true;
+        if (stats_enabled) {
+            if (replayed == draft_n) s->dspark_stats.full_accepts++;
+            else s->dspark_stats.partial_accepts++;
+            s->dspark_stats.accepted_draft_tokens += (uint64_t)replayed;
+            ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist,
+                                      (uint32_t)replayed);
+        }
+    } else if (stats_enabled) {
+        ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
+    }
+    if (spec_log) {
+        fprintf(stderr,
+                "ds4: ngram spec partial drafted=%d verified=%d accepted=%d\n",
+                draft_n, commit_drafts, n_accept);
+    }
+    spec_frontier_free(&frontier);
+    DS4_NGRAM_STATS_FINISH();
+#undef DS4_NGRAM_STATS_FINISH
+    return n_accept;
+}
+
 static bool speculative_point_accept(float target_p, float draft_p,
                                      uint64_t *rng) {
     if (!rng || !(draft_p > 0.0f) || !isfinite(draft_p)) return false;
@@ -73995,6 +74383,24 @@ static int ds4_session_eval_speculative_argmax_impl(
                                                           accepted_cap,
                                                           err,
                                                           errlen);
+    }
+
+    if (e->support_kind == DS4_SUPPORT_NONE &&
+        !e->mtp_ready && !e->tp.active && !s->distributed &&
+        !e->quality &&
+        /* The spec verifier machinery is not provisioned under SSD
+         * streaming (measured: every block reports verifier_unavailable),
+         * so skip the proposal work entirely there. */
+        !e->ssd_streaming &&
+        ds4_ngram_spec_tokens() > 1) {
+        return ds4_session_eval_ngram_speculative_argmax(s,
+                                                         n_accept,
+                                                         max_tokens,
+                                                         eos_token,
+                                                         accepted,
+                                                         accepted_cap,
+                                                         err,
+                                                         errlen);
     }
 
     if (metal_graph_cuda_splitkv_spec_requested() &&
