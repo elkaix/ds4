@@ -12,16 +12,46 @@ sudo sysctl iogpu.wired_limit_mb=118000
 
 ```bash
 cd ~/Projects/open-source/ds4 && ./ds4-server --chdir "$PWD" --metal \
-  --model ~/models/gguf/SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf \
+  --model ~/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf \
+  --vision ~/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf \
   --ctx 393216 --tokens 32768 \
   --warm-weights --power 100 \
   --host 127.0.0.1 --port 8000 \
-  --kv-disk-dir ~/.ds4/server-kv/superdeepseek-mq-q2 --kv-disk-space-mb 131072 \
+  --kv-disk-dir ~/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q2 --kv-disk-space-mb 131072 \
   --kv-cache-min-tokens 2048 --kv-cache-reject-different-quant
 ```
 
 `--ctx 393216` matches the client config (see §5) and is the minimum for Think Max.
 Costs ~1 GiB more KV than 262144: **87.13 GiB planned**, well under the 118 GiB cap.
+
+### The model (switched 2026-09-02)
+
+`audreyt/DeepSeek-V4-Flash-Vision-Exp-Abliterated-GGUF`, 86,720,111,776 bytes,
+sha256 `66e47437ce7201546fa870a23ccdc094282660f1e52f3403ed5fb59604b2d894`. Official
+Vision-Exp IQ2 recipe with the rank-1 refusal-direction edit baked into 33
+`blk.{10..42}.attn_output_b` tensors. Needs `ds4-server` at `98e3101` or later —
+`--vision` only exists after the 2026-09-02 upstream merge.
+
+**`--vision` is not optional in spirit.** The GGUF is `sidecar_required=true`; the
+encoder is a separate 932,857,760-byte file and must be the *unmodified* 316-tensor
+`DeepSeek-V4-Flash-Vision-Encoder.gguf` from `antirez/deepseek-v4-gguf`. Omit it and
+the server still answers text requests, but every image request fails.
+
+**Do NOT attach a DSpark sidecar.** This is not Headroom128 0731, and the 0731
+support GGUF does not match it — that pairing is antirez/ds4#949. `run-ds4-conf.sh`,
+`run-ds4-strict.sh` and `run-ds4-dspark.sh` therefore stay on the drowzeys 0731 pair
+and refuse to start if `MODEL` is repointed at a Vision-Exp build.
+
+A **fresh `--kv-disk-dir`** is mandatory on this swap: the quant recipe is
+byte-identical to the previous SuperDeepseek build, so
+`--kv-cache-reject-different-quant` would **not** catch it and the old model's
+checkpoints would be restored into this one.
+
+Rollback (SuperDeepseek MQ stays on disk):
+```bash
+ln -sfn ~/models/gguf/SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf ds4flash.gguf
+# and revert --model, --vision and --kv-disk-dir above
+```
 
 ## 3. Health check
 

@@ -11,12 +11,15 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 SERVER_BIN="$ROOT_DIR/ds4-server"
-MODEL="$HOME/models/gguf/SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf"
+MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+# Vision-Exp is sidecar_required: the encoder is a separate GGUF and must be the
+# unmodified 316-tensor antirez one. Without it the server still serves text.
+VISION_ENCODER="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/superdeepseek-mq-q2"
+KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q2"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -68,6 +71,12 @@ if [[ ! -x $SERVER_BIN ]]; then
     echo "Build it first with: make ds4-server" >&2
     exit 1
 fi
+if [[ ! -r $VISION_ENCODER ]]; then
+    echo "Vision encoder not found or unreadable: $VISION_ENCODER" >&2
+    echo "Fetch it with: hf download antirez/deepseek-v4-gguf DeepSeek-V4-Flash-Vision-Encoder.gguf --local-dir ~/models/gguf" >&2
+    exit 1
+fi
+
 if [[ ! -r $MODEL ]]; then
     echo "Model not found or unreadable: $MODEL" >&2
     exit 1
@@ -636,6 +645,7 @@ except OSError:
 cat <<EOF
 Starting monitored ds4-server
   model:      $MODEL
+  vision:     $VISION_ENCODER
   endpoint:   http://$HOST:$PORT
   dashboard:  http://$HOST:$PORT/dashboard
   context:    $CTX
@@ -657,6 +667,7 @@ os.chdir(sys.argv[1])
 os.execv(sys.argv[2], sys.argv[2:])
 ' "$ROOT_DIR" "$SERVER_BIN" --chdir "$ROOT_DIR" --metal \
     --model "$MODEL" \
+    --vision "$VISION_ENCODER" \
     --ctx "$CTX" --tokens "$TOKENS" \
     --warm-weights --power 100 \
     --host "$HOST" --port "$PORT" \

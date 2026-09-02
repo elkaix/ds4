@@ -11,13 +11,24 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 SERVER_BIN="$ROOT_DIR/ds4-server"
-MODEL="$HOME/models/gguf/drowzeys-keys-DeepSeekV4-Flash-GA-0731-Abliterated-32-32-DS4-Q2.gguf"
-MTP_MODEL="$HOME/models/gguf/drowzeys-keys-DeepSeekV4-Flash-GA-0731-Abliterated-32-32-DS4-DSpark-support.gguf"
+MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+# Vision-Exp is sidecar_required: the vision encoder is a separate GGUF and must
+# be the unmodified 316-tensor antirez one.
+VISION_ENCODER="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
+# DSpark is UNAVAILABLE on this model (2026-09-02). Vision-Exp has no matching
+# support GGUF -- its model card says not to attach the 0731 one, and that exact
+# mismatch is antirez/ds4#949. The drowzeys 0731 main Q2 this script used to pair
+# with has also been deleted from disk; only its orphaned 6.0 GB sidecar remains.
+# So this script no longer differs from ./run-ds4-monitored.sh. It is kept for the
+# day a Vision-Exp DSpark sidecar exists: restore the flags below and set
+# MTP_MODEL to it. DSpark also measured 16% SLOWER here on 2026-08-09
+# (44.58 -> 37.49 t/s decode, zero overlap) -- re-run tasks/dspark-ab.sh first.
+#   MTP_MODEL="$HOME/models/gguf/<vision-exp-dspark-support>.gguf"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/drowzeys-ga0731-q2-strict"
+KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q2-strict"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -69,20 +80,16 @@ if [[ ! -x $SERVER_BIN ]]; then
     echo "Build it first with: make ds4-server" >&2
     exit 1
 fi
+if [[ ! -r $VISION_ENCODER ]]; then
+    echo "Vision encoder not found or unreadable: $VISION_ENCODER" >&2
+    echo "Fetch it with: hf download antirez/deepseek-v4-gguf DeepSeek-V4-Flash-Vision-Encoder.gguf --local-dir ~/models/gguf" >&2
+    exit 1
+fi
+
 if [[ ! -r $MODEL ]]; then
     echo "Model not found or unreadable: $MODEL" >&2
     exit 1
 fi
-if [[ ! -r $MTP_MODEL ]]; then
-    echo "DSpark support model not found or unreadable: $MTP_MODEL" >&2
-    exit 1
-fi
-if [[ ! -x $THERMALFORGE ]]; then
-    echo "Fan controller not found or not executable: $THERMALFORGE" >&2
-    echo "Install it with: mtplx max --install" >&2
-    exit 1
-fi
-
 fan_control() {
     local action=$1
 
@@ -629,7 +636,7 @@ except OSError:
 cat <<EOF
 Starting monitored ds4-server
   model:      $MODEL
-  dspark:     $MTP_MODEL
+  dspark:     disabled (no Vision-Exp support GGUF; antirez/ds4#949)
   endpoint:   http://$HOST:$PORT
   dashboard:  http://$HOST:$PORT/dashboard
   context:    $CTX
@@ -651,7 +658,7 @@ os.chdir(sys.argv[1])
 os.execv(sys.argv[2], sys.argv[2:])
 ' "$ROOT_DIR" "$SERVER_BIN" --chdir "$ROOT_DIR" --metal \
     --model "$MODEL" \
-    --mtp "$MTP_MODEL" --dspark-strict \
+    --vision "$VISION_ENCODER" \
     --ctx "$CTX" --tokens "$TOKENS" \
     --warm-weights --power 100 \
     --host "$HOST" --port "$PORT" \
