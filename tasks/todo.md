@@ -186,3 +186,52 @@ then restore Apple automatic control when the server stops.
 - Fan commands are bounded to 5 seconds, ramp to 20 seconds, restore to 5 seconds.
 - `bash -n`, ShellCheck, help smoke test, exact function tests, and `git diff --check`
   passed. The real DS4 server is currently stopped; no test process remains.
+
+---
+
+## 2026-09-02 — Commit local work, sync `prod` with upstream
+
+- [x] Commit the embedded `/dashboard` server page (`960ad7d`)
+- [x] Commit `run.md`, the `run-ds4-*.sh` wrappers and the `tasks/` reports (`82e9774`)
+- [x] Fast-forward local `main` to `origin/main` (`110afdd`, was 97 behind)
+- [x] Merge 124 upstream commits into `prod` — 35 `ds4_server.c` hunks + 1 `Makefile` (`5d346b0`)
+- [x] Clean build, zero warnings, five binaries
+- [x] `./ds4_test --server`, `./ds4_agent_test`, `./ds4-eval --self-test-extractors`
+- [x] Full `make test` on the GPU
+- [x] `tests/test_server_batching.py` streaming + `--cancel-first` against `--batched-session 3`
+- [x] Prove the two `make test` failures are pre-existing (A/B against `pre-upstream-merge-20260902`)
+
+### Review
+
+`prod` = `5d346b0`, **0 behind / 38 ahead** of `origin/main`. Backup tag
+`pre-upstream-merge-20260902` (= `82e9774`).
+
+Merged rather than rebased. A rebase of 38 local commits across 124 upstream commits means
+38 sequential resolutions of the same `generate_job`-vs-transaction conflict; every prior
+integration here (07-27, 08-05, 08-09) used a merge for that reason. Full resolution
+rationale, per-theme table, and the `j.mu`/`wait_for_job_or_disconnect` deadlock trap are in
+`CLAUDE.local.md` § "Upstream merge #3".
+
+Two `make test` failures, both reproduced identically on a worktree build of the pre-merge
+tag, so neither is a regression:
+1. `logprob-vectors` and `metal-ssd-streaming-cache-pressure` — same vector
+   (`short_code_completion` step 0). Cause is the 2026-08-13 swap to the SuperDeepseek
+   abliterated quant; the recorded vectors are from the official API on a different model.
+2. `test_server_batching.py` mixed non-streaming `long-greedy` pair mismatch — greedy output
+   diverging between two identical concurrent requests in batched mode.
+
+Deviations from the request: the user asked to "rebase" — delivered a merge, for the reason
+above. Not done: prod server not restarted (none was running, and the wired-limit sysctl
+needs an interactive `sudo`), and no benchmarks were run.
+
+### Next session
+
+- `R1` Batched-mode greedy nondeterminism (item 2 above) is an open, pre-existing defect.
+  Reproduce with `python3 tests/test_server_batching.py --url http://127.0.0.1:8010 --pairs 4`
+  against `--batched-session 3`; it only shows on the long-prompt greedy case.
+- `A1` Re-record `logprob-vectors` against the SuperDeepseek quant, or accept those two
+  suites as known-failing while that quant is the daily model.
+- `A2` GLM 5.3 Flash is in `main` now, so the `../ds4-glm53` worktree branch is redundant —
+  delete it and drive GLM from `prod`.
+- `A3` Restart prod on the new binary after `sudo sysctl iogpu.wired_limit_mb=118000`, then
+  re-check decode t/s (expect flat; `0ad494e` is a cleanup, not an optimization).
