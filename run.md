@@ -12,25 +12,36 @@ sudo sysctl iogpu.wired_limit_mb=118000
 
 ```bash
 cd ~/Projects/open-source/ds4 && ./ds4-server --chdir "$PWD" --metal \
-  --model ~/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf \
+  --model ~/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf \
   --vision ~/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf \
-  --ctx 393216 --tokens 32768 \
+  --ctx 262144 --tokens 32768 \
   --warm-weights --power 100 \
   --host 127.0.0.1 --port 8000 \
-  --kv-disk-dir ~/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q2 --kv-disk-space-mb 131072 \
+  --kv-disk-dir ~/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q4k --kv-disk-space-mb 131072 \
   --kv-cache-min-tokens 2048 --kv-cache-reject-different-quant
 ```
 
-`--ctx 393216` matches the client config (see §5) and is the minimum for Think Max.
-Costs ~1 GiB more KV than 262144: **87.13 GiB planned**, well under the 118 GiB cap.
+`--ctx 262144` matches both clients (see §5) and the four `run-ds4-*.sh` wrappers.
+**82.74 GiB planned** with the AProjQ4K build (KV 2.36 + buffers 2.00 + model 78.37),
+well under the cap — and it needs no `iogpu.wired_limit_mb` bump to load.
+Think Max needs `393216`; raise both the server and the clients together if you want it.
 
-### The model (switched 2026-09-02)
+### The model (AProjQ4K, adopted 2026-09-02)
 
-`audreyt/DeepSeek-V4-Flash-Vision-Exp-Abliterated-GGUF`, 86,720,111,776 bytes,
-sha256 `66e47437ce7201546fa870a23ccdc094282660f1e52f3403ed5fb59604b2d894`. Official
-Vision-Exp IQ2 recipe with the rank-1 refusal-direction edit baked into 33
-`blk.{10..42}.attn_output_b` tensors. Needs `ds4-server` at `98e3101` or later —
-`--vision` only exists after the 2026-09-02 upstream merge.
+`DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf`,
+84,155,819,296 bytes. Built here: the audreyt Vision-Exp Abliterated Q8 GGUF with its
+216 dense attention-projection + output-head tensors re-quantized `q8_0 -> q4_K`,
+imatrix-guided by the merged routed-1p5m + dense-220k file, then **spliced** so the
+other 1112 tensors keep the reference's exact bytes. Resident model **78.37 GiB**
+(vs 80.76 for Q8). The 33 `blk.{10..42}.attn_output_b` refusal-direction edits are
+preserved (they are inside the 216 and were re-quantized from the same abliterated
+FP8 source). Needs `ds4-server` at `98e3101` or later — `--vision` only exists after
+the 2026-09-02 upstream merge.
+
+Measured against the Q8 build (interleaved A/B, cold-mmap discard arms dropped):
+decode **+25% short / +36% at ~2.8K / +24% at 34K**, prefill flat-to-up. The 21
+`blk.N.indexer.attn_q_b` tensors are pinned f16 — `--attention-proj` is a prefix glob
+that would otherwise drop the lightning-indexer Q projection to 4 bit.
 
 **`--vision` is not optional in spirit.** The GGUF is `sidecar_required=true`; the
 encoder is a separate 932,857,760-byte file and must be the *unmodified* 316-tensor
@@ -39,18 +50,21 @@ the server still answers text requests, but every image request fails.
 
 **Do NOT attach a DSpark sidecar.** This is not Headroom128 0731, and the 0731
 support GGUF does not match it — that pairing is antirez/ds4#949. `run-ds4-conf.sh`,
-`run-ds4-strict.sh` and `run-ds4-dspark.sh` therefore stay on the drowzeys 0731 pair
-and refuse to start if `MODEL` is repointed at a Vision-Exp build.
+`run-ds4-strict.sh` and `run-ds4-dspark.sh` have had their `--mtp`/`--dspark` flags
+removed and are now equivalent to `run-ds4-monitored.sh`; each header records what to
+restore if a Vision-Exp sidecar ever ships. DSpark also measured 16% *slower* here
+(2026-08-09), so re-run `tasks/dspark-ab.sh` before believing otherwise.
 
-A **fresh `--kv-disk-dir`** is mandatory on this swap: the quant recipe is
-byte-identical to the previous SuperDeepseek build, so
-`--kv-cache-reject-different-quant` would **not** catch it and the old model's
-checkpoints would be restored into this one.
+A **fresh `--kv-disk-dir`** is mandatory on every model swap here. Do not rely on
+`--kv-cache-reject-different-quant`: the previous three builds shared one recipe
+byte-for-byte, so it would not have caught those swaps at all. The dir above is
+`...-q4k`; the Q8 build's checkpoints stay in `...-q2` and are not reused.
 
-Rollback (SuperDeepseek MQ stays on disk):
+Rollback (the Q8 Vision-Exp build stays on disk, 86,720,111,776 bytes,
+sha256 `66e47437ce7201546fa870a23ccdc094282660f1e52f3403ed5fb59604b2d894`):
 ```bash
-ln -sfn ~/models/gguf/SuperDeepseek-V4-Flash-abliterated-MQ-DS4-Q2.gguf ds4flash.gguf
-# and revert --model, --vision and --kv-disk-dir above
+ln -sfn ~/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf ds4flash.gguf
+# and revert --model and --kv-disk-dir above (--vision is unchanged by this swap)
 ```
 
 ## 3. Health check
@@ -63,7 +77,7 @@ curl -fsS http://127.0.0.1:8000/stats | python3 -m json.tool
 Expect `resident model 80.76 GiB + KV 3.37 + buffers 3.00 = 87.13 GiB planned`,
 `context buffers 6523.67 MiB`, `compressed_kv_rows=98306`.
 
-`run-ds4-monitored.sh` uses `--ctx 262144` instead, which measures
+`run-ds4-monitored.sh` uses the same `--ctx 262144`, which measures
 `KV 2.36 + buffers 2.00 + resident model 80.76 = 85.13 GiB planned` (verified
 2026-09-02). `resident model 80.76 GiB` is identical for both, so **the model fits
 under the default Metal cap** — §1's sysctl is what `run-ds4-monitored.sh` insists on,
@@ -158,7 +172,7 @@ run of the other — this Mac drifts up to 40% across windows when warm.
 
 ## Variants
 
-**Lower memory** — drop to `--ctx 262144` if you never use Think Max (saves ~1 GiB KV).
+**Think Max** — raise to `--ctx 393216` (costs ~1 GiB more KV) *and* raise both client limits in §5 to match.
 Lower the client limits to match, or the client will budget past what the server holds.
 
 **Client context limits must never exceed the server's `--ctx`.** Neither client reads
@@ -166,10 +180,12 @@ them from `/v1/models`; both are static files.
 
 | client | file | keys | current |
 |---|---|---|---|
-| **Pythinker CLI** | `~/.pythinker-code/config.toml` → `[models."ds4/deepseek-v4-flash"]` | `max_context_size` / `max_output_size` | `393216` / `32768` ✓ |
-| **Pi** | `~/.pi/agent/models.json` → `providers.ds4.models[0]` | `contextWindow` / `maxTokens` | `393216` / `32768` ✓ |
+| **Pythinker CLI** | `~/.pythinker-code/config.toml` → `[models."ds4/deepseek-v4-flash"]` | `max_context_size` / `max_output_size` | `262144` / `32768` ✓ |
+| **Pi** | `~/.pi/agent/models.json` → `providers.ds4.models[0]` | `contextWindow` / `maxTokens` | `262144` / `32768` ✓ |
 
-Both currently match `--ctx 393216 --tokens 32768`. If you change `--ctx`, change both.
+Both currently match `--ctx 262144 --tokens 32768` (verified on disk 2026-09-02 — an earlier
+version of this table said 393216, which neither client ever used). If you change `--ctx`,
+change both; a client must never budget more context than the server allocated.
 
 Pythinker CLI also sets `reserved_context_size = 50000` under `[loop_control]`, which it
 holds back from the window for its own bookkeeping.

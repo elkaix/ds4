@@ -1,0 +1,73 @@
+=== q4kdiscard start 20:22:22 ===
+q4kdiscard: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf (84155819296 bytes inode=284081963)
+q4kdiscard: env=[] thr_active=default ngram_env=unset
+q4kdiscard pass1 short	decode_tps=54.65	prefill_tps=61.5	gen=512	prompt=32	cached=0	wall=9.90s
+q4kdiscard pass1 mid	decode_tps=52.69	prefill_tps=556.2	gen=76	prompt=2773	cached=0	wall=6.45s
+q4kdiscard pass1 deep	decode_tps=41.84	prefill_tps=552.2	gen=256	prompt=34003	cached=2048	wall=64.07s
+q4kdiscard pass2 short	decode_tps=48.18	prefill_tps=87.4	gen=512	prompt=32	cached=0	wall=11.23s
+q4kdiscard pass2 mid	decode_tps=51.68	prefill_tps=336.0	gen=76	prompt=2773	cached=2048	wall=3.65s
+q4kdiscard pass2 deep	decode_tps=40.73	prefill_tps=496.5	gen=256	prompt=34003	cached=24576	wall=25.38s
+q4kdiscard post-run: thr_active=default
+DONE_q4kdiscard
+=== q4kdiscard end 20:24:42 ===
+=== basediscard start 20:25:02 ===
+basediscard: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf (86720111776 bytes inode=281334939)
+basediscard: env=[] thr_active=default ngram_env=unset
+basediscard pass1 short	decode_tps=40.11	prefill_tps=84.8	gen=512	prompt=32	cached=0	wall=13.15s
+basediscard pass1 mid	decode_tps=39.96	prefill_tps=489.6	gen=256	prompt=2773	cached=0	wall=12.08s
+basediscard pass1 deep	decode_tps=35.31	prefill_tps=518.0	gen=256	prompt=34003	cached=2048	wall=69.02s
+basediscard pass2 short	decode_tps=41.46	prefill_tps=109.1	gen=512	prompt=32	cached=0	wall=12.80s
+basediscard pass2 mid	decode_tps=39.53	prefill_tps=310.8	gen=256	prompt=2773	cached=2048	wall=8.82s
+basediscard pass2 deep	decode_tps=33.13	prefill_tps=447.4	gen=256	prompt=34003	cached=24576	wall=28.88s
+basediscard post-run: thr_active=default
+DONE_basediscard
+=== basediscard end 20:27:55 ===
+=== base1 start 20:28:15 ===
+base1: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf (86720111776 bytes inode=281334939)
+base1: env=[] thr_active=default ngram_env=unset
+base1 pass1 short	decode_tps=39.77	prefill_tps=32.9	gen=512	prompt=32	cached=0	wall=13.86s
+base1 pass1 mid	decode_tps=36.22	prefill_tps=477.2	gen=256	prompt=2773	cached=0	wall=12.89s
+base1 pass1 deep	decode_tps=32.61	prefill_tps=479.5	gen=256	prompt=34003	cached=2048	wall=74.60s
+base1 pass2 short	decode_tps=37.83	prefill_tps=103.3	gen=512	prompt=32	cached=0	wall=14.01s
+base1 pass2 mid	decode_tps=36.62	prefill_tps=291.2	gen=256	prompt=2773	cached=2048	wall=9.50s
+base1 pass2 deep	decode_tps=30.18	prefill_tps=406.6	gen=256	prompt=34003	cached=24576	wall=31.75s
+base1 post-run: thr_active=default
+DONE_base1
+=== base1 end 20:31:12 ===
+=== q4k1 start 20:31:32 ===
+q4k1: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf (84155819296 bytes inode=284081963)
+q4k1: env=[] thr_active=default ngram_env=unset
+q4k1 pass1 short	decode_tps=49.02	prefill_tps=81.0	gen=512	prompt=32	cached=0	wall=10.85s
+q4k1 pass1 mid	decode_tps=49.90	prefill_tps=485.1	gen=76	prompt=2773	cached=0	wall=7.25s
+q4k1 pass1 deep	decode_tps=39.88	prefill_tps=528.0	gen=256	prompt=34003	cached=2048	wall=67.01s
+q4k1 pass2 short	decode_tps=47.89	prefill_tps=101.3	gen=512	prompt=32	cached=0	wall=11.17s
+q4k1 pass2 mid	decode_tps=48.85	prefill_tps=290.5	gen=76	prompt=2773	cached=2048	wall=4.07s
+q4k1 pass2 deep	decode_tps=37.72	prefill_tps=428.2	gen=256	prompt=34003	cached=24576	wall=28.89s
+q4k1 post-run: thr_active=default
+DONE_q4k1
+=== q4k1 end 20:34:15 ===
+=== base2 start 20:34:35 ===
+base2: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf (86720111776 bytes inode=281334939)
+base2: env=[] thr_active=default ngram_env=unset
+base2 pass1 short	decode_tps=30.36	prefill_tps=34.0	gen=512	prompt=32	cached=0	wall=17.82s
+base2 pass1 mid	decode_tps=32.43	prefill_tps=411.8	gen=256	prompt=2773	cached=0	wall=14.64s
+base2 pass1 deep	decode_tps=29.69	prefill_tps=420.2	gen=256	prompt=34003	cached=2048	wall=84.77s
+base2 pass2 short	decode_tps=34.35	prefill_tps=93.2	gen=512	prompt=32	cached=0	wall=15.56s
+base2 pass2 mid	decode_tps=35.10	prefill_tps=264.4	gen=256	prompt=2773	cached=2048	wall=10.06s
+base2 pass2 deep	decode_tps=26.52	prefill_tps=407.6	gen=256	prompt=34003	cached=24576	wall=32.87s
+base2 post-run: thr_active=default
+DONE_base2
+=== base2 end 20:38:06 ===
+=== q4k2 start 20:38:26 ===
+q4k2: model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf (84155819296 bytes inode=284081963)
+q4k2: env=[] thr_active=default ngram_env=unset
+q4k2 pass1 short	decode_tps=40.51	prefill_tps=80.8	gen=512	prompt=32	cached=0	wall=13.05s
+q4k2 pass1 mid	decode_tps=45.79	prefill_tps=409.5	gen=76	prompt=2773	cached=0	wall=8.44s
+q4k2 pass1 deep	decode_tps=37.27	prefill_tps=451.6	gen=256	prompt=34003	cached=2048	wall=77.74s
+q4k2 pass2 short	decode_tps=43.51	prefill_tps=101.7	gen=512	prompt=32	cached=0	wall=12.26s
+q4k2 pass2 mid	decode_tps=47.61	prefill_tps=266.1	gen=76	prompt=2773	cached=2048	wall=4.34s
+q4k2 pass2 deep	decode_tps=33.17	prefill_tps=412.5	gen=256	prompt=34003	cached=24576	wall=30.66s
+q4k2 post-run: thr_active=default
+DONE_q4k2
+=== q4k2 end 20:41:27 ===
+CAMPAIGN4_COMPLETE

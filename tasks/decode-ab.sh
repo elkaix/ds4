@@ -63,6 +63,10 @@ for _ in $(seq 1 200); do
 done
 
 THR=$(grep -oE 'decode indexer sparse threshold=[0-9]+' "$LOG" | grep -oE '[0-9]+$' || true)
+# For a model A/B there is no env toggle: the weights file IS the variable, so record it
+# (basename + size + inode) as this arm's toggle assertion.
+MSTAT=$(stat -f '%z bytes inode=%i' "$M" 2>/dev/null || echo unknown)
+echo "$LABEL: model=$(basename "$M") ($MSTAT)" | tee -a "$RES"
 echo "$LABEL: env=[$*] thr_active=${THR:-default} ngram_env=${DS4_NGRAM_SPEC:-unset}"
 # (threshold line prints on first decode, so the real assertion is post-run below)
 

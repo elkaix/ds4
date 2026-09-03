@@ -11,7 +11,7 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 SERVER_BIN="$ROOT_DIR/ds4-server"
-MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf"
+MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf"
 # Vision-Exp is sidecar_required: the vision encoder is a separate GGUF and must
 # be the unmodified 316-tensor antirez one.
 VISION_ENCODER="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
@@ -28,7 +28,7 @@ HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q2-conf09"
+KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q4k-conf09"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
