@@ -135,15 +135,26 @@ model line is the toggle assertion the harness otherwise lacks.
 | mid, ~2.8K prompt | 36.22 36.62 32.43 35.10 | 49.90 48.85 45.79 47.61 | 45.79 > 36.62 **PASS** |
 | deep, 34K prompt | 32.61 30.18 29.69 26.52 | 39.88 37.72 37.27 33.17 | 33.17 > 32.61 **PASS** |
 
-Drift-fair adjacent pair (base1 immediately followed by q4k1): **+24.9% short, +35.6% mid,
-+23.6% deep**. The every-window rule passes on all four arms even so, which is the strongest
-result any campaign here has produced — campaign #3's knobs could not separate at all.
+Drift-fair adjacent pair (base1 immediately followed by q4k1): **+24.9% short, +23.6% deep**.
+The every-window rule passes on all four arms, which is the strongest result any campaign here
+has produced — campaign #3's knobs could not separate at all.
 
-**Prefill does NOT regress.** q4k >= base in every adjacent pair (deep 528.0/428.2 vs
-479.5/406.6; 451.6/412.5 vs 420.2/407.6). This contradicts the -11.3% prefill cost measured
-on 2026-08-27 with the SuperDeepseek build. The difference between the two runs is the
-imatrix: 08-27 used the routed-only 1p5m file, which calibrated none of the 216 dense tensors
-being cut to 4 bit; this build used the merged routed-1p5m + dense-220k file.
+**The mid window is NOT comparable and its apparent +35.6% must not be quoted.** base generated
+256 tokens there and q4k only 76, so the two arms accumulated different amounts of positional
+decay. The confound is visible in the table: base mid (36.22) sits *below* base short (39.77) as
+depth decay predicts, while q4k mid (49.90) sits *above* q4k short (49.02) — decay is missing
+from q4k purely because it stopped 180 tokens earlier. Short (512 gen both) and deep (256 gen
+both) are the only equal-length windows, and both land at ~+24%, consistent with 08-27's +13.2%
+and PR #621's +15.5%.
+
+**Prefill does NOT regress on this build.** q4k >= base in every adjacent pair (deep
+528.0/428.2 vs 479.5/406.6; 451.6/412.5 vs 420.2/407.6), where the same recipe measured -11.3%
+prefill on 2026-08-27. The dense imatrix is the tempting explanation, but **three** things
+changed between those runs, not one: the imatrix (routed-only 1p5m -> merged +dense-220k), the
+base model (SuperDeepseek MQ -> Vision-Exp Abliterated), and the binary (the #832 Metal stack
+landed this morning and is specifically a prefill change claiming +3.15%). Isolating the
+imatrix would mean rebuilding the 08-27 model on today's binary. Until then this is an
+observation, not a cause.
 
 Two honesty notes:
 - **`base2` is contaminated and was excluded from the headline number.** A `shasum -a 256`
@@ -152,9 +163,11 @@ Two honesty notes:
   direction to accept. Killed at 20:36; `q4k2` ran clean. The verdict rests on base1<->q4k1.
   Lesson: nothing else may touch the disk during an arm, including our own bookkeeping.
 - **The mid prompt generates fewer tokens on q4k** (76 vs 256) — the model stops earlier on
-  identical input. That is a behavioural difference from the q4_K output head, not a timing
-  artifact (t/s is per-token). It is unmeasured for quality; the eval gate was waived by the
-  user, so this is a known open risk, not a cleared one.
+  identical input, a behavioural difference from the q4_K output head. It has two consequences
+  and I initially recorded only one: it invalidates that window's speed number (above), *and*
+  it is an unmeasured quality signal. The eval gate was waived by the user, so this is a known
+  open risk, not a cleared one. Fix the harness by pinning `min_tokens`/identical stop
+  behaviour before the mid window is trusted again.
 
 Adopted 20:35-20:43: `ds4flash.gguf` repointed, `--model` updated in `run.md` and all four
 `run-ds4-*.sh`, fresh `--kv-disk-dir` (`...-ablit-q4k[-tag]`; the Q8 checkpoints stay in

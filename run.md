@@ -2,11 +2,16 @@
 
 ## 1. After every reboot — raise the Metal wired-memory ceiling
 
-Resets to 0 on reboot. The Q2 model will not fit without it.
+Resets to 0 on reboot.
 
 ```bash
 sudo sysctl iogpu.wired_limit_mb=118000
 ```
+
+**The AProjQ4K build at `--ctx 262144` does not need this** — 82.74 GiB planned fits under the
+default cap, and it was verified loading with the limit at 0. You still need it for
+`run-ds4-*.sh`, which hard-guard `WIRED_LIMIT_MIN_MB=118000` and refuse to start below it, and
+for larger `--ctx` or a return to a bigger quant.
 
 ## 2. Start the server
 
