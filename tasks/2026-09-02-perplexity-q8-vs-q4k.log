@@ -1,0 +1,33 @@
+=== q8 start 21:11:00 model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 2.913 ms, residency requested in 705.636 ms, warmup 2.883 ms (mapped 82697.67 MiB from offset 5.09 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: Metal model views created in 0.062 ms, residency requested in 595.919 ms, warmup 0.384 ms (mapped 889.64 MiB from offset 0.02 MiB)
+ds4: Metal mapped mmaped model as 3 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 80.76 GiB = 81.62 GiB planned
+ds4: memory detail: ctx=32768 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=8194 backend=metal
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+ds4: memory detail: ctx=32768 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=8194 backend=metal
+ds4: perplexity scored 256/12706ds4: perplexity scored 512/12706ds4: perplexity scored 768/12706ds4: perplexity scored 1024/12706ds4: perplexity scored 1280/12706ds4: perplexity scored 1536/12706ds4: perplexity scored 1792/12706ds4: perplexity scored 2048/12706ds4: perplexity scored 2304/12706ds4: perplexity scored 2560/12706ds4: perplexity scored 2816/12706ds4: perplexity scored 3072/12706ds4: perplexity scored 3328/12706ds4: perplexity scored 3584/12706ds4: perplexity scored 3840/12706ds4: perplexity scored 4096/12706ds4: perplexity scored 4352/12706ds4: perplexity scored 4608/12706ds4: perplexity scored 4864/12706ds4: perplexity scored 5120/12706ds4: perplexity scored 5376/12706ds4: perplexity scored 5632/12706ds4: perplexity scored 5888/12706ds4: perplexity scored 6144/12706ds4: perplexity scored 6400/12706ds4: perplexity scored 6656/12706ds4: perplexity scored 6912/12706ds4: perplexity scored 7168/12706ds4: perplexity scored 7424/12706ds4: perplexity scored 7680/12706ds4: perplexity scored 7936/12706ds4: perplexity scored 8192/12706ds4: perplexity scored 8448/12706ds4: perplexity scored 8704/12706ds4: perplexity scored 8960/12706ds4: perplexity scored 9216/12706ds4: perplexity scored 9472/12706ds4: perplexity scored 9728/12706ds4: perplexity scored 9984/12706ds4: perplexity scored 10240/12706ds4: perplexity scored 10496/12706ds4: perplexity scored 10752/12706ds4: perplexity scored 11008/12706ds4: perplexity scored 11264/12706ds4: perplexity scored 11520/12706ds4: perplexity scored 11776/12706ds4: perplexity scored 12032/12706ds4: perplexity scored 12288/12706ds4: perplexity scored 12544/12706ds4: perplexity scored 12706/12706
+tokens=12738 scored=12706 nll=16835.491707220 avg_nll=1.325003282 ppl=3.762197704
+=== q8 end 21:18:47
+=== q4k start 21:18:47 model=DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 5.426 ms, residency requested in 13776.387 ms, warmup 3.682 ms (mapped 80252.17 MiB from offset 5.09 MiB)
+ds4: Metal mapped mmaped model as 1 overlapping shared buffers
+ds4: Metal model views created in 0.066 ms, residency requested in 605.481 ms, warmup 0.395 ms (mapped 889.64 MiB from offset 0.02 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 78.37 GiB = 79.23 GiB planned
+ds4: memory detail: ctx=32768 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=8194 backend=metal
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+ds4: memory detail: ctx=32768 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=8194 backend=metal
+ds4: perplexity scored 256/12706ds4: perplexity scored 512/12706ds4: perplexity scored 768/12706ds4: perplexity scored 1024/12706ds4: perplexity scored 1280/12706ds4: perplexity scored 1536/12706ds4: perplexity scored 1792/12706ds4: perplexity scored 2048/12706ds4: perplexity scored 2304/12706ds4: perplexity scored 2560/12706ds4: perplexity scored 2816/12706ds4: perplexity scored 3072/12706ds4: perplexity scored 3328/12706ds4: perplexity scored 3584/12706ds4: perplexity scored 3840/12706ds4: perplexity scored 4096/12706ds4: perplexity scored 4352/12706ds4: perplexity scored 4608/12706ds4: perplexity scored 4864/12706ds4: perplexity scored 5120/12706ds4: perplexity scored 5376/12706ds4: perplexity scored 5632/12706ds4: perplexity scored 5888/12706ds4: perplexity scored 6144/12706ds4: perplexity scored 6400/12706ds4: perplexity scored 6656/12706ds4: perplexity scored 6912/12706ds4: perplexity scored 7168/12706ds4: perplexity scored 7424/12706ds4: perplexity scored 7680/12706ds4: perplexity scored 7936/12706ds4: perplexity scored 8192/12706ds4: perplexity scored 8448/12706ds4: perplexity scored 8704/12706ds4: perplexity scored 8960/12706ds4: perplexity scored 9216/12706ds4: perplexity scored 9472/12706ds4: perplexity scored 9728/12706ds4: perplexity scored 9984/12706ds4: perplexity scored 10240/12706ds4: perplexity scored 10496/12706ds4: perplexity scored 10752/12706ds4: perplexity scored 11008/12706ds4: perplexity scored 11264/12706ds4: perplexity scored 11520/12706ds4: perplexity scored 11776/12706ds4: perplexity scored 12032/12706ds4: perplexity scored 12288/12706ds4: perplexity scored 12544/12706ds4: perplexity scored 12706/12706
+tokens=12738 scored=12706 nll=17240.727373574 avg_nll=1.356896535 ppl=3.884120346
+=== q4k end 21:27:31
+PPL_AB_COMPLETE

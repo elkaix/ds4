@@ -187,3 +187,35 @@ Pythinker had never been true. Everything is now 256K end to end. Planned memory
 Not fixed, pre-existing: `run-ds4-{conf,strict,dspark}.sh` still hardcode
 `THERMALFORGE="$HOME/.mtplx/bin/thermalforge"`, a path deleted with MTPLX on 2026-09-01 —
 only `run-ds4-monitored.sh` resolves it via `command -v`.
+
+### Quality measured after all — perplexity A/B, Q8 vs AProjQ4K (2026-09-02 21:11-21:27)
+
+The 92-question `ds4-eval` gate was waived twice (~14 h at this model's token budget). `ds4`
+has a far cheaper instrument that measures the same thing PR #621 used: **`--perplexity-file`**,
+teacher-forced NLL over raw text. 16 minutes for both arms, deterministic, so no interleaving
+or thermal care is needed. Fixture: 20 KB of `README.md` + 24 KB of `ds4.c` (prose + C),
+12,706 scored tokens, identical for both arms, `--ctx 32768`, same vision encoder.
+
+| build | tokens scored | avg_nll | ppl |
+|---|---:|---:|---:|
+| Q8 (`…AProjQ8-SExpQ8-OutQ8`) | 12706 | **1.325003282** | **3.762197704** |
+| AProjQ4K (`…AProjQ4K-SExpQ8-OutQ4K`) | 12706 | 1.356896535 | 3.884120346 |
+| delta | — | **+2.41%** | **+3.24%** |
+
+**The recipe is lossy on this model, contradicting PR #621's fixture** (where imatrix-AProjQ4
+scored 0.3964 vs Q8's 0.404 — i.e. *better*). Their result does not transfer: different base
+model, different calibration text, different fixture. The dense imatrix still earned its keep —
+#621 measured no-imatrix Q4 at 0.407 vs imatrix Q4 at 0.3964, a ~2.6% spread of the same order
+as the gap we are paying — but it did not make the recipe free.
+
+This also explains the behavioural signal from campaign #4B: q4k stopping at 76 tokens where Q8
+generated 256 on the same prompt is what a slightly degraded output head looks like.
+
+**The trade is +24% decode for +2.4% NLL.** Speed was the user's stated priority
+("i just want speed and performance optimisation", eval waived twice), so the adoption stands —
+but it is now a known-cost decision rather than an unmeasured one. Rollback is one symlink plus
+two `--model` edits; see run.md.
+
+Caveat on the fixture: prose+C from this repo is domain-narrow. A wider or task-shaped fixture
+could move the number either way. Re-run with `tasks/perplexity-ab.sh` (committed) after
+swapping `ppl.txt` if a different domain matters.
