@@ -277,6 +277,12 @@ ds4_help.o: ds4_help.c ds4_help.h
 ds4_gpu_args.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_gpu_args.c
 
+# dashboard.html is a committed build artifact of the React app in dashboard/.
+# `make` never needs Node; run `make dashboard` after editing dashboard/src.
+.PHONY: dashboard
+dashboard:
+	cd dashboard && npm ci && npm run build
+
 dashboard_html.h: dashboard.html
 	@printf '/* generated from dashboard.html by make; do not edit */\nstatic const char dashboard_html[] = {' > $@
 	@xxd -i < $< >> $@
