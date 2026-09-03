@@ -29,7 +29,7 @@ Think Max needs `393216`; raise both the server and the clients together if you 
 ### The model (AProjQ4K, adopted 2026-09-02)
 
 `DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf`,
-84,155,819,296 bytes. Built here: the audreyt Vision-Exp Abliterated Q8 GGUF with its
+84,155,819,296 bytes, sha256 `22f7eeb2d3bd6142501fc54146e8ff9470ae03e2cae9a5dcfe8543a43d7ed4cb`. Built here: the audreyt Vision-Exp Abliterated Q8 GGUF with its
 216 dense attention-projection + output-head tensors re-quantized `q8_0 -> q4_K`,
 imatrix-guided by the merged routed-1p5m + dense-220k file, then **spliced** so the
 other 1112 tensors keep the reference's exact bytes. Resident model **78.37 GiB**
