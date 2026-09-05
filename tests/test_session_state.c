@@ -78,9 +78,33 @@ static void test_session_memory(void) {
     assert(ds4_engine_glm_graph_budget(&e, 2*gib) == 8*gib);
 }
 
+#ifndef DS4_NO_GPU
+static void test_glm_attention_budget(void) {
+    const ds4_shape saved_shape = g_ds4_shape;
+    g_ds4_shape = DS4_SHAPE_GLM53;
+    ds4_glm_gpu_graph *g = calloc(1, sizeof(*g));
+    assert(g);
+    g->glm53 = true;
+    g->compact_cache_cap = 16384;
+    const uint32_t capacities[] = {1024, 4096, 8192, 16384};
+    for (size_t i = 0; i < sizeof(capacities) / sizeof(*capacities); i++) {
+        g->ctx_cap = capacities[i];
+        assert(glm_graph_dense_compact_attention_limit(g) == 2051);
+        g->full_kv_cache = true;
+        assert(glm_graph_dense_compact_attention_limit(g) == 2051);
+        g->full_kv_cache = false;
+    }
+    free(g);
+    g_ds4_shape = saved_shape;
+}
+#endif
+
 int main(void) {
     test_rewind();
     test_session_memory();
+#ifndef DS4_NO_GPU
+    test_glm_attention_budget();
+#endif
     puts("session state tests: ok");
     return 0;
 }
