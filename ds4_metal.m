@@ -34161,7 +34161,8 @@ int ds4_gpu_glm_attention_full_tensor(
         [enc setBuffer:keybuf offset:ds4_gpu_tensor_offset(key_cache) atIndex:2];
         [enc setBuffer:valbuf offset:ds4_gpu_tensor_offset(value_cache) atIndex:3];
         [enc setBuffer:headsbuf offset:ds4_gpu_tensor_offset(heads) atIndex:4];
-        [enc setThreadgroupMemoryLength:(256u + (NSUInteger)cache_len) * sizeof(float) atIndex:0];
+        [enc setThreadgroupMemoryLength:ds4_gpu_align_up_ns(
+                (256u + (NSUInteger)cache_len) * sizeof(float), 16u) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_tokens, (NSUInteger)n_head, 1)
              threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
@@ -35242,7 +35243,8 @@ int ds4_gpu_glm_attention_indexed_decode_typed_tensor(
         [enc setBuffer:headsbuf offset:ds4_gpu_tensor_offset(heads) atIndex:7];
         const NSUInteger scratch_floats =
             256u + (NSUInteger)n_selected + (NSUInteger)kv_lora_dim;
-        [enc setThreadgroupMemoryLength:scratch_floats * sizeof(float) atIndex:0];
+        [enc setThreadgroupMemoryLength:ds4_gpu_align_up_ns(
+                scratch_floats * sizeof(float), 16u) atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake((NSUInteger)n_head, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);

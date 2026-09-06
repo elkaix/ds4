@@ -296,6 +296,22 @@ static void reduction_cases(void) {
         for (int i = 0; i < C; i++) selected[i] = mode == 2 ? -1 :
             (mode == 1 && i % 2 == 0 ? (i % 4 == 0 ? -1 : C) : i);
         check(ds4_gpu_tensor_write(ig, 0, selected, sizeof(selected)), "split ids");
+        /* Every context-length remainder must satisfy Metal's 16-byte
+         * threadgroup allocation rule, in both cache formats. */
+        for (int f16 = 0; f16 < 2; f16++) {
+            ds4_gpu_tensor *cache = upload_cache(kv, C * D, f16);
+            for (int count = C - 3; count <= C; count++) {
+                check(ds4_gpu_glm_attention_indexed_decode_tensor(
+                      out, qg, lg, cache, rg, model, MODEL_BYTES, 4096,
+                      ig, count, C, f16, H, D, 32, 0, V, 4096,
+                      10000, 1, 0, 1, 32, 1), "indexed decode attention");
+                check(ds4_gpu_tensor_read(out, 0, split, sizeof(split)), "indexed decode read");
+                for (int i = 0; i < H * V; i++)
+                    check(isfinite(split[i]) && fabsf(split[i] - (mode == 2 ? 0 : D)) < 0.01f,
+                          "indexed decode reference");
+            }
+            ds4_gpu_tensor_free(cache);
+        }
         for (int run = 0; run < 20; run++) {
             check(ds4_gpu_glm_attention_indexed_decode_split_group8_tensor(
                   out, pl, pm, qg, lg, kg, rg, model, MODEL_BYTES, 4096,
