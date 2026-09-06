@@ -45759,6 +45759,9 @@ static bool glm_graph_use_flash_attention_prefill(uint32_t n_tokens) {
 
 static DS4_MAYBE_UNUSED bool glm_graph_use_dense_compact_attention_prefill(
         uint32_t n_tokens) {
+    /* This kernel absorbs MLA only; models with RoPE need the separate score
+     * and the scale for the complete query/key dimension. */
+    if (DS4_N_ROT != 0) return false;
     if (!glm_graph_use_flash_attention_prefill(n_tokens)) return false;
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU)
     /* The CUDA GEMM setup crosses over the scalar online kernel near 256
