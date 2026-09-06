@@ -215,6 +215,30 @@ static void test_session_snapshot_roundtrip(void) {
     TEST_ASSERT(snapshot.ptr != NULL && snapshot.len > 0);
     if (!snapshot.ptr || snapshot.len == 0) goto cleanup;
 
+    FILE *payload = tmpfile();
+    TEST_ASSERT(payload != NULL);
+    if (!payload) goto cleanup;
+    TEST_ASSERT(ds4_session_save_payload(reference, payload, err, sizeof(err)) == 0);
+    TEST_ASSERT(ftello(payload) == (off_t)snapshot.len);
+    rewind(payload);
+    uint8_t payload_chunk[4096];
+    bool payload_matches = true;
+    for (uint64_t offset = 0; offset < snapshot.len; ) {
+        size_t bytes = snapshot.len - offset > sizeof(payload_chunk) ?
+            sizeof(payload_chunk) : (size_t)(snapshot.len - offset);
+        if (fread(payload_chunk, 1, bytes, payload) != bytes ||
+            memcmp(payload_chunk, snapshot.ptr + offset, bytes) != 0) {
+            fprintf(stderr, "ds4-test: snapshot payload differs at offset %llu\n",
+                    (unsigned long long)offset);
+            payload_matches = false;
+            break;
+        }
+        offset += bytes;
+    }
+    fclose(payload);
+    TEST_ASSERT(payload_matches);
+    if (!payload_matches) goto cleanup;
+
     if (test_glm_mtp) {
         saved_deferred_row1_head =
             test_save_env("DS4_GLM_MTP_DISABLE_DEFERRED_ROW1_HEAD");
