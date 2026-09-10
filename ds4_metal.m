@@ -11183,7 +11183,7 @@ int ds4_gpu_tp_batch_gate_encode(uint32_t layer, uint32_t rows) {
 /* Prefill batch gate: the service thread exchanges big_bytes directly
  * between two CPU-visible bounce buffers. The shared-event signal orders
  * all preceding GPU stores before the service thread reads the payload. */
-static uint64_t ds4_gpu_tp_big_gate_kick(uint32_t layer, uint32_t rows,
+uint64_t ds4_gpu_tp_big_gate_kick(uint32_t layer, uint32_t rows,
                                          const ds4_gpu_tensor *out_t,
                                          ds4_gpu_tensor *in_t,
                                          uint64_t bytes) {
@@ -11220,7 +11220,7 @@ static uint64_t ds4_gpu_tp_big_gate_kick(uint32_t layer, uint32_t rows,
     return seq;
 }
 
-static int ds4_gpu_tp_big_gate_wait(uint64_t seq) {
+int ds4_gpu_tp_big_gate_wait(uint64_t seq) {
     if (!g_batch_cb || seq == 0) return 0;
     ds4_gpu_close_batch_encoder();
     [g_batch_cb encodeWaitForEvent:g_tp_batch_cpu_event value:seq];
@@ -47252,4 +47252,51 @@ int ds4_gpu_glm53_kda_prefill(
 
 void ds4_gpu_set_glm_mtp_verify_mode(bool enabled) {
     (void)enabled;
+}
+
+/* LOCAL PATCH (PR #1024 Metal build fix): the KV-split TP gates and the
+ * locked-source-span tracker are implemented only in rocm/ds4_rocm_tp.cuh but
+ * ds4.c calls them unconditionally.  Single-box Metal never sets
+ * g->tp_kv_split and never binds TP, so these are unreachable there; the
+ * split-indexer entry points fail loudly if ever called. */
+void ds4_gpu_add_locked_source_span(uint64_t offset, uint64_t bytes) {
+    (void)offset; (void)bytes;
+}
+void ds4_gpu_tp_set_split_exchange(ds4_gpu_tp_split_exchange_fn fn) { (void)fn; }
+void ds4_gpu_tp_set_split_layout(uint64_t split_out_off, uint64_t split_in_off,
+                                 uint64_t split_slot_bytes) {
+    (void)split_out_off; (void)split_in_off; (void)split_slot_bytes;
+}
+static int metal_kv_split_unsupported(const char *fn) {
+    fprintf(stderr, "ds4_metal: %s: KV-split TP is not implemented on Metal\n", fn);
+    return 0;
+}
+int ds4_gpu_indexer_score_one_split_tensor(
+        ds4_gpu_tensor *scores, const ds4_gpu_tensor *q,
+        const ds4_gpu_tensor *weights, const ds4_gpu_tensor *index_comp,
+        uint32_t n_comp, uint32_t ratio, float scale, uint32_t rank) {
+    (void)scores; (void)q; (void)weights; (void)index_comp;
+    (void)n_comp; (void)ratio; (void)scale; (void)rank;
+    return metal_kv_split_unsupported(__func__);
+}
+int ds4_gpu_indexer_topk_split_pack_tensor(
+        ds4_gpu_tensor *payload, const ds4_gpu_tensor *local_selected,
+        const ds4_gpu_tensor *scores, uint32_t local_n, uint32_t top_k,
+        uint32_t rank) {
+    (void)payload; (void)local_selected; (void)scores;
+    (void)local_n; (void)top_k; (void)rank;
+    return metal_kv_split_unsupported(__func__);
+}
+int ds4_gpu_indexer_topk_split_merge_tensor(
+        ds4_gpu_tensor *selected, const ds4_gpu_tensor *local_payload,
+        const ds4_gpu_tensor *peer_payload, uint32_t top_k) {
+    (void)selected; (void)local_payload; (void)peer_payload; (void)top_k;
+    return metal_kv_split_unsupported(__func__);
+}
+int ds4_gpu_tp_split_gate_encode(uint32_t layer, uint32_t kind,
+                                 const ds4_gpu_tensor *out_t,
+                                 ds4_gpu_tensor *in_t,
+                                 uint64_t bytes) {
+    (void)layer; (void)kind; (void)out_t; (void)in_t; (void)bytes;
+    return metal_kv_split_unsupported(__func__);
 }
