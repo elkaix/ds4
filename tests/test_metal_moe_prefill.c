@@ -133,6 +133,7 @@ cleanup:
     unsetenv("DS4_METAL_DISABLE_MOE_MM_ID_PAIR_SWIGLU");
     unsetenv("DS4_METAL_DISABLE_V41_PACKED_M32N128");
     unsetenv("DS4_METAL_DISABLE_ROUTED_MPP_PACKED");
+    unsetenv("DS4_METAL_DISABLE_MOE_MM_ID_PAIR_SWIGLU");
     unsetenv("DS4_METAL_DISABLE_TINY_PAIR_SWIGLU_FUSION");
     for (int i = 0; i < 5; i++) {
         ds4_gpu_tensor_free(result[i]);
