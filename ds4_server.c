@@ -718,6 +718,12 @@ typedef struct {
     int len;
     int cap;
     char *raw_tool_text;
+    /* GLM only: the exact sampled assistant turn from just after the prompt's
+     * <think> to the end of generation (reasoning, </think>, content, every
+     * separator, tool blocks).  Rendering it verbatim keeps the next replay
+     * byte-identical to the live KV even though the OpenAI transcript trims
+     * or reflows whitespace. */
+    char *raw_turn_text;
 } tool_calls;
 
 typedef struct {
@@ -735,6 +741,9 @@ typedef struct {
      * happens to be named "tool_search". */
     bool responses_tool_search;
     char **prop;
+    /* Parallel to prop: the schema declares a non-string JSON type, so a GLM
+     * <arg_value> for it is a JSON literal rather than text. */
+    bool *prop_raw;
     int len;
     int cap;
 } tool_schema_order;
@@ -854,6 +863,7 @@ static void tool_call_free(tool_call *tc) {
 static void tool_calls_free(tool_calls *calls) {
     for (int i = 0; i < calls->len; i++) tool_call_free(&calls->v[i]);
     free(calls->raw_tool_text);
+    free(calls->raw_turn_text);
     free(calls->v);
     memset(calls, 0, sizeof(*calls));
 }
@@ -912,6 +922,7 @@ static void tool_schema_order_free(tool_schema_order *o) {
     free(o->namespace);
     for (int i = 0; i < o->len; i++) free(o->prop[i]);
     free(o->prop);
+    free(o->prop_raw);
     memset(o, 0, sizeof(*o));
 }
 
@@ -921,11 +932,13 @@ static void tool_schema_orders_free(tool_schema_orders *orders) {
     memset(orders, 0, sizeof(*orders));
 }
 
-static void tool_schema_order_prop_push(tool_schema_order *o, char *prop) {
+static void tool_schema_order_prop_push(tool_schema_order *o, char *prop, bool raw) {
     if (o->len == o->cap) {
         o->cap = o->cap ? o->cap * 2 : 8;
         o->prop = xrealloc(o->prop, (size_t)o->cap * sizeof(o->prop[0]));
+        o->prop_raw = xrealloc(o->prop_raw, (size_t)o->cap * sizeof(o->prop_raw[0]));
     }
+    o->prop_raw[o->len] = raw;
     o->prop[o->len++] = prop;
 }
 
@@ -1608,6 +1621,78 @@ done:
     return out;
 }
 
+/* True when a property schema declares only non-string JSON types: "type" is a
+ * non-string name, a type list without "string", or, with no "type", the schema
+ * has "properties" or "items".  Anything else (string, anyOf, unknown) stays
+ * text, which is the conservative reading of a GLM argument. */
+static bool schema_property_is_non_string(const char *json) {
+    const char *p = json;
+    json_ws(&p);
+    if (*p != '{') return false;
+    p++;
+    bool has_type = false;
+    bool type_raw = false;
+    bool shaped = false;
+    json_ws(&p);
+    while (*p && *p != '}') {
+        char *key = NULL;
+        if (!json_string(&p, &key)) return false;
+        json_ws(&p);
+        if (*p != ':') {
+            free(key);
+            return false;
+        }
+        p++;
+        json_ws(&p);
+        if (!strcmp(key, "type") && *p == '"') {
+            char *type = NULL;
+            if (!json_string(&p, &type)) {
+                free(key);
+                return false;
+            }
+            has_type = true;
+            type_raw = strcmp(type, "string") != 0;
+            free(type);
+        } else if (!strcmp(key, "type") && *p == '[') {
+            bool any_string = false;
+            bool any_other = false;
+            p++;
+            json_ws(&p);
+            while (*p && *p != ']') {
+                char *type = NULL;
+                if (!json_string(&p, &type)) {
+                    free(key);
+                    return false;
+                }
+                if (!strcmp(type, "string")) any_string = true;
+                else if (strcmp(type, "null") != 0) any_other = true;
+                free(type);
+                json_ws(&p);
+                if (*p == ',') p++;
+                json_ws(&p);
+            }
+            if (*p != ']') {
+                free(key);
+                return false;
+            }
+            p++;
+            has_type = true;
+            type_raw = any_other && !any_string;
+        } else {
+            if (!strcmp(key, "properties") || !strcmp(key, "items")) shaped = true;
+            if (!json_skip_value(&p)) {
+                free(key);
+                return false;
+            }
+        }
+        free(key);
+        json_ws(&p);
+        if (*p == ',') p++;
+        json_ws(&p);
+    }
+    return has_type ? type_raw : shaped;
+}
+
 static bool parse_schema_properties(const char *json, tool_schema_order *order) {
     const char *p = json;
     json_ws(&p);
@@ -1638,8 +1723,14 @@ static bool parse_schema_properties(const char *json, tool_schema_order *order) 
                     return false;
                 }
                 p++;
-                tool_schema_order_prop_push(order, prop);
-                if (!json_skip_value(&p)) return false;
+                char *prop_schema = NULL;
+                if (!json_raw_value(&p, &prop_schema)) {
+                    free(prop);
+                    return false;
+                }
+                tool_schema_order_prop_push(order, prop,
+                                            schema_property_is_non_string(prop_schema));
+                free(prop_schema);
                 json_ws(&p);
                 if (*p == ',') p++;
                 json_ws(&p);
@@ -2843,17 +2934,15 @@ static void append_dsml_tool_calls_text(buf *b, const tool_calls *calls) {
 static void append_glm_tool_calls_text(buf *b, const tool_calls *calls,
                                        const tool_schema_orders *tool_orders) {
     if (!calls || calls->len == 0) return;
-    /* GLM emits each tool block on its own line.  Preserve a separator already
-     * retained in the content or raw block; otherwise restore one newline. */
-    const char *raw = calls->raw_tool_text;
-    if ((!b->len || b->ptr[b->len - 1] != '\n') &&
-        (!raw || !raw[0] || raw[0] != '\n')) {
-        buf_putc(b, '\n');
-    }
+    /* A raw sampled block already carries whatever separator the model
+     * emitted (GLM-5.3 often emits none: "</think><tool_call>").  Adding one
+     * here made every replay diverge from the live KV bytes. */
     if (calls->raw_tool_text && calls->raw_tool_text[0]) {
         buf_puts(b, calls->raw_tool_text);
         return;
     }
+    /* Canonical rendering: GLM puts each tool block on its own line. */
+    if (!b->len || b->ptr[b->len - 1] != '\n') buf_putc(b, '\n');
     for (int i = 0; i < calls->len; i++) {
         const tool_call *tc = &calls->v[i];
         const tool_schema_order *order =
@@ -3009,6 +3098,19 @@ static void append_glm_assistant_message_prefix(buf *out,
     }
 }
 
+/* Exact sampled replay of a GLM tool-call turn.  When tool memory attached the
+ * turn the server itself generated, emit those bytes instead of re-rendering
+ * from the client's reasoning/content/tool fields: the transcript loses the
+ * separators the model chose (e.g. "</think><tool_call>" versus
+ * "</think>\n<tool_call>"), and any byte drift costs a full re-prefill. */
+static bool append_glm_exact_turn(buf *out, const chat_msg *m) {
+    const char *turn = m ? m->calls.raw_turn_text : NULL;
+    if (!turn || !turn[0] || m->calls.len == 0) return false;
+    buf_puts(out, "<think>");
+    buf_puts(out, turn);
+    return true;
+}
+
 static char *render_glm_chat_prompt_text(const chat_msgs *msgs,
                                          const char *tool_schemas,
                                          const tool_schema_orders *tool_orders,
@@ -3065,6 +3167,10 @@ static char *render_glm_chat_prompt_text(const chat_msgs *msgs,
             observation_open = false;
             (void)pending_assistant;
             buf_puts(&out, "<|assistant|>");
+            if (append_glm_exact_turn(&out, m)) {
+                pending_assistant = false;
+                continue;
+            }
             append_glm_assistant_message_prefix(
                 &out, m, think && (tool_context || i > last_user_idx));
             append_trimmed_text(&out, m->content);
@@ -3276,6 +3382,10 @@ static char *render_glm_live_tool_tail(const chat_msgs *msgs, int start,
         } else if (!strcmp(m->role, "assistant")) {
             observation_open = false;
             buf_puts(&out, "<|assistant|>");
+            if (append_glm_exact_turn(&out, m)) {
+                pending_assistant = false;
+                continue;
+            }
             append_glm_assistant_message_prefix(&out, m, think);
             append_trimmed_text(&out, m->content);
             append_tool_calls_text_for_syntax(&out, SERVER_MODEL_SYNTAX_GLM,
@@ -5742,9 +5852,13 @@ static bool parse_glm_generated_message_ex(const char *text,
         return true;
     }
 
+    /* Keep the separator the model actually sampled (none, one or two
+     * newlines) inside the raw block so exact replay reproduces it. */
     const char *raw_block_start = start;
     if (start >= text + 2 && start[-2] == '\n' && start[-1] == '\n') {
         raw_block_start = start - 2;
+    } else if (start >= text + 1 && start[-1] == '\n') {
+        raw_block_start = start - 1;
     }
     size_t content_len = trim_tool_separator_ws(text, 0,
                                                 (size_t)(raw_block_start - text));
@@ -5845,6 +5959,63 @@ static bool parse_glm_generated_message_ex(const char *text,
         split_reasoning_content(text, content_len, content_out, reasoning_out);
     }
     return true;
+}
+
+static bool json_text_is_single_value(const char *s) {
+    const char *p = s ? s : "";
+    json_ws(&p);
+    if (!*p || !json_skip_value(&p)) return false;
+    json_ws(&p);
+    return *p == '\0';
+}
+
+static bool tool_schema_order_prop_is_raw(const tool_schema_order *order, const char *key) {
+    if (!order || !order->prop_raw || !key) return false;
+    for (int i = 0; i < order->len; i++) {
+        if (order->prop[i] && !strcmp(order->prop[i], key)) return order->prop_raw[i];
+    }
+    return false;
+}
+
+/* GLM has no typed argument syntax: the parser reads every <arg_value> as a
+ * string.  Its chat template writes non-string values as JSON, so restore those
+ * from the request's tool schema.  A value that is not valid JSON stays a
+ * string for the client to reject, rather than being silently dropped. */
+static void glm_tool_calls_apply_schema_types(tool_calls *calls, const tool_schema_orders *orders) {
+    if (!calls || !orders) return;
+    for (int i = 0; i < calls->len; i++) {
+        tool_call *tc = &calls->v[i];
+        const tool_schema_order *order = tool_schema_orders_find(orders, tc->name);
+        if (!order || !order->prop_raw || !tc->arguments) continue;
+        json_args args = {0};
+        if (!json_args_parse(tc->arguments, &args)) continue;
+        bool changed = false;
+        for (int a = 0; a < args.len; a++) {
+            json_arg *arg = &args.v[a];
+            if (!arg->is_string || !tool_schema_order_prop_is_raw(order, arg->key)) continue;
+            if (!json_text_is_single_value(arg->value)) continue;
+            char *literal = json_minify_raw_value(arg->value);
+            free(arg->value);
+            arg->value = literal;
+            arg->is_string = false;
+            changed = true;
+        }
+        if (changed) {
+            buf body = {0};
+            for (int a = 0; a < args.len; a++) {
+                tool_call_json_args_add(&body, args.v[a].key, args.v[a].value,
+                                        args.v[a].is_string ? "true" : "false");
+            }
+            buf wrapped = {0};
+            buf_putc(&wrapped, '{');
+            buf_puts(&wrapped, body.ptr ? body.ptr : "");
+            buf_putc(&wrapped, '}');
+            buf_free(&body);
+            free(tc->arguments);
+            tc->arguments = buf_take(&wrapped);
+        }
+        json_args_free(&args);
+    }
 }
 
 static bool parse_generated_message_ex_for_syntax(server_model_syntax syntax,
@@ -9037,6 +9208,7 @@ typedef struct {
 struct tool_memory_entry {
     char *id;
     tool_memory_block *block;
+    char *turn;
     size_t bytes;
     uint64_t stamp;
     tool_memory_source source;
@@ -9335,6 +9507,7 @@ static void tool_memory_remove_entry_locked(tool_memory *m, tool_memory_entry *e
     else m->bytes = 0;
     if (m->entries > 0) m->entries--;
     free(e->id);
+    free(e->turn);
     tool_memory_release_block_locked(m, e->block);
     free(e);
 }
@@ -9354,8 +9527,20 @@ static tool_memory_entry *tool_memory_find_entry_locked(tool_memory *m,
     return v == raxNotFound ? NULL : v;
 }
 
+static void tool_memory_entry_set_turn_locked(tool_memory *m,
+                                              tool_memory_entry *e,
+                                              const char *turn) {
+    size_t old_len = e->turn ? strlen(e->turn) + 1 : 0;
+    size_t new_len = turn && turn[0] ? strlen(turn) + 1 : 0;
+    free(e->turn);
+    e->turn = new_len ? xstrdup(turn) : NULL;
+    e->bytes = e->bytes - old_len + new_len;
+    m->bytes = m->bytes - old_len + new_len;
+}
+
 static void tool_memory_put_locked(tool_memory *m, const char *id,
-                                   const char *dsml, tool_memory_source source) {
+                                   const char *dsml, const char *turn,
+                                   tool_memory_source source) {
     if (!id || !id[0] || !dsml || !dsml[0]) return;
     tool_memory_init_locked(m);
 
@@ -9365,6 +9550,7 @@ static void tool_memory_put_locked(tool_memory *m, const char *id,
         !memcmp(old->block->dsml, dsml, dsml_len))
     {
         if (source == TOOL_MEMORY_RAM) old->source = TOOL_MEMORY_RAM;
+        if (turn && turn[0]) tool_memory_entry_set_turn_locked(m, old, turn);
         tool_memory_touch(m, old);
         tool_memory_prune_locked(m);
         return;
@@ -9377,6 +9563,10 @@ static void tool_memory_put_locked(tool_memory *m, const char *id,
     e->id = xstrdup(id);
     e->block = b;
     e->bytes = strlen(id) + 1 + sizeof(*e);
+    if (turn && turn[0]) {
+        e->turn = xstrdup(turn);
+        e->bytes += strlen(turn) + 1;
+    }
     e->stamp = ++m->clock;
     e->source = source;
     e->block_next = b->entries;
@@ -9576,13 +9766,26 @@ static bool tool_memory_has_id(server *s, const char *id) {
 
 static const char *tool_memory_lookup_locked(tool_memory *m, const char *id,
                                              tool_memory_source *source,
-                                             tool_memory_block **block) {
+                                             tool_memory_block **block,
+                                             const char **turn) {
     tool_memory_entry *e = tool_memory_find_entry_locked(m, id);
     if (!e || !e->block) return NULL;
     tool_memory_touch(m, e);
     if (source) *source = e->source;
     if (block) *block = e->block;
+    if (turn) *turn = e->turn;
     return e->block->dsml;
+}
+
+/* The exact sampled GLM assistant turn, normalised to start right after the
+ * prompt's <think>: a non-thinking prompt already ended in <think></think>, so
+ * its generation is prefixed with the </think> the live graph holds.  Rendering
+ * "<|assistant|><think>" + this text reproduces the live bytes exactly. */
+static char *glm_raw_turn_text(const char *generated, bool thinking_open) {
+    buf b = {0};
+    if (!thinking_open) buf_puts(&b, "</think>");
+    buf_puts(&b, generated ? generated : "");
+    return buf_take(&b);
 }
 
 static void tool_memory_remember(server *s, const tool_calls *calls) {
@@ -9591,23 +9794,28 @@ static void tool_memory_remember(server *s, const tool_calls *calls) {
     pthread_mutex_lock(&s->tool_mu);
     for (int i = 0; i < calls->len; i++) {
         tool_memory_put_locked(&s->tool_mem, calls->v[i].id, calls->raw_tool_text,
-                               TOOL_MEMORY_RAM);
+                               calls->raw_turn_text, TOOL_MEMORY_RAM);
     }
     pthread_mutex_unlock(&s->tool_mu);
 }
 
 static void tool_memory_put_source(server *s, const char *id, const char *dsml,
-                                   tool_memory_source source) {
+                                   const char *turn, tool_memory_source source) {
     if (!s || s->disable_exact_dsml_tool_replay ||
         !id || !id[0] || !dsml || !dsml[0]) return;
     pthread_mutex_lock(&s->tool_mu);
-    tool_memory_put_locked(&s->tool_mem, id, dsml, source);
+    tool_memory_put_locked(&s->tool_mem, id, dsml, turn, source);
     pthread_mutex_unlock(&s->tool_mu);
 }
 
 #ifdef DS4_SERVER_TEST
 static void tool_memory_put(server *s, const char *id, const char *dsml) {
-    tool_memory_put_source(s, id, dsml, TOOL_MEMORY_RAM);
+    tool_memory_put_source(s, id, dsml, NULL, TOOL_MEMORY_RAM);
+}
+
+static void tool_memory_put_turn(server *s, const char *id, const char *dsml,
+                                 const char *turn) {
+    tool_memory_put_source(s, id, dsml, turn, TOOL_MEMORY_RAM);
 }
 #endif
 
@@ -9631,14 +9839,16 @@ static void tool_memory_attach_to_messages(server *s, chat_msgs *msgs,
         if (calls->len == 0 || calls->raw_tool_text) continue;
         tool_memory_block *matched = NULL;
         tool_memory_source matched_source = TOOL_MEMORY_DISK;
+        const char *matched_turn = NULL;
         bool exact = true;
         int missing = 0;
         for (int j = 0; j < calls->len; j++) {
             tool_memory_source source = TOOL_MEMORY_DISK;
             tool_memory_block *block = NULL;
+            const char *turn = NULL;
             const char *dsml =
                 tool_memory_lookup_locked(&s->tool_mem, calls->v[j].id,
-                                          &source, &block);
+                                          &source, &block, &turn);
             if (!dsml) {
                 exact = false;
                 missing++;
@@ -9647,6 +9857,7 @@ static void tool_memory_attach_to_messages(server *s, chat_msgs *msgs,
             if (!matched) {
                 matched = block;
                 matched_source = source;
+                matched_turn = turn;
             } else if (matched != block) {
                 exact = false;
             }
@@ -9654,6 +9865,9 @@ static void tool_memory_attach_to_messages(server *s, chat_msgs *msgs,
         }
         if (exact && matched) {
             calls->raw_tool_text = xstrdup(matched->dsml);
+            free(calls->raw_turn_text);
+            calls->raw_turn_text =
+                matched_turn && matched_turn[0] ? xstrdup(matched_turn) : NULL;
             if (stats) {
                 if (matched_source == TOOL_MEMORY_RAM) stats->mem++;
                 else stats->disk++;
@@ -9761,7 +9975,8 @@ static void apply_anthropic_stream_tool_ids(tool_calls *calls,
 #define KV_TOOL_MAP_MAGIC0 'K'
 #define KV_TOOL_MAP_MAGIC1 'T'
 #define KV_TOOL_MAP_MAGIC2 'M'
-#define KV_TOOL_MAP_VERSION 1u
+#define KV_TOOL_MAP_VERSION 2u
+#define KV_TOOL_MAP_ENTRY_LENS 12u
 #define KV_TOOL_MAP_HEADER 8u
 
 typedef enum {
@@ -9839,6 +10054,37 @@ static char *path_join(const char *dir, const char *name) {
 
 
 
+/* GLM tool blocks are a run of consecutive <tool_call>...</tool_call> elements,
+ * optionally separated by whitespace and optionally preceded by the "\n\n"
+ * the parser keeps in raw_tool_text.  Return the run exactly as the parser
+ * would have captured it so the bytes look up the remembered block. */
+static const char *find_next_glm_tool_run(const char *p, const char **end_out) {
+    static const char open_tag[] = "<tool_call>";
+    static const char close_tag[] = "</tool_call>";
+    const size_t open_len = sizeof(open_tag) - 1;
+    const size_t close_len = sizeof(close_tag) - 1;
+    const char *s = p;
+    for (;;) {
+        s = strstr(s, open_tag);
+        if (!s) return NULL;
+        const char *close = strstr(s + open_len, close_tag);
+        if (close) {
+            const char *e = close + close_len;
+            for (;;) {
+                const char *next = skip_ascii_ws(e);
+                if (strncmp(next, open_tag, open_len) != 0) break;
+                const char *next_close = strstr(next + open_len, close_tag);
+                if (!next_close) break;
+                e = next_close + close_len;
+            }
+            if (s - p >= 2 && s[-1] == '\n' && s[-2] == '\n') s -= 2;
+            if (end_out) *end_out = e;
+            return s;
+        }
+        s += open_len;
+    }
+}
+
 static const char *find_next_dsml_tool_block(const char *p, const char **end_out) {
     struct block_form {
         const char *start;
@@ -9861,6 +10107,12 @@ static const char *find_next_dsml_tool_block(const char *p, const char **end_out
         if (!e) continue;
         best = s;
         best_end = e + strlen(forms[i].end);
+    }
+    const char *glm_end = NULL;
+    const char *glm = find_next_glm_tool_run(p, &glm_end);
+    if (glm && (!best || glm < best)) {
+        best = glm;
+        best_end = glm_end;
     }
     if (end_out) *end_out = best_end;
     return best;
@@ -9885,14 +10137,20 @@ static bool kv_tool_map_measure_locked(server *s, const char *text,
             for (tool_memory_entry *e = b->entries; e; e = e->block_next) {
                 size_t id_len = strlen(e->id);
                 size_t dsml_len = b->len;
-                if (id_len > UINT32_MAX || dsml_len > UINT32_MAX) continue;
+                size_t turn_len = e->turn ? strlen(e->turn) : 0;
+                if (id_len > UINT32_MAX || dsml_len > UINT32_MAX ||
+                    turn_len > UINT32_MAX) continue;
                 if (count == UINT32_MAX) return false;
-                if (UINT64_MAX - bytes < 8u ||
-                    UINT64_MAX - bytes - 8u < (uint64_t)id_len ||
-                    UINT64_MAX - bytes - 8u - (uint64_t)id_len < (uint64_t)dsml_len)
+                const uint64_t lens = KV_TOOL_MAP_ENTRY_LENS;
+                if (UINT64_MAX - bytes < lens ||
+                    UINT64_MAX - bytes - lens < (uint64_t)id_len ||
+                    UINT64_MAX - bytes - lens - (uint64_t)id_len < (uint64_t)dsml_len ||
+                    UINT64_MAX - bytes - lens - (uint64_t)id_len - (uint64_t)dsml_len <
+                        (uint64_t)turn_len)
                     return false;
                 count++;
-                bytes += 8u + (uint64_t)id_len + (uint64_t)dsml_len;
+                bytes += lens + (uint64_t)id_len + (uint64_t)dsml_len +
+                         (uint64_t)turn_len;
             }
         }
         p = end;
@@ -9953,13 +10211,18 @@ static bool kv_tool_map_write(server *s, FILE *fp, const char *text,
             for (tool_memory_entry *e = b->entries; ok && e; e = e->block_next) {
                 size_t id_len = strlen(e->id);
                 size_t dsml_len = b->len;
-                if (id_len > UINT32_MAX || dsml_len > UINT32_MAX) continue;
-                uint8_t lens[8];
+                size_t turn_len = e->turn ? strlen(e->turn) : 0;
+                if (id_len > UINT32_MAX || dsml_len > UINT32_MAX ||
+                    turn_len > UINT32_MAX) continue;
+                uint8_t lens[KV_TOOL_MAP_ENTRY_LENS];
                 le_put32(lens, (uint32_t)id_len);
                 le_put32(lens + 4, (uint32_t)dsml_len);
+                le_put32(lens + 8, (uint32_t)turn_len);
                 ok = fwrite(lens, 1, sizeof(lens), fp) == sizeof(lens) &&
                      fwrite(e->id, 1, id_len, fp) == id_len &&
-                     fwrite(b->dsml, 1, dsml_len, fp) == dsml_len;
+                     fwrite(b->dsml, 1, dsml_len, fp) == dsml_len &&
+                     (turn_len == 0 ||
+                      fwrite(e->turn, 1, turn_len, fp) == turn_len);
             }
         }
         p = end;
@@ -9976,31 +10239,43 @@ static int kv_tool_map_load_from_pos(server *s, FILE *fp, const stop_list *wante
     size_t n = fread(h, 1, sizeof(h), fp);
     if (n == 0 && feof(fp)) return 0;
     if (n != sizeof(h)) return 0;
+    /* Version 1 trailers carry (id, dsml) pairs; version 2 adds the exact
+     * sampled GLM turn text.  Older cache files stay loadable. */
     if (h[0] != KV_TOOL_MAP_MAGIC0 || h[1] != KV_TOOL_MAP_MAGIC1 ||
-        h[2] != KV_TOOL_MAP_MAGIC2 || h[3] != KV_TOOL_MAP_VERSION) return 0;
+        h[2] != KV_TOOL_MAP_MAGIC2 ||
+        (h[3] != 1u && h[3] != KV_TOOL_MAP_VERSION)) return 0;
+    const bool has_turn = h[3] >= 2u;
+    const size_t lens_size = has_turn ? KV_TOOL_MAP_ENTRY_LENS : 8u;
 
     uint32_t count = le_get32(h + 4);
     if ((uint64_t)count > (uint64_t)tool_memory_max_entries(&s->tool_mem) * 4u) return 0;
     int loaded = 0;
     for (uint32_t i = 0; i < count; i++) {
-        uint8_t lens[8];
-        if (fread(lens, 1, sizeof(lens), fp) != sizeof(lens)) return loaded;
+        uint8_t lens[KV_TOOL_MAP_ENTRY_LENS];
+        if (fread(lens, 1, lens_size, fp) != lens_size) return loaded;
         uint32_t id_len = le_get32(lens);
         uint32_t dsml_len = le_get32(lens + 4);
+        uint32_t turn_len = has_turn ? le_get32(lens + 8) : 0;
         if (id_len == 0 || id_len > 256 || dsml_len == 0 ||
-            dsml_len > DS4_TOOL_MEMORY_MAX_BYTES) return loaded;
+            dsml_len > DS4_TOOL_MEMORY_MAX_BYTES ||
+            turn_len > DS4_TOOL_MEMORY_MAX_BYTES) return loaded;
         char *id = xmalloc((size_t)id_len + 1);
         char *dsml = xmalloc((size_t)dsml_len + 1);
+        char *turn = xmalloc((size_t)turn_len + 1);
         bool ok = fread(id, 1, id_len, fp) == id_len &&
-                  fread(dsml, 1, dsml_len, fp) == dsml_len;
+                  fread(dsml, 1, dsml_len, fp) == dsml_len &&
+                  (turn_len == 0 || fread(turn, 1, turn_len, fp) == turn_len);
         id[id_len] = '\0';
         dsml[dsml_len] = '\0';
+        turn[turn_len] = '\0';
         if (ok && (!wanted || id_list_contains(wanted, id))) {
-            tool_memory_put_source(s, id, dsml, TOOL_MEMORY_DISK);
+            tool_memory_put_source(s, id, dsml, turn_len ? turn : NULL,
+                                   TOOL_MEMORY_DISK);
             loaded++;
         }
         free(id);
         free(dsml);
+        free(turn);
         if (!ok) return loaded;
     }
     return loaded;
@@ -12926,6 +13201,7 @@ decode_again:
         snprintf(err, sizeof(err), "shutdown requested");
     }
 
+    bool text_repaired = false;
     if (j->req.kind == REQ_CHAT && j->req.has_tools &&
         saw_tool_start && !saw_tool_end && strcmp(finish, "error") != 0)
     {
@@ -12952,6 +13228,7 @@ decode_again:
                 text.len = strlen(text.ptr);
                 saw_tool_end = true;
                 completed_truncation = true;
+                text_repaired = true;
                 server_log(DS4_LOG_WARNING,
                            "ds4-server: chat ctx=%s%s%s repaired unterminated tool call (%d calls recovered)",
                            ctx_span,
@@ -13073,6 +13350,9 @@ decode_again:
             &parsed_reasoning,
             &parsed_calls,
             &recovered_tool_parse_failure);
+        if (parsed_ok && j->req.model_syntax == SERVER_MODEL_SYNTAX_GLM) {
+            glm_tool_calls_apply_schema_types(&parsed_calls, &j->req.tool_orders);
+        }
         if (!parsed_ok && recovered_tool_parse_failure && j->req.has_tools && saw_tool_start) {
             /* parse_generated_message failed even though DSML was present.
              * Semantic repair is intentionally avoided: if the parser cannot
@@ -13177,6 +13457,16 @@ decode_again:
             if (j->req.api == API_ANTHROPIC && j->req.stream)
                 apply_anthropic_stream_tool_ids(&parsed_calls, &anthropic_live);
             assign_tool_call_ids(s, &parsed_calls, j->req.api);
+            if (j->req.model_syntax == SERVER_MODEL_SYNTAX_GLM &&
+                !text_repaired)
+            {
+                /* Only the untouched sampled bytes may be replayed verbatim:
+                 * a repaired truncation differs from what the live KV holds
+                 * and must keep going through canonical rendering. */
+                free(parsed_calls.raw_turn_text);
+                parsed_calls.raw_turn_text = glm_raw_turn_text(
+                    text.ptr, prompt_thinking_open(&j->req));
+            }
             tool_memory_remember(s, &parsed_calls);
             final_finish = "tool_calls";
         } else if (j->req.api == API_RESPONSES) {
@@ -16049,6 +16339,58 @@ static void test_openai_glm_tool_stream_suppresses_raw_tool_call(void) {
     close(sv[1]);
 }
 
+static void test_glm_tool_args_follow_schema_types(void) {
+    /* GLM writes every argument as <arg_value> text.  Non-string schema
+     * parameters must come back as JSON values, or clients reject the call
+     * ("args: must be object") and the model retries the same call forever. */
+    tool_schema_orders orders = {0};
+    tool_schema_orders_add_json(&orders,
+        "{\"name\":\"mcp\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+        "\"tool\":{\"type\":\"string\"},"
+        "\"args\":{\"type\":\"object\"},"
+        "\"limit\":{\"type\":\"integer\"},"
+        "\"flag\":{\"type\":[\"boolean\",\"null\"]},"
+        "\"items\":{\"items\":{\"type\":\"string\"}},"
+        "\"bad\":{\"type\":\"object\"},"
+        "\"content\":{\"type\":\"string\"},"
+        "\"either\":{\"type\":[\"string\",\"object\"]}}}}");
+    const char *raw =
+        "<tool_call>mcp"
+        "<arg_key>tool</arg_key><arg_value>tavily_search</arg_value>"
+        "<arg_key>args</arg_key><arg_value>{\"query\": \"x\", \"max_results\": 3}</arg_value>"
+        "<arg_key>limit</arg_key><arg_value>5</arg_value>"
+        "<arg_key>flag</arg_key><arg_value>true</arg_value>"
+        "<arg_key>items</arg_key><arg_value>[\"a\",\"b\"]</arg_value>"
+        "<arg_key>bad</arg_key><arg_value>{not json</arg_value>"
+        "<arg_key>content</arg_key><arg_value>{\"keep\":\"text\"}</arg_value>"
+        "<arg_key>either</arg_key><arg_value>{\"k\":1}</arg_value>"
+        "<arg_key>unknown</arg_key><arg_value>7</arg_value>"
+        "</tool_call>";
+    char *content = NULL;
+    char *reasoning = NULL;
+    tool_calls calls = {0};
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, raw, false, &content, &reasoning, &calls));
+    TEST_ASSERT(calls.len == 1);
+    if (calls.len == 1) {
+        glm_tool_calls_apply_schema_types(&calls, &orders);
+        const char *a = calls.v[0].arguments;
+        TEST_ASSERT(strstr(a, "\"tool\": \"tavily_search\"") != NULL);
+        TEST_ASSERT(strstr(a, "\"args\": {\"query\":\"x\",\"max_results\":3}") != NULL);
+        TEST_ASSERT(strstr(a, "\"limit\": 5") != NULL);
+        TEST_ASSERT(strstr(a, "\"flag\": true") != NULL);
+        TEST_ASSERT(strstr(a, "\"items\": [\"a\",\"b\"]") != NULL);
+        TEST_ASSERT(strstr(a, "\"bad\": \"{not json\"") != NULL);
+        TEST_ASSERT(strstr(a, "\"content\": \"{\\\"keep\\\":\\\"text\\\"}\"") != NULL);
+        TEST_ASSERT(strstr(a, "\"either\": \"{\\\"k\\\":1}\"") != NULL);
+        TEST_ASSERT(strstr(a, "\"unknown\": \"7\"") != NULL);
+    }
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+    tool_schema_orders_free(&orders);
+}
+
 static void test_openai_tool_stream_waits_for_incomplete_tool_tags(void) {
     int sv[2];
     TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
@@ -16681,6 +17023,12 @@ static void test_glm_raw_tool_call_keeps_sampled_line_separator(void) {
         "thinking</think>Visible text:\n\n"
         "<tool_call>bash<arg_key>command</arg_key>"
         "<arg_value>pwd</arg_value></tool_call>",
+        "thinking</think>Visible text:"
+        "<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>",
+        "thinking</think>"
+        "<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>",
     };
     request r;
     request_init(&r, REQ_CHAT, 128);
@@ -16705,8 +17053,8 @@ static void test_glm_raw_tool_call_keeps_sampled_line_separator(void) {
     }
     request_free(&r);
 
-    /* Tool-only non-thinking suffix builders begin with an empty buffer.  They
-     * still need the protocol separator before the raw tool block. */
+    /* Tool-only non-thinking suffix builders begin with an empty buffer.  A
+     * raw sampled block is still emitted verbatim: no synthesised separator. */
     tool_calls calls = {0};
     tool_call tc = {0};
     tc.name = xstrdup("bash");
@@ -16719,10 +17067,8 @@ static void test_glm_raw_tool_call_keeps_sampled_line_separator(void) {
     char *checkpoint = build_tool_checkpoint_suffix(&r, "", NULL, &calls);
     char *visible = build_responses_visible_assistant_suffix(
         &r, "", NULL, &calls);
-    TEST_ASSERT(checkpoint && checkpoint[0] == '\n');
-    TEST_ASSERT(visible && visible[0] == '\n');
-    TEST_ASSERT(!strcmp(checkpoint + 1, block));
-    TEST_ASSERT(!strcmp(visible + 1, block));
+    TEST_ASSERT(checkpoint && !strcmp(checkpoint, block));
+    TEST_ASSERT(visible && !strcmp(visible, block));
     free(checkpoint);
     free(visible);
     request_free(&r);
@@ -16737,6 +17083,16 @@ static void test_glm_raw_tool_call_full_replay_preserves_separators(void) {
         "thinking</think>Visible text:\n\n"
         "<tool_call>bash<arg_key>command</arg_key>"
         "<arg_value>pwd</arg_value></tool_call>",
+        /* Observed live on GLM-5.3: no reasoning, no separator at all. */
+        "</think><tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>",
+        /* Observed live on GLM-5.3: empty reasoning, single newline. */
+        "</think>\n<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>",
+        /* Whitespace around </think> and the text that the transcript trims. */
+        "thinking\n</think>\n\nVisible text\n\n"
+        "<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>\n",
     };
     for (size_t i = 0; i < sizeof(generated) / sizeof(generated[0]); i++) {
         char *content = NULL;
@@ -16750,13 +17106,19 @@ static void test_glm_raw_tool_call_full_replay_preserves_separators(void) {
         server s = {0};
         pthread_mutex_init(&s.tool_mu, NULL);
         assign_tool_call_ids(&s, &sampled, API_OPENAI);
+        sampled.raw_turn_text = glm_raw_turn_text(generated[i], true);
         tool_memory_remember(&s, &sampled);
 
         chat_msgs msgs = {0};
         chat_msg assistant = {0};
         assistant.role = xstrdup("assistant");
-        assistant.content = xstrdup(content ? content : "");
-        assistant.reasoning = xstrdup(reasoning ? reasoning : "");
+        /* Clients trim what they replay; the exact turn must not depend on it. */
+        buf trimmed = {0};
+        append_trimmed_text(&trimmed, content ? content : "");
+        assistant.content = buf_take(&trimmed);
+        buf trimmed_reasoning = {0};
+        append_trimmed_text(&trimmed_reasoning, reasoning ? reasoning : "");
+        assistant.reasoning = buf_take(&trimmed_reasoning);
         tool_call replay = {0};
         replay.id = xstrdup(sampled.v[0].id);
         replay.name = xstrdup(sampled.v[0].name);
@@ -16768,6 +17130,7 @@ static void test_glm_raw_tool_call_full_replay_preserves_separators(void) {
         tool_memory_attach_to_messages(&s, &msgs, &stats);
         TEST_ASSERT(stats.mem == 1);
         TEST_ASSERT(msgs.v[0].calls.raw_tool_text != NULL);
+        TEST_ASSERT(msgs.v[0].calls.raw_turn_text != NULL);
         char *prompt = render_chat_prompt_text_for_syntax(
             SERVER_MODEL_SYNTAX_GLM, &msgs, NULL, NULL, DS4_THINK_HIGH);
         buf expected = {0};
@@ -16786,6 +17149,96 @@ static void test_glm_raw_tool_call_full_replay_preserves_separators(void) {
         tool_memory_free(&s.tool_mem);
         pthread_mutex_destroy(&s.tool_mu);
     }
+}
+
+static void test_glm_raw_turn_non_thinking_prompt_is_normalised(void) {
+    /* A non-thinking prompt ends in <think></think>; generation starts after
+     * it.  The remembered turn must still begin right after <think>. */
+    const char *generated =
+        "<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>";
+    char *turn = glm_raw_turn_text(generated, false);
+    TEST_ASSERT(turn && !strncmp(turn, "</think><tool_call>", 19));
+    char *open_turn = glm_raw_turn_text(generated, true);
+    TEST_ASSERT(open_turn && !strcmp(open_turn, generated));
+    free(turn);
+    free(open_turn);
+}
+
+static void test_kv_tool_map_roundtrips_raw_turn(void) {
+    const char *dsml =
+        "<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>pwd</arg_value></tool_call>";
+    const char *turn = "</think>\n<tool_call>bash<arg_key>command</arg_key>"
+                       "<arg_value>pwd</arg_value></tool_call>";
+
+    server src = {0}, dst = {0};
+    pthread_mutex_init(&src.tool_mu, NULL);
+    pthread_mutex_init(&dst.tool_mu, NULL);
+    tool_memory_put_turn(&src, "call_turn", dsml, turn);
+
+    FILE *fp = tmpfile();
+    TEST_ASSERT(fp != NULL);
+    uint64_t estimated = 0, written = 0;
+    TEST_ASSERT(kv_tool_map_serialized_size(&src, dsml, &estimated));
+    TEST_ASSERT(kv_tool_map_write(&src, fp, dsml, &written));
+    TEST_ASSERT(written > 0 && estimated == written);
+    rewind(fp);
+    TEST_ASSERT(kv_tool_map_load_from_pos(&dst, fp, NULL) == 1);
+    fclose(fp);
+
+    chat_msgs msgs = {0};
+    chat_msg a = {0};
+    a.role = xstrdup("assistant");
+    tool_call tc = {.id = xstrdup("call_turn"), .name = xstrdup("bash"),
+                    .arguments = xstrdup("{\"command\":\"pwd\"}")};
+    tool_calls_push(&a.calls, tc);
+    chat_msgs_push(&msgs, a);
+    tool_replay_stats stats = {0};
+    tool_memory_attach_to_messages(&dst, &msgs, &stats);
+    TEST_ASSERT(stats.disk == 1);
+    TEST_ASSERT(msgs.v[0].calls.raw_turn_text &&
+                !strcmp(msgs.v[0].calls.raw_turn_text, turn));
+
+    /* A version-1 trailer (no turn column) still loads, without a turn. */
+    FILE *v1 = tmpfile();
+    TEST_ASSERT(v1 != NULL);
+    uint8_t h[KV_TOOL_MAP_HEADER] = {KV_TOOL_MAP_MAGIC0, KV_TOOL_MAP_MAGIC1,
+                                     KV_TOOL_MAP_MAGIC2, 1u};
+    le_put32(h + 4, 1);
+    uint8_t lens[8];
+    le_put32(lens, 7);
+    le_put32(lens + 4, (uint32_t)strlen(dsml));
+    TEST_ASSERT(fwrite(h, 1, sizeof(h), v1) == sizeof(h));
+    TEST_ASSERT(fwrite(lens, 1, sizeof(lens), v1) == sizeof(lens));
+    TEST_ASSERT(fwrite("call_v1", 1, 7, v1) == 7);
+    TEST_ASSERT(fwrite(dsml, 1, strlen(dsml), v1) == strlen(dsml));
+    rewind(v1);
+    server old = {0};
+    pthread_mutex_init(&old.tool_mu, NULL);
+    TEST_ASSERT(kv_tool_map_load_from_pos(&old, v1, NULL) == 1);
+    fclose(v1);
+    chat_msgs msgs_v1 = {0};
+    chat_msg b = {0};
+    b.role = xstrdup("assistant");
+    tool_call tb = {.id = xstrdup("call_v1"), .name = xstrdup("bash"),
+                    .arguments = xstrdup("{}")};
+    tool_calls_push(&b.calls, tb);
+    chat_msgs_push(&msgs_v1, b);
+    tool_replay_stats stats_v1 = {0};
+    tool_memory_attach_to_messages(&old, &msgs_v1, &stats_v1);
+    TEST_ASSERT(stats_v1.disk == 1);
+    TEST_ASSERT(msgs_v1.v[0].calls.raw_tool_text != NULL);
+    TEST_ASSERT(msgs_v1.v[0].calls.raw_turn_text == NULL);
+
+    chat_msgs_free(&msgs);
+    chat_msgs_free(&msgs_v1);
+    tool_memory_free(&src.tool_mem);
+    tool_memory_free(&dst.tool_mem);
+    tool_memory_free(&old.tool_mem);
+    pthread_mutex_destroy(&src.tool_mu);
+    pthread_mutex_destroy(&dst.tool_mu);
+    pthread_mutex_destroy(&old.tool_mu);
 }
 
 static void test_render_glm_groups_tool_results(void) {
@@ -20355,6 +20808,7 @@ static void ds4_server_unit_tests_run(void) {
     test_openai_chat_stream_splits_reasoning_without_tools();
     test_openai_tool_stream_sends_partial_arguments();
     test_openai_glm_tool_stream_suppresses_raw_tool_call();
+    test_glm_tool_args_follow_schema_types();
     test_openai_tool_stream_waits_for_incomplete_tool_tags();
     test_openai_tool_stream_sends_partial_raw_arguments();
     test_openai_tool_stream_holds_partial_dsml_entities();
@@ -20390,6 +20844,8 @@ static void ds4_server_unit_tests_run(void) {
     test_tool_memory_max_ids_prunes_oldest();
     test_kv_tool_map_filters_by_dsml_text();
     test_kv_tool_map_restores_before_prompt_render();
+    test_kv_tool_map_roundtrips_raw_turn();
+    test_glm_raw_turn_non_thinking_prompt_is_normalised();
     test_thinking_checkpoint_canonical_matches_future_prompt();
     test_glm_thinking_checkpoint_canonical_matches_future_prompt();
     test_thinking_canonical_empty_content();

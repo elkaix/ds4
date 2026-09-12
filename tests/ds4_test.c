@@ -6260,7 +6260,8 @@ static void test_mpp_summary_print(const test_mpp_eq_summary *summary) {
 
 static void test_run_mpp_candidate(const char *label,
                                    test_mpp_eq_case *cases,
-                                   int ncase) {
+                                   int ncase,
+                                   bool assert_thresholds) {
     fprintf(stderr, "ds4-test: Tensor equivalence candidate route=%s\n", label);
     test_mpp_eq_summary summary;
     test_mpp_summary_init(&summary, label);
@@ -6288,10 +6289,10 @@ static void test_run_mpp_candidate(const char *label,
                  * per-kernel accuracy (asserted by --metal-moe-ground-truth);
                  * bound the end-to-end drift instead of demanding greedy
                  * equality with one particular rounding pattern. */
-                const bool strict = tc->prompt.len < 32;
+                const bool strict = assert_thresholds && tc->prompt.len < 32;
                 test_mpp_eq_result result = test_compare_mpp_logits(tc, cand_logits, strict);
                 test_mpp_summary_note_logits(&summary, &result);
-                TEST_ASSERT(cand_gen_len == tc->ref_gen_len);
+                if (assert_thresholds) TEST_ASSERT(cand_gen_len == tc->ref_gen_len);
                 if (cand_gen_len != tc->ref_gen_len) summary.greedy_failures++;
                 for (int j = 0; j < tc->ref_gen_len && j < cand_gen_len; j++) {
                     if (cand_gen[j] != tc->ref_gen[j]) {
@@ -6302,7 +6303,7 @@ static void test_run_mpp_candidate(const char *label,
                     }
                     if (strict) TEST_ASSERT(cand_gen[j] == tc->ref_gen[j]);
                 }
-                if (!strict) {
+                if (assert_thresholds && !strict) {
                     TEST_ASSERT(result.nonfinite == 0);
                     TEST_ASSERT(result.top5_overlap >= 2);
                     /* Overlap floor 10 -> 9: the shared fp32-staged batched
@@ -6438,7 +6439,19 @@ static void test_metal_mpp_equivalence(void) {
     ds4_engine_close(ref_engine);
     test_restore_env("DS4_METAL_DISABLE_METAL4", saved_disable_metal4);
 
-    test_run_mpp_candidate("auto", cases, ncase);
+    test_run_mpp_candidate("auto", cases, ncase, true);
+
+    /*
+     * The automatic Metal 4 tensor enable is withheld on M5-class devices
+     * because the measured matmul2d accumulate drift fails the assertions
+     * above when the route is active.  Keep measuring the explicitly
+     * enabled tensor route in reporting mode so the gap to the reference
+     * stays visible in QA logs without gating the release on it.
+     */
+    char *saved_enable_tensor = test_save_env("DS4_METAL_ENABLE_TENSOR");
+    setenv("DS4_METAL_ENABLE_TENSOR", "1", 1);
+    test_run_mpp_candidate("tensor-optin", cases, ncase, false);
+    test_restore_env("DS4_METAL_ENABLE_TENSOR", saved_enable_tensor);
 
     for (int i = 0; i < ncase; i++) test_mpp_eq_case_free(&cases[i]);
 }
