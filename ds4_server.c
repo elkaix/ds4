@@ -20090,7 +20090,7 @@ static void test_glm_kv_tool_map_roundtrip_exact_blocks(void) {
         char *content = NULL, *reasoning = NULL;
         tool_calls sampled = {0};
         TEST_ASSERT(parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_GLM,
-                    generated.ptr, true, &content, &reasoning, &sampled));
+                    generated.ptr, true, &content, &reasoning, &sampled, NULL));
         TEST_ASSERT(sampled.len == (multiple ? 2 : 1));
         server src = {0}, dst = {0};
         pthread_mutex_init(&src.tool_mu, NULL);
@@ -21154,7 +21154,7 @@ static void test_deepseek41_server_tools(void) {
     append_dsml_tool_calls_text(&raw, &original, true);
     char *content = NULL, *reasoning = NULL;
     TEST_ASSERT(parse_generated_message_ex_for_syntax(SERVER_MODEL_SYNTAX_DEEPSEEK41,
-                raw.ptr, true, &content, &reasoning, &parsed));
+                raw.ptr, true, &content, &reasoning, &parsed, NULL));
     TEST_ASSERT(parsed.len == 1 && content && !content[0]);
     TEST_ASSERT(reasoning && !strcmp(reasoning, "Plan."));
     if (parsed.len == 1) {
