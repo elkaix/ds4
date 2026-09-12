@@ -5,8 +5,8 @@
 # Usage:
 #   ./run-glm-ds4.sh
 #   MONITOR_INTERVAL_SECONDS=30 ./run-glm-ds4.sh
-#   GLM_DS4_MODEL=~/models/gguf/GLM-5.3-Flash-ABLIT-Q2.gguf ./run-glm-ds4.sh
-# Fans run at verified maximum while ds4-server runs, then return to Apple auto.
+#   GLM_DS4_MODEL=~/models/gguf/GLM-5.3-Flash-Q2-imatrix.gguf ./run-glm-ds4.sh   # official/censored arm
+# Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 
 set -Eeuo pipefail
 
@@ -22,36 +22,63 @@ KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm-5.3-flash-uncen-q2}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
+# Continued-frontier snapshot interval. Every frontier is a full prefix file
+# (26.8-27.7 KiB/token, measured from the checkpoint headers in KV_DIR), and
+# older frontiers are only evicted when the budget fills. ds4 rounds the interval
+# up to a multiple of --kv-cache-boundary-align-tokens (2048); its default 10000
+# becomes 10240, which writes 21 files (~61 GiB) during one cold 218k prefill.
+# 20480 writes 10 (~29 GiB) at the cost of re-prefilling up to 20480 tokens on a
+# cold resume. 0 disables continued frontiers.
+KV_CONTINUED_INTERVAL="${GLM_DS4_KV_CONTINUED_INTERVAL:-20480}"
+KV_ALIGN_TOKENS=2048
 # Model-embedded GLM 5.3 MTP speculation. Required for the Metal width-2
 # verify fast path; set GLM_DS4_MTP=0 to fall back to plain decode.
 MTP="${GLM_DS4_MTP:-1}"
 # Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
 # perturbs the decode rate it measures, so leave it off for benchmarks.
 MTP_TIMING="${GLM_DS4_MTP_TIMING:-0}"
+# Context past which MTP speculation turns off (DS4_GLM_MTP_MAX_CTX). The
+# 2026-09-12 agent session on this machine decoded 22-32 t/s with MTP below
+# ~32K, 14-17 t/s with MTP at 47-63K, and 24-26 t/s plain right after the old
+# 65536 ceiling, so speculation stops paying near 32K. 0 removes the ceiling.
+MTP_MAX_CTX="${GLM_DS4_MTP_MAX_CTX:-32768}"
+# Optional ds4-server --trace file: per-request prompt/cache diagnostics,
+# including the first mismatching tokens on a live KV cache miss.
+TRACE_PATH="${GLM_DS4_TRACE:-}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
 THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
 FAN_COMMAND_TIMEOUT_SECONDS=5
-FAN_RAMP_TIMEOUT_SECONDS=20
 FAN_RESTORE_TIMEOUT_SECONDS=5
-FAN_RAMP_MIN_PERCENT=95
+FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
+FAN_WATCH_INTERVAL_SECONDS=2
 fan_max_owned=false
+fan_watch_pid=""
 
 usage() {
-    cat <<'EOF'
+    cat <<EOF
 Usage: ./run-glm-ds4.sh
 
-Starts the glm-5.3-flash branch ds4-server with GLM 5.3 Flash Uncensored Q2
-(orcarouter, ctx 262144) and prints health, throughput, process memory,
-KV disk-cache use, and free disk space.
-Fans run at maximum while the server runs and return to Apple auto when it stops.
+Starts the ds4-glm53 worktree ds4-server with GLM 5.3 Flash Uncensored Q2
+(orcarouter abliteration, IQ2_XXS+Q2_K, native MTP, ctx 262144) and prints
+health, throughput, process memory, KV disk-cache use, and free disk space.
+Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
+server runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
   GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-Q2.gguf)
+                              Official/censored arm: GLM-5.3-Flash-Q2-imatrix.gguf
+                              (pair it with GLM_DS4_KV_DIR -- the KV cache is per-quant)
   GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
+  GLM_DS4_KV_CONTINUED_INTERVAL=N
+                              Continued KV snapshot interval in tokens (default:
+                              20480; rounded up to a multiple of 2048; 0 disables)
+  FAN_PROFILE=name            thermalforge watch profile (default: balanced)
   GLM_DS4_MTP=0               Disable model-embedded MTP speculation
   GLM_DS4_MTP_TIMING=1        Print MTP acceptance/verify timing (diagnostic)
+  GLM_DS4_MTP_MAX_CTX=N       Turn MTP off past N context tokens (default 32768; 0 = never)
+  GLM_DS4_TRACE=path          Write ds4-server request/cache trace to path
 EOF
 }
 
@@ -68,6 +95,16 @@ if [[ ! $MONITOR_INTERVAL_SECONDS =~ ^[1-9][0-9]*$ || ${#MONITOR_INTERVAL_SECOND
     echo "MONITOR_INTERVAL_SECONDS must be an integer between 1 and 3600" >&2
     exit 2
 fi
+if [[ ! $MTP_MAX_CTX =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "GLM_DS4_MTP_MAX_CTX must be a non-negative integer, got: $MTP_MAX_CTX" >&2
+    exit 2
+fi
+export DS4_GLM_MTP_MAX_CTX="$MTP_MAX_CTX"
+
+if [[ ! $KV_CONTINUED_INTERVAL =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "GLM_DS4_KV_CONTINUED_INTERVAL must be a non-negative integer; got: $KV_CONTINUED_INTERVAL" >&2
+    exit 2
+fi
 
 for command in lsof macmon python3 ps sudo sysctl; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -78,7 +115,7 @@ done
 MACMON=$(command -v macmon)
 if [[ ! -x $SERVER_BIN ]]; then
     echo "Server binary not found or not executable: $SERVER_BIN" >&2
-    echo "Build it first with: git worktree add ../ds4-glm53 origin/glm-5.3-flash && make -C ../ds4-glm53 ds4-server" >&2
+    echo "Build it first with: make -C \"$GLM_DIR\" ds4-server" >&2
     exit 1
 fi
 if [[ ! -r $MODEL ]]; then
@@ -107,20 +144,18 @@ fi
 fan_control() {
     local action=$1
 
-    python3 - "$THERMALFORGE" "$MACMON" "$action" \
-        "$FAN_COMMAND_TIMEOUT_SECONDS" "$FAN_RAMP_MIN_PERCENT" <<'PY'
+    python3 - "$THERMALFORGE" "$action" "$FAN_COMMAND_TIMEOUT_SECONDS" <<'PY'
 import json
 import subprocess
 import sys
 
-path, macmon, action = sys.argv[1:4]
-timeout = int(sys.argv[4])
-minimum_fraction = int(sys.argv[5]) / 100
-valid_actions = {"probe", "max", "auto", "status", "verify-max", "verify-auto"}
+path, action = sys.argv[1:3]
+timeout = int(sys.argv[3])
+valid_actions = {"probe", "auto", "status", "verify-auto"}
 if action not in valid_actions:
     raise SystemExit(f"unsupported fan action: {action}")
 
-command_action = action if action in {"max", "auto"} else "status"
+command_action = "auto" if action == "auto" else "status"
 # ThermalForge's privileged daemon (com.thermalforge.daemon, installed by
 # `sudo thermalforge install`) owns the SMC writes, so the CLI needs no sudo.
 command = [path, command_action]
@@ -141,7 +176,7 @@ if result.returncode != 0:
     detail = (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
     print(f"fan command failed ({command_action}): {detail}", file=sys.stderr)
     raise SystemExit(1)
-if action in {"max", "auto"}:
+if action == "auto":
     raise SystemExit(0)
 
 try:
@@ -163,86 +198,54 @@ if action == "probe":
         print(f"fans must begin in Apple auto mode; found: {sorted(modes)}", file=sys.stderr)
         raise SystemExit(1)
     raise SystemExit(0)
-if action == "verify-auto":
-    raise SystemExit(0 if modes <= {"auto", "automatic", "default"} else 1)
-
-for fan in fans:
-    try:
-        target = int(fan["target_rpm"])
-        maximum = int(fan["max_rpm"])
-    except (KeyError, TypeError, ValueError):
-        raise SystemExit(1)
-    if (
-        str(fan.get("mode", "")).lower() != "manual"
-        or maximum <= 0
-        or target < maximum * 0.98
-    ):
-        raise SystemExit(1)
-
-try:
-    sample = subprocess.run(
-        [macmon, "pipe", "--samples", "1", "--interval", "250"],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit(1)
-if sample.returncode != 0:
-    raise SystemExit(1)
-try:
-    samples = [line for line in sample.stdout.splitlines() if line.strip()]
-    hardware_fans = json.loads(samples[-1])["fans"]
-    if not isinstance(hardware_fans, list) or len(hardware_fans) != len(fans):
-        raise ValueError("fan count mismatch")
-except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-    raise SystemExit(1)
-for fan in hardware_fans:
-    try:
-        actual = int(fan["rpm"])
-        maximum = int(fan["max_rpm"])
-    except (KeyError, TypeError, ValueError):
-        raise SystemExit(1)
-    if maximum <= 0 or actual < maximum * minimum_fraction:
-        raise SystemExit(1)
-
-summary = " ".join(
-    f"{fan.get('name', 'fan?')}={int(fan['rpm'])}/{int(fan['max_rpm'])}RPM"
-    for fan in hardware_fans
-)
-print(summary)
+# Only verify-auto reaches here; probe and status exit above.
+raise SystemExit(0 if modes <= {"auto", "automatic", "default"} else 1)
 PY
 }
 
 set_fans_max() {
-    local deadline fan_status
-
-    # The controller may apply the write before reporting failure, so cleanup
-    # owns restoration from the moment the privileged command starts.
+    # Name kept for the call site; runs `thermalforge watch --profile $FAN_PROFILE`,
+    # which drives the fans from CPU/GPU temperature instead of pinning them at max.
+    # The controller may apply a write before we can check, so cleanup owns
+    # restoration from the moment the watcher starts.
     fan_max_owned=true
-    fan_control max || return 1
-    deadline=$((SECONDS + FAN_RAMP_TIMEOUT_SECONDS))
-    while ((SECONDS < deadline)); do
-        if [[ -n ${server_pid:-} ]] && ! kill -0 "$server_pid" 2>/dev/null; then
-            echo "ds4-server stopped while fans were ramping." >&2
-            return 1
-        fi
-        if fan_status=$(fan_control verify-max 2>/dev/null); then
-            echo "Fans at maximum: $fan_status"
+    # A watcher from a launcher that is still tearing down can make the new one
+    # exit at once (observed on a back-to-back restart), so try twice.
+    local attempt
+    for attempt in 1 2; do
+        "$THERMALFORGE" watch --profile "$FAN_PROFILE" --interval "$FAN_WATCH_INTERVAL_SECONDS" \
+            >/dev/null 2>&1 &
+        fan_watch_pid=$!
+        sleep 2
+        if kill -0 "$fan_watch_pid" 2>/dev/null; then
+            echo "Fans under ThermalForge '$FAN_PROFILE' profile (watch pid $fan_watch_pid)."
             return 0
         fi
-        sleep 1
+        fan_watch_pid=""
+        echo "thermalforge watch --profile $FAN_PROFILE exited immediately (attempt $attempt)." >&2
+        sleep 3
     done
-    echo "Fans did not reach ${FAN_RAMP_MIN_PERCENT}% of maximum within ${FAN_RAMP_TIMEOUT_SECONDS}s." >&2
-    fan_control status >&2 || true
     return 1
+}
+
+stop_fan_watch() {
+    local deadline
+    [[ -n $fan_watch_pid ]] || return 0
+    if kill -0 "$fan_watch_pid" 2>/dev/null; then
+        kill -INT "$fan_watch_pid" 2>/dev/null || true
+        deadline=$((SECONDS + FAN_RESTORE_TIMEOUT_SECONDS))
+        while ((SECONDS < deadline)) && kill -0 "$fan_watch_pid" 2>/dev/null; do sleep 1; done
+        kill -0 "$fan_watch_pid" 2>/dev/null && kill -KILL "$fan_watch_pid" 2>/dev/null || true
+    fi
+    wait "$fan_watch_pid" 2>/dev/null || true
+    fan_watch_pid=""
 }
 
 restore_fans() {
     local deadline attempt
 
     [[ $fan_max_owned == true ]] || return 0
+    stop_fan_watch
     echo "Restoring fans to Apple automatic control..." >&2
     for ((attempt = 1; attempt <= 3; attempt++)); do
         if fan_control auto; then
@@ -270,7 +273,7 @@ if ! fan_control probe; then
 fi
 
 if ! wired_limit_mb=$(sysctl -n iogpu.wired_limit_mb 2>/dev/null); then
-    echo "Could not read iogpu.wired_limit_mb; refusing to start the 90 GB model." >&2
+    echo "Could not read iogpu.wired_limit_mb; refusing to start the model." >&2
     exit 1
 fi
 if [[ ! $wired_limit_mb =~ ^[0-9]+$ ]]; then
@@ -414,7 +417,6 @@ interval = int(sys.argv[6])
 fan_controller = sys.argv[7]
 fan_command_timeout = int(sys.argv[8])
 macmon = sys.argv[9]
-fan_minimum_fraction = int(sys.argv[10]) / 100
 base_url = f"http://{host}:{port}"
 ever_healthy = False
 log_path = os.path.expanduser("~/.ds4/monitor.log")
@@ -487,19 +489,17 @@ def fan_snapshot():
         payload = json.loads(lines[-1]) if result.returncode == 0 and lines else {}
         fans = payload.get("fans") if isinstance(payload, dict) else None
         if not isinstance(fans, list) or not fans:
-            return "-", None
+            return "-"
         values = []
-        at_max = True
         for fan in fans:
             actual = int(fan["rpm"])
             maximum = int(fan["max_rpm"])
             if maximum <= 0:
-                return "-", None
+                return "-"
             values.append("{}={}/{}".format(fan.get("name", "fan?"), actual, maximum))
-            at_max = at_max and actual >= maximum * fan_minimum_fraction
-        return ",".join(values) + "RPM", at_max
+        return ",".join(values) + "RPM"
     except (IndexError, KeyError, OSError, TypeError, ValueError, subprocess.SubprocessError):
-        return "-", None
+        return "-"
 
 
 def cache_size():
@@ -535,6 +535,8 @@ def restore_fans_after_server():
     """Hard-kill fallback: this monitor survives independently of the wrapper."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     emit(f"[monitor {timestamp}] fans=restore-attempt reason=server-stopped")
+    # Stop any thermalforge watch profile the wrapper left behind before resetting.
+    subprocess.run(["pkill", "-INT", "-f", "thermalforge watch"], check=False, capture_output=True)
     try:
         reset = subprocess.run(
             [fan_controller, "auto"],
@@ -613,7 +615,7 @@ while server_alive():
         )
 
     cpu_percent, memory_percent, rss_kib = process_stats()
-    fan_status, fans_at_max = fan_snapshot()
+    fan_status = fan_snapshot()
     used_bytes = cache_size()
     used_gib = used_bytes / (1024 ** 3)
     budget_gib = budget_bytes / (1024 ** 3)
@@ -622,8 +624,6 @@ while server_alive():
     warnings = []
     if cache_percent >= 90:
         warnings.append("kv-cache-near-full")
-    if ever_healthy and fans_at_max is False:
-        warnings.append("fans-below-max")
     warning = "".join(f" warning={value}" for value in warnings)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -650,10 +650,21 @@ except OSError:
     pass
 ' "$watched_pid" "$HOST" "$PORT" "$KV_DIR" "$KV_BUDGET_MB" \
         "$MONITOR_INTERVAL_SECONDS" "$THERMALFORGE" \
-        "$FAN_COMMAND_TIMEOUT_SECONDS" "$MACMON" \
-        "$FAN_RAMP_MIN_PERCENT" &
+        "$FAN_COMMAND_TIMEOUT_SECONDS" "$MACMON" &
     monitor_pid=$!
 }
+
+# Report the interval ds4 actually uses after its alignment rounding.
+if (( KV_CONTINUED_INTERVAL == 0 )); then
+    kv_continued_state="disabled"
+else
+    kv_continued_state="every $(( (KV_CONTINUED_INTERVAL + KV_ALIGN_TOKENS - 1) / KV_ALIGN_TOKENS * KV_ALIGN_TOKENS )) tokens"
+fi
+
+TRACE_ARGS=()
+if [[ -n $TRACE_PATH ]]; then
+    TRACE_ARGS+=(--trace "$TRACE_PATH")
+fi
 
 MTP_ARGS=()
 if [[ $MTP != 0 ]]; then
@@ -703,19 +714,20 @@ else
 fi
 
 cat <<EOF
-Starting monitored ds4-server (GLM 5.3 Flash Uncensored Q2)
+Starting monitored ds4-server (GLM 5.3 Flash Q2)
   model:      $MODEL
   endpoint:   http://$HOST:$PORT
   context:    $CTX
   max tokens: $TOKENS
-  KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)
+  KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens, continued ${kv_continued_state})
   build:      ${ds4_branch:-unknown} @ ${ds4_commit:-unknown}
   repo:       $ds4_tree (code: $ds4_code)
   binary:     $binary_state, built $binary_stamp
   model file: $model_stamp
-  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp, width 2)"; else echo "disabled"; fi)$(if [[ $MTP != 0 && $MTP_TIMING != 0 ]]; then echo " + timing (--mtp-timing)"; fi)
+  MTP:        $(if [[ $MTP != 0 ]]; then echo "enabled (--mtp, width 2, off past $(if [[ $MTP_MAX_CTX == 0 ]]; then echo "no ceiling"; else echo "$MTP_MAX_CTX tokens"; fi))"; else echo "disabled"; fi)$(if [[ $MTP != 0 && $MTP_TIMING != 0 ]]; then echo " + timing (--mtp-timing)"; fi)
+  trace:      ${TRACE_PATH:-off}
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
-  fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
+  fans:       ThermalForge '$FAN_PROFILE' profile (temperature-driven); Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB
 
 Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
@@ -731,18 +743,20 @@ os.execv(sys.argv[2], sys.argv[2:])
 ' "$GLM_DIR" "$SERVER_BIN" --metal \
     --model "$MODEL" \
     ${MTP_ARGS[@]+"${MTP_ARGS[@]}"} \
+    ${TRACE_ARGS[@]+"${TRACE_ARGS[@]}"} \
     --ctx "$CTX" --tokens "$TOKENS" \
     --power 100 \
     --host "$HOST" --port "$PORT" \
     --kv-disk-dir "$KV_DIR" --kv-disk-space-mb "$KV_BUDGET_MB" \
     --kv-cache-min-tokens "$KV_MIN_TOKENS" \
     --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS" \
+    --kv-cache-continued-interval-tokens "$KV_CONTINUED_INTERVAL" \
     --kv-cache-reject-different-quant &
 server_pid=$!
 
 start_monitor "$server_pid"
 if ! set_fans_max; then
-    echo "Verified maximum fan speed is required; stopping ds4-server." >&2
+    echo "ThermalForge fan profile could not be started; stopping ds4-server." >&2
     exit 1
 fi
 
