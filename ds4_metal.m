@@ -36432,10 +36432,12 @@ int ds4_gpu_dsv41_indexer_scores_batch(ds4_gpu_tensor *scores,
 static bool ds4_gpu_glm53_tuning_available(void) {
     /* Defaults have been measured and checked for exactness on M3 Ultra only.
      * Test mode can exercise the same kernels on smaller fixtures; ownership
-     * exclusions still apply so it cannot silently turn on TP or streaming. */
+     * exclusions still apply so it cannot silently turn on TP or streaming.
+     * DS4_METAL_GLM53_TUNING_ANY_DEVICE=1 opts other devices in for A/B runs. */
     return !g_ssd_streaming_mode && g_tp_split_world == 1 &&
         ((g_test_flags & DS4_GPU_TEST_GLM53_PREFILL) != 0u ||
-         [g_device.name isEqualToString:@"Apple M3 Ultra"]);
+         [g_device.name isEqualToString:@"Apple M3 Ultra"] ||
+         getenv("DS4_METAL_GLM53_TUNING_ANY_DEVICE") != NULL);
 }
 
 int ds4_gpu_glm_qk_lowrank_typed_tensor(
