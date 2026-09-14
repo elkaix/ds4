@@ -48385,7 +48385,10 @@ int ds4_gpu_qwen4_attn_decode_tensor(
     } else {
         b[7] = b[6];
     }
-    if (n_splits == 1 && n_tokens > 2u && head_dim == 256u && n_head / n_head_kv <= 16u &&
+    /* Keep short prefill tails on the decode arithmetic. Rounding queries
+     * to half for just a few rows can flip nearly tied expert selections
+     * relative to one-token continuation; large prefills retain matrix tiles. */
+    if (n_splits == 1 && n_tokens > 8u && head_dim == 256u && n_head / n_head_kv <= 16u &&
         getenv("DS4_QWEN4_NO_ATTN_MM") == NULL) {
         return qwen4_dispatch(QWEN4_K_ATTN_MM, &args, sizeof(args), b, 7,
                               MTLSizeMake(n_head_kv, n_tokens, 1), MTLSizeMake(128, 1, 1), 0);

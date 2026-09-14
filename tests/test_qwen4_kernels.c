@@ -895,6 +895,7 @@ static void test_attn_mm(uint32_t T, uint32_t pos0, bool sparse) {
     char name[96];
     snprintf(name, sizeof(name), "attn mm T=%u pos0=%u %s", T, pos0, sparse ? "sparse" : "dense");
     require_ok(worst <= 4e-3 * scale, name);
+    if (T <= 8u) require_ok(worst == 0.0, "short attention tails keep decode arithmetic");
     printf("  %-44s ok  max|d|=%.2e (scale %.2e)\n", name, worst, scale);
     free(ref); free(got); free(q); free(gate); free(kc); free(vc); free(sel); free(cnt);
     ds4_gpu_tensor_free(gq); ds4_gpu_tensor_free(ggate); ds4_gpu_tensor_free(gk); ds4_gpu_tensor_free(gv);
@@ -3115,6 +3116,9 @@ int main(void) {
     test_attn_mm(40, 0, false);
     test_attn_mm(37, 3000, true);
     test_attn_mm(3, 100, true);
+    test_attn_mm(4, 128, false);
+    test_attn_mm(8, 128, false);
+    test_attn_mm(9, 128, false);
     test_gdn(&arena, 2, 6, 32, 7);
     printf("ple\n");
     test_ple(&arena, 2560, 3);
