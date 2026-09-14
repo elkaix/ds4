@@ -5,7 +5,6 @@
 # Usage:
 #   ./run-glm-ds4.sh
 #   MONITOR_INTERVAL_SECONDS=30 ./run-glm-ds4.sh
-#   GLM_DS4_MODEL=~/models/gguf/GLM-5.3-Flash-Q2-imatrix.gguf ./run-glm-ds4.sh   # official/censored arm
 # Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 
 set -Eeuo pipefail
@@ -13,12 +12,12 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 GLM_DIR="${GLM_DS4_DIR:-$ROOT_DIR/../ds4-glm53}"
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf}"
+MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf}"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm-5.3-flash-uncen-q2}"
+KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm-5.3-flash-uncen-d21b-l17-18-19q4k}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -60,15 +59,14 @@ usage() {
 Usage: ./run-glm-ds4.sh
 
 Starts the ds4-glm53 worktree ds4-server with GLM 5.3 Flash Uncensored Q2
-(orcarouter abliteration, IQ2_XXS+Q2_K, native MTP, ctx 262144) and prints
+(dealignai d21b uncensored, IQ2_XXS+Q2_K with layers 17-19 experts Q4_K, native MTP, ctx 262144) and prints
 health, throughput, process memory, KV disk-cache use, and free disk space.
 Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
 server runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
-  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-Q2.gguf)
-                              Official/censored arm: GLM-5.3-Flash-Q2-imatrix.gguf
+  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf)
                               (pair it with GLM_DS4_KV_DIR -- the KV cache is per-quant)
   GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
   GLM_DS4_KV_CONTINUED_INTERVAL=N

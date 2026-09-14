@@ -286,6 +286,14 @@ than a failure. `--dspark-strict` remains the byte-identical target-only mode.
   measured 44.46 t/s ordinary and 41.66 t/s opportunistic. DSpark remains
   opt-in because prompts with little useful speculation can still be slower.
 
+- On M5-class hardware, run the Metal 4 tensor-route gate with a checkpoint
+  whose prompts exercise multi-token prefill:
+  `DS4_TEST_MODEL=gguf/GLM-5.3-Flash-Q2.gguf
+  DS4_TEST_VECTOR_FILE=tests/test-vectors/glm-openrouter/official.vec
+  ./ds4_test --metal-tensor-equivalence`.
+  The `auto` route must pass; the `tensor-optin` report line documents the
+  still-open driver accumulate gap on M5 without gating the release.
+
 ### Session Microbatching And Metal TP
 
 Run these gates whenever session scheduling, batched decode, mixed
