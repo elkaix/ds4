@@ -1169,6 +1169,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         }
         unlink(tmp);
     } else {
+        kc->last_store_bytes = DS4_KVSTORE_FIXED_HEADER + 4ull + text_len + payload_bytes + trailer_bytes;
         kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
                 "%s: kv cache stored tokens=%d trimmed=%d reason=%s key=%s size=%.2f MiB save=%.1f ms",
                 kv_log_name(kc),

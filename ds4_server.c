@@ -10530,8 +10530,7 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
     }
     pthread_mutex_lock(&s->kv_mu);
     const double store_t0 = now_sec();
-    uint64_t bytes_before = 0;
-    for (int i = 0; i < s->kv.len; i++) bytes_before += s->kv.entry[i].file_size;
+    s->kv.last_store_bytes = 0;
     bool ok = ds4_kvstore_store_live_prefix_text(&s->kv, s->engine,
                                                   slot->session,
                                                   tokens, store_len, reason,
@@ -10539,8 +10538,7 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
                                                   cache_text_ext,
                                                   cache_text_key,
                                                   &hooks, err, sizeof(err));
-    uint64_t bytes_after = 0;
-    for (int i = 0; i < s->kv.len; i++) bytes_after += s->kv.entry[i].file_size;
+    const uint64_t store_bytes = s->kv.last_store_bytes;
     const uint64_t store_ns = (uint64_t)((now_sec() - store_t0) * 1e9);
     pthread_mutex_unlock(&s->kv_mu);
     pthread_mutex_unlock(&s->inference_mu);
@@ -10550,9 +10548,7 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
     if (ok) {
         __atomic_add_fetch(&s->stats.checkpoint_saves, 1, __ATOMIC_RELAXED);
         __atomic_add_fetch(&s->stats.checkpoint_save_ns, store_ns, __ATOMIC_RELAXED);
-        if (bytes_after > bytes_before)
-            __atomic_add_fetch(&s->stats.checkpoint_save_bytes,
-                               bytes_after - bytes_before, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&s->stats.checkpoint_save_bytes, store_bytes, __ATOMIC_RELAXED);
     }
     return ok;
 }

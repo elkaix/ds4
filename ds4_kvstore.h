@@ -78,6 +78,7 @@ typedef struct {
     int continued_last_store_tokens;
     ds4_kvstore_entry *entry;
     int len;
+    uint64_t last_store_bytes; /* size of the most recent successful store */
     int cap;
     const char *log_name;
     void *log_ud;
