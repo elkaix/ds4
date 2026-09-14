@@ -2172,11 +2172,9 @@ static void agent_qwen_tool_parse(agent_dsml_parser *p) {
         const char *end = p->raw + p->raw_len;
         if (p->state == AGENT_DSML_PARAM_VALUE) {
             const char *value_end = strstr(raw + p->param_value_start, param_close);
-            if (!value_end) {
-                const char *call_end = strstr(raw + p->param_value_start, close);
-                if (call_end) agent_dsml_set_error(p, "unterminated <parameter> in Qwen tool call");
-                return;
-            }
+            /* The value may contain literal tool/reasoning tags. Wait for
+             * its own delimiter; an unfinished value is rejected at EOF. */
+            if (!value_end) return;
             const char *vs = raw + p->param_value_start;
             const char *ve = value_end;
             if (vs < ve && *vs == '\n') vs++;
@@ -7594,6 +7592,25 @@ static void test_agent_qwen_stream_tool_call_chunked(void) {
     agent_dsml_parser_free(&p);
 }
 
+static void test_agent_qwen_argument_markers_bytewise(void) {
+    const char *raw = "<tool_call><function=write><parameter=content>\n"
+        "literal </tool_call> </think> <think>\n"
+        "</parameter></function></tool_call>";
+    agent_dsml_parser p = {.syntax = AGENT_TOOL_SYNTAX_QWEN, .state = AGENT_DSML_SEARCH};
+    for (size_t i = 0; raw[i]; i++) {
+        agent_dsml_feed(&p, raw + i, 1);
+        AGENT_TEST_ASSERT(p.state != AGENT_DSML_ERROR);
+        if (p.state == AGENT_DSML_ERROR) break;
+    }
+    agent_dsml_finish(&p);
+    AGENT_TEST_ASSERT(p.state == AGENT_DSML_DONE);
+    AGENT_TEST_ASSERT(p.calls.len == 1);
+    if (p.calls.len == 1)
+        AGENT_TEST_ASSERT(!strcmp(agent_tool_arg_value(&p.calls.v[0], "content"),
+            "literal </tool_call> </think> <think>"));
+    agent_dsml_parser_free(&p);
+}
+
 static void test_agent_glm_tool_parser_single_arg(void) {
     const char *text =
         "prose before <tool_call>list"
@@ -8083,6 +8100,7 @@ static void ds4_agent_unit_tests_run(void) {
     test_agent_qwen_tool_parser_chunked_multi_arg();
     test_agent_qwen_tool_parser_two_calls_and_error();
     test_agent_qwen_stream_tool_call_chunked();
+    test_agent_qwen_argument_markers_bytewise();
     test_agent_glm_stream_ignores_tool_inside_think();
     test_agent_glm_stream_greedy_sampling_boundaries();
     test_agent_dsml_stream_tool_call_chunked();

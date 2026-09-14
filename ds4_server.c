@@ -6257,7 +6257,7 @@ static bool parse_qwen_generated_message_ex(const char *text,
     const char *tool_search = text;
     bool recovered_unclosed_tool = false;
     if (require_thinking_closed) {
-        const char *think_end = find_last_substr(text, "</think>");
+        const char *think_end = find_tool_structural_text(text, "</think>", true);
         if (!think_end) {
             const char *candidate = strstr(text, tool_start);
             if (!candidate || !strstr(candidate, tool_end)) {
@@ -17550,7 +17550,7 @@ static void test_parse_qwen_tool_call_message(void) {
 static void test_qwen_literal_tool_end_in_argument(void) {
     const char *block =
         "<tool_call>\n<function=write>\n<parameter=content>\n"
-        "literal </tool_call> and <tool_call> with ‘quotes’ and “quotes”\n"
+        "literal </tool_call> and <tool_call> and </think> with ‘quotes’ and “quotes”\n"
         "</parameter>\n<parameter=path>\n/tmp/markers.txt\n</parameter>\n"
         "</function>\n</tool_call>\n"
         "<tool_call>\n<function=read>\n<parameter=path>\n/tmp/markers.txt\n"
@@ -17578,7 +17578,7 @@ static void test_qwen_literal_tool_end_in_argument(void) {
         }
         TEST_ASSERT(!strcmp(calls.v[0].name, "write"));
         TEST_ASSERT(strstr(calls.v[0].arguments,
-            "\"content\": \"literal </tool_call> and <tool_call> with ‘quotes’ and “quotes”\"") != NULL);
+            "\"content\": \"literal </tool_call> and <tool_call> and </think> with ‘quotes’ and “quotes”\"") != NULL);
         TEST_ASSERT(strstr(calls.v[0].arguments, "\"path\": \"/tmp/markers.txt\"") != NULL);
         TEST_ASSERT(!strcmp(calls.v[1].name, "read"));
         TEST_ASSERT(calls.raw_tool_text && strstr(calls.raw_tool_text, block));
