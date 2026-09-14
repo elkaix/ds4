@@ -141,6 +141,8 @@ extern "C" void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes) 
     (void)bytes;
 }
 
+extern "C" uint64_t ds4_gpu_current_allocated_size(void) { return 0; }
+extern "C" int ds4_gpu_thermal_state(void) { return -1; }
 extern "C" uint64_t ds4_gpu_recommended_working_set_size(void) {
     size_t free_b = 0;
     size_t total_b = 0;

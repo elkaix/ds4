@@ -548,12 +548,27 @@ int ds4_session_tp_spec_cycle(ds4_session *s, const int *drafts, int draft_n,
 void ds4_session_invalidate(ds4_session *s);
 /* Active Metal matmul route: "auto" (reference kernels) or "tensor-optin". */
 const char *ds4_gpu_tensor_route_name(void);
+uint64_t ds4_gpu_recommended_working_set_size(void);
+uint64_t ds4_gpu_current_allocated_size(void);
+int ds4_gpu_thermal_state(void);
 bool ds4_session_can_rewind(ds4_session *s, int pos);
 /* Keep the token prefix, restoring recurrent state where possible. Otherwise
  * the checkpoint becomes invalid: sync the retained prefix before eval.
  * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
 int ds4_session_pos(ds4_session *s);
+
+/* LOCAL PATCH: GLM MTP configuration plus cumulative per-session cycle
+ * counters (ms totals; divide by cycles for per-cycle means). */
+typedef struct {
+    bool enabled;      /* --mtp given */
+    bool active;       /* enabled and below the context ceiling */
+    uint32_t max_ctx;  /* 0 = no ceiling */
+    int pos;           /* current session position */
+    uint64_t cycles, accepted, committed, rows_cycles, batch_cycles;
+    double setup_ms, verify_ms, rollback_ms, draft_ms, total_ms;
+} ds4_glm_mtp_stats;
+void ds4_session_glm_mtp_stats(ds4_session *s, ds4_glm_mtp_stats *out);
 int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);
 int ds4_engine_routed_quant_bits(ds4_engine *e);

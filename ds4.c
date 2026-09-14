@@ -1298,6 +1298,9 @@ static void ds4_timing_memory(double *footprint_gib, double *swap_used_gib) {
 
 #ifdef DS4_NO_GPU
 const char *ds4_gpu_tensor_route_name(void) { return "cpu"; }
+uint64_t ds4_gpu_recommended_working_set_size(void) { return 0; }
+uint64_t ds4_gpu_current_allocated_size(void) { return 0; }
+int ds4_gpu_thermal_state(void) { return -1; }
 #endif
 
 static double now_sec(void) {
@@ -54762,6 +54765,7 @@ struct ds4_session {
     int glm_mtp_rollback_first_token;
     int glm_spec_inside;
     bool glm_mtp_ctx_gated;
+    ds4_glm_mtp_stats glm_mtp_stats;
     uint32_t glm_mtp_min_pos;
     float *glm_mtp_hc;
     float *glm_mtp_logits0;
@@ -66646,7 +66650,7 @@ static int ds4_session_glm_spec_cycle_inner(
         return 1;
     }
 
-    const double t0 = timing ? now_sec() : 0.0;
+    const double t0 = now_sec();
     s->glm_mtp_have = 0;
     const int d = s->glm_mtp_draft;
     int toks[2] = { first_token, d };
@@ -66697,7 +66701,7 @@ static int ds4_session_glm_spec_cycle_inner(
         s->checkpoint_valid = false;
         return -1;
     }
-    const double t1 = timing ? now_sec() : 0.0;
+    const double t1 = now_sec();
     /* Row0 logits through the shared head. */
     if (!glm_graph_mtp_ensure(g)) {
         if (g->glm53 && kda_saved) {
@@ -66821,7 +66825,7 @@ static int ds4_session_glm_spec_cycle_inner(
         const bool keep_discarded_head = keep_env && keep_env[0] == '1';
         int discarded = -1;
         ds4_gpu_tensor *target_hidden = g->glm53 ? g->hc_cur : g->cur;
-        const double draft_t0 = timing ? now_sec() : 0.0;
+        const double draft_t0 = now_sec();
         const bool cu =
             ds4_gpu_tensor_write(target_hidden, 0, s->glm_mtp_hc,
                                  hc_row_bytes) != 0 &&
@@ -66834,7 +66838,7 @@ static int ds4_session_glm_spec_cycle_inner(
                                  hc_row_bytes) != 0 &&
             glm_graph_mtp_step(g, &e->model, &e->weights, n2, pos + 1u,
                                s->glm_mtp_min_pos, &nd);
-        if (timing) draft_ms += (now_sec() - draft_t0) * 1000.0;
+        draft_ms += (now_sec() - draft_t0) * 1000.0;
         if (cu) {
             s->glm_mtp_draft = nd;
             s->glm_mtp_parent = n2;
@@ -66843,7 +66847,7 @@ static int ds4_session_glm_spec_cycle_inner(
         accepted[0] = first_token;
         accepted[1] = d;
     } else {
-        const double rollback_t0 = timing ? now_sec() : 0.0;
+        const double rollback_t0 = now_sec();
         bool replay_ok = true;
         if (g->glm53 && kda_prefix_saved) {
             /* The verify already computed row 0 and snapshotted the KDA
@@ -66876,7 +66880,7 @@ static int ds4_session_glm_spec_cycle_inner(
             s->checkpoint_valid = false;
             return -1;
         }
-        if (timing) rollback_ms = (now_sec() - rollback_t0) * 1000.0;
+        rollback_ms = (now_sec() - rollback_t0) * 1000.0;
         if (exact_sampling) {
             if (!glm_graph_forward_token(g,
                                          &e->model,
@@ -66900,7 +66904,7 @@ static int ds4_session_glm_spec_cycle_inner(
             const int next = glm_spec_argmax(s, s->logits, ignore_eos, think_mode);
             int nd = -1;
             s->glm_mtp_have = 0;
-            const double draft_t0 = timing ? now_sec() : 0.0;
+            const double draft_t0 = now_sec();
             if (replacement != eos_token &&
                 glm_graph_mtp_step(g,
                                    &e->model,
@@ -66913,7 +66917,7 @@ static int ds4_session_glm_spec_cycle_inner(
                 s->glm_mtp_parent = next;
                 s->glm_mtp_have = 1;
             }
-            if (timing) draft_ms += (now_sec() - draft_t0) * 1000.0;
+            draft_ms += (now_sec() - draft_t0) * 1000.0;
         } else if (!g->glm53 || !kda_prefix_saved) {
             ds4_session_glm_note_dense_cache(s, pos, 1);
         }
@@ -66924,19 +66928,31 @@ static int ds4_session_glm_spec_cycle_inner(
                                  0,
                                  s->glm_mtp_hc,
                                  hc_row_bytes) != 0;
-        const double draft_t0 = timing ? now_sec() : 0.0;
+        const double draft_t0 = now_sec();
         const bool cu = !exact_sampling && hidden_ready &&
             glm_graph_mtp_step(g, &e->model, &e->weights, n1, pos,
                                s->glm_mtp_min_pos, &nd);
-        if (timing && !exact_sampling) {
-            draft_ms += (now_sec() - draft_t0) * 1000.0;
-        }
+        if (!exact_sampling) draft_ms += (now_sec() - draft_t0) * 1000.0;
         if (cu) {
             s->glm_mtp_draft = nd;
             s->glm_mtp_parent = n1;
             s->glm_mtp_have = 1;
         }
         if (!exact_sampling) accepted[0] = first_token;
+    }
+    {
+        /* LOCAL PATCH: per-session MTP cycle accounting for /stats. */
+        const double t2 = now_sec();
+        ds4_glm_mtp_stats *ms = &s->glm_mtp_stats;
+        ms->cycles++;
+        ms->accepted += accept ? 1u : 0u;
+        ms->committed += (uint64_t)n_committed;
+        if (verify_path[0] == 'r') ms->rows_cycles++; else ms->batch_cycles++;
+        ms->setup_ms += (verify_t0 - t0) * 1000.0;
+        ms->verify_ms += (t1 - verify_t0) * 1000.0;
+        ms->rollback_ms += rollback_ms;
+        ms->draft_ms += draft_ms;
+        ms->total_ms += (t2 - t0) * 1000.0;
     }
     if (timing) {
         const double t2 = now_sec();
@@ -67036,6 +67052,18 @@ static uint32_t glm_mtp_spec_max_ctx(void) {
         }
     }
     return DS4_GLM_MTP_MAX_CTX_DEFAULT;
+}
+
+/* LOCAL PATCH: MTP configuration and cumulative cycle counters for /stats. */
+void ds4_session_glm_mtp_stats(ds4_session *s, ds4_glm_mtp_stats *out) {
+    memset(out, 0, sizeof(*out));
+    if (!s) return;
+    *out = s->glm_mtp_stats;
+    out->enabled = s->engine->glm_mtp;
+    out->max_ctx = glm_mtp_spec_max_ctx();
+    out->pos = s->checkpoint.len;
+    out->active = out->enabled &&
+        (out->max_ctx == 0 || (uint32_t)s->checkpoint.len < out->max_ctx);
 }
 
 /* True when the session's next position is at or past the MTP context

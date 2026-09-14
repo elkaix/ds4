@@ -4331,6 +4331,18 @@ uint64_t ds4_gpu_recommended_working_set_size(void) {
     return (uint64_t)[g_device recommendedMaxWorkingSetSize];
 }
 
+/* LOCAL PATCH: /stats memory and thermal probes. currentAllocatedSize is the
+ * Metal resource total (distinct from the process footprint); thermalState is
+ * ProcessInfo's nominal/fair/serious/critical. */
+uint64_t ds4_gpu_current_allocated_size(void) {
+    if (!g_initialized || !g_device) return 0;
+    return (uint64_t)[g_device currentAllocatedSize];
+}
+
+int ds4_gpu_thermal_state(void) {
+    return (int)[[NSProcessInfo processInfo] thermalState];
+}
+
 static int ds4_gpu_model_map_log_enabled(void) {
     if (!g_ssd_streaming_mode) return 1;
     const char *trace = getenv("DS4_METAL_STREAMING_MAP_TRACE");

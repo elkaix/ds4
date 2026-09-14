@@ -203,6 +203,8 @@ static inline int ds4_gpu_device_is_m5_apple_silicon(void) { return 0; }
 void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts);
 void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes);
 uint64_t ds4_gpu_recommended_working_set_size(void);
+uint64_t ds4_gpu_current_allocated_size(void);
+int ds4_gpu_thermal_state(void); /* 0 nominal 1 fair 2 serious 3 critical, -1 n/a */
 uint32_t ds4_gpu_stream_expert_cache_configured_count(void);
 uint32_t ds4_gpu_stream_expert_cache_current_count(void);
 typedef struct ds4_gpu_stream_expert_table {
