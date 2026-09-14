@@ -1,6 +1,7 @@
 # P4a — correctness foundation (branch `glm53-p4a`, 2026-09-14)
 
-Base: `31a7296` (frozen baseline `b69fd2c` + P0 instrumentation). Rollback point: `31a7296`.
+Base: `31a7296` = tag `p4a-base` (frozen baseline `b69fd2c` + P0 instrumentation).
+Tags: `p4a-base` 31a7296 (before P4a) · `p4a-pass` a8e8a21 (known-good P4a engine) · `p4a-tools` 9da9683 (engine + benchmark tooling).
 
 | commit | upstream | how | notes |
 |---|---|---|---|
@@ -82,5 +83,17 @@ in the first chain the plain arm consumed the disk checkpoints written by the MT
 0.4518 vs 0.4525 official NLL: the sweep log was scored with the Metal 4 tensor route on
 (`tensor_matmul=on`); today's series is route=auto. Different series, same model file.
 
-**P4a PASS.** Rollback tag `p4a-rollback` = `a8e8a21` (engine content); tooling on top
-(`e545cd2`, `9da9683`, this commit) is test/instrumentation only.
+**P4a PASS** — stated precisely: greedy token-stream equivalence passed for all tested
+rejection/boundary/long-context cases. This is not a claim of general logit/state identity
+between speculative and sequential paths (accepted tokens may retain batched-verifier state
+with a different FP reduction order, per docs/SPECULATIVE_DECODING.md); the deeper pieces are
+covered by the tensor-equivalence, KDA and session-state tests.
+
+Canonical P4a quality baseline for all P4b comparisons: avg_nll **0.452509016** (route=auto).
+Never compare against the 0.4518 sweep score.
+
+Cross-mode checkpoint compatibility: plain-decode arm consumed disk checkpoints written by the
+MTP arm and matched — evidence the persisted session representation is compatible MTP → plain.
+Performance A/B (P4b) must still use cloned, per-arm KV seeds, never a shared mutable cache.
+
+Tags: `p4a-pass` = a8e8a21 (engine rollback), `p4a-tools` = 9da9683, `p4a-base` = 31a7296.
