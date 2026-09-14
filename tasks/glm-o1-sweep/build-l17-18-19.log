@@ -1,0 +1,32 @@
+q4 layers: 17,18,19
+base:  /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-Q2.gguf
+donor: /Users/panda/models/gguf/tmp-glm53-uncen-d21b-q4-donor.gguf
+selected donor tensors: 9
+selected donor types: Q4_K:9
+base tensor payload: 96,496,299,384 bytes (89.87 GiB)
+mixed tensor payload: 102,611,594,616 bytes (95.56 GiB)
+payload delta: 6,115,295,232 bytes (5.70 GiB)
+copied 0.63 GiB / 95.56 GiB (0%)
+copied 5.47 GiB / 95.56 GiB (5%)
+copied 9.56 GiB / 95.56 GiB (10%)
+copied 14.34 GiB / 95.56 GiB (15%)
+copied 19.76 GiB / 95.56 GiB (20%)
+copied 23.92 GiB / 95.56 GiB (25%)
+copied 29.22 GiB / 95.56 GiB (30%)
+copied 33.89 GiB / 95.56 GiB (35%)
+copied 39.25 GiB / 95.56 GiB (41%)
+copied 43.07 GiB / 95.56 GiB (45%)
+copied 47.88 GiB / 95.56 GiB (50%)
+copied 52.69 GiB / 95.56 GiB (55%)
+copied 57.37 GiB / 95.56 GiB (60%)
+copied 62.17 GiB / 95.56 GiB (65%)
+copied 66.98 GiB / 95.56 GiB (70%)
+copied 72.37 GiB / 95.56 GiB (75%)
+copied 76.47 GiB / 95.56 GiB (80%)
+copied 81.28 GiB / 95.56 GiB (85%)
+copied 86.66 GiB / 95.56 GiB (90%)
+copied 90.80 GiB / 95.56 GiB (95%)
+copied 95.56 GiB / 95.56 GiB (100%)
+wrote: /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
+file size: 102,621,113,664 bytes (95.57 GiB)
+BUILD_DONE

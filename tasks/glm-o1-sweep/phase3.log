@@ -1,0 +1,51 @@
+== 22:12:48 additivity (group gain vs sum of single gains, vs base)
+g10-16: observed=+0.0370 sum_singles=+0.0370 n=7
+g17-23: observed=+0.0373 sum_singles=+0.0320 n=7
+== top5 singles: 14 16 17 18 19 
+== 22:12:48 t14-16-17 layers=14,16,17 splice
+== 22:13:07 t14-16-17 score
+== 22:21:09 t14-16-17 summary cases=100 tokens=11559 avg_nll=0.453517592 first_match=88 avg_lcp=8.500
+== 22:21:09 t14-16-18 layers=14,16,18 splice
+== 22:21:28 t14-16-18 score
+== 22:29:30 t14-16-18 summary cases=100 tokens=11559 avg_nll=0.452072858 first_match=87 avg_lcp=7.980
+== 22:29:30 t14-16-19 layers=14,16,19 splice
+== 22:29:50 t14-16-19 score
+== 22:38:07 t14-16-19 summary cases=100 tokens=11559 avg_nll=0.451056021 first_match=88 avg_lcp=8.140
+== 22:38:07 t14-17-18 layers=14,17,18 splice
+== 22:38:27 t14-17-18 score
+== 22:47:08 t14-17-18 summary cases=100 tokens=11559 avg_nll=0.454158410 first_match=87 avg_lcp=8.150
+== 22:47:08 t14-17-19 layers=14,17,19 splice
+== 22:47:29 t14-17-19 score
+== 22:55:51 t14-17-19 summary cases=100 tokens=11559 avg_nll=0.449982534 first_match=86 avg_lcp=7.870
+== 22:55:51 t14-18-19 layers=14,18,19 splice
+== 22:56:11 t14-18-19 score
+== 23:04:31 t14-18-19 summary cases=100 tokens=11559 avg_nll=0.452952337 first_match=88 avg_lcp=7.200
+== 23:04:31 t16-17-18 layers=16,17,18 splice
+== 23:04:51 t16-17-18 score
+== 23:13:01 t16-17-18 summary cases=100 tokens=11559 avg_nll=0.453154912 first_match=89 avg_lcp=8.210
+== 23:13:01 t16-17-19 layers=16,17,19 splice
+== 23:13:22 t16-17-19 score
+== 23:21:41 t16-17-19 summary cases=100 tokens=11559 avg_nll=0.453713577 first_match=85 avg_lcp=7.680
+== 23:21:41 t16-18-19 layers=16,18,19 splice
+== 23:22:00 t16-18-19 score
+== 23:30:42 t16-18-19 summary cases=100 tokens=11559 avg_nll=0.448777317 first_match=88 avg_lcp=7.900
+== 23:30:42 t17-18-19 layers=17,18,19 splice
+== 23:31:02 t17-18-19 score
+== 23:40:15 t17-18-19 summary cases=100 tokens=11559 avg_nll=0.451766260 first_match=89 avg_lcp=8.050
+== winning triple: 16,18,19
+== 23:40:15 confirm-16,18,19 layers=16,18,19 splice
+== 23:40:36 confirm-16,18,19 score
+== 23:49:32 confirm-16,18,19 summary cases=100 tokens=11559 avg_nll=0.448777317 first_match=88 avg_lcp=7.900
+== 23:49:32 triples ranking
+0.448777317	88	7.900	confirm-16,18,19
+0.448777317	88	7.900	t16-18-19
+0.449982534	86	7.870	t14-17-19
+0.451056021	88	8.140	t14-16-19
+0.451766260	89	8.050	t17-18-19
+0.452072858	87	7.980	t14-16-18
+0.452952337	88	7.200	t14-18-19
+0.453154912	89	8.210	t16-17-18
+0.453517592	88	8.500	t14-16-17
+0.453713577	85	7.680	t16-17-19
+0.454158410	87	8.150	t14-17-18
+== Sun Sep 13 23:49:32 EDT 2026 GLM_PHASE3_COMPLETE winner=16,18,19
