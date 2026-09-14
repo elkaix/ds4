@@ -1,0 +1,214 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.609 ms, residency requested in 612.520 ms, warmup 3.895 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.05 GiB (raw 0.00 + compressed 0.05) + buffers 2.92 GiB + resident model 95.56 GiB = 98.53 GiB planned
+ds4: memory detail: ctx=4096 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=4096 backend=metal
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+case_000 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_000.json
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+case_000 cases=1 prompt=20 target=127 avg_nll=0.430711 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_001 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_001.json
+case_001 cases=2 prompt=20 target=127 avg_nll=0.665389 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_002 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_002.json
+case_002 cases=3 prompt=21 target=127 avg_nll=0.659191 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_003 warning: API token count 1 != local target tokens 103; API logprob agreement skipped
+case_003 cases=4 prompt=21 target=103 avg_nll=0.211135 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_004 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_004.json
+case_004 cases=5 prompt=18 target=127 avg_nll=0.407264 lcp=6 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_005 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_005.json
+case_005 cases=6 prompt=16 target=127 avg_nll=0.317020 lcp=12 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_006 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_006.json
+case_006 cases=7 prompt=20 target=127 avg_nll=0.355973 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_007 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_007.json
+case_007 cases=8 prompt=17 target=127 avg_nll=0.558647 lcp=16 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_008 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_008.json
+case_008 cases=9 prompt=22 target=127 avg_nll=0.494285 lcp=13 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_009 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_009.json
+case_009 cases=10 prompt=17 target=117 avg_nll=0.532247 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_010 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_010.json
+case_010 cases=11 prompt=28 target=127 avg_nll=0.347211 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_011 warning: API token count 1 != local target tokens 105; API logprob agreement skipped
+case_011 cases=12 prompt=22 target=105 avg_nll=0.465037 lcp=8 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_012 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_012.json
+case_012 cases=13 prompt=23 target=131 avg_nll=0.777863 lcp=9 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_013 warning: API token count 1 != local target tokens 107; API logprob agreement skipped
+case_013 cases=14 prompt=24 target=107 avg_nll=0.408452 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_014 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_014.json
+case_014 cases=15 prompt=24 target=127 avg_nll=0.459458 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_015 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_015.json
+case_015 cases=16 prompt=23 target=127 avg_nll=0.238465 lcp=26 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_016 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_016.json
+case_016 cases=17 prompt=21 target=127 avg_nll=0.437587 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_017 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_017.json
+case_017 cases=18 prompt=29 target=127 avg_nll=0.450507 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_018 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_018.json
+case_018 cases=19 prompt=27 target=129 avg_nll=0.418882 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_019 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_019.json
+case_019 cases=20 prompt=20 target=112 avg_nll=0.739403 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_020 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_020.json
+case_020 cases=21 prompt=20 target=127 avg_nll=0.428665 lcp=10 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_021 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_021.json
+case_021 cases=22 prompt=20 target=127 avg_nll=0.091157 lcp=42 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_022 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_022.json
+case_022 cases=23 prompt=18 target=127 avg_nll=0.599431 lcp=10 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_023 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_023.json
+case_023 cases=24 prompt=16 target=127 avg_nll=0.430563 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_024 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_024.json
+case_024 cases=25 prompt=17 target=127 avg_nll=0.494741 lcp=2 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_025 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_025.json
+case_025 cases=26 prompt=22 target=127 avg_nll=0.445390 lcp=8 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_026 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_026.json
+case_026 cases=27 prompt=18 target=127 avg_nll=0.453555 lcp=19 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_027 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_027.json
+case_027 cases=28 prompt=17 target=127 avg_nll=0.470511 lcp=16 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_028 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_028.json
+case_028 cases=29 prompt=19 target=127 avg_nll=0.615688 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_029 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_029.json
+case_029 cases=30 prompt=20 target=127 avg_nll=0.640839 lcp=8 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_030 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_030.json
+case_030 cases=31 prompt=24 target=127 avg_nll=0.430281 lcp=17 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_031 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_031.json
+case_031 cases=32 prompt=24 target=127 avg_nll=0.132807 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_032 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_032.json
+case_032 cases=33 prompt=19 target=129 avg_nll=0.410339 lcp=15 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_033 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_033.json
+case_033 cases=34 prompt=17 target=127 avg_nll=0.403862 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_034 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_034.json
+case_034 cases=35 prompt=24 target=127 avg_nll=0.443715 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_035 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_035.json
+case_035 cases=36 prompt=25 target=129 avg_nll=0.429268 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_036 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_036.json
+case_036 cases=37 prompt=22 target=127 avg_nll=0.407756 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_037 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_037.json
+case_037 cases=38 prompt=21 target=127 avg_nll=0.407893 lcp=13 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_038 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_038.json
+case_038 cases=39 prompt=27 target=129 avg_nll=0.557118 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_039 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_039.json
+case_039 cases=40 prompt=24 target=127 avg_nll=0.541345 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_040 warning: API token count 1 != local target tokens 112; API logprob agreement skipped
+case_040 cases=41 prompt=23 target=112 avg_nll=0.369147 lcp=17 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_041 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_041.json
+case_041 cases=42 prompt=17 target=127 avg_nll=0.560682 lcp=2 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_042 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_042.json
+case_042 cases=43 prompt=16 target=127 avg_nll=0.629019 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_043 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_043.json
+case_043 cases=44 prompt=20 target=119 avg_nll=0.293256 lcp=20 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_044 warning: API token count 1 != local target tokens 50; API logprob agreement skipped
+case_044 cases=45 prompt=21 target=50 avg_nll=0.605202 lcp=17 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_045 warning: API token count 1 != local target tokens 94; API logprob agreement skipped
+case_045 cases=46 prompt=21 target=94 avg_nll=1.009822 lcp=12 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_046 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_046.json
+case_046 cases=47 prompt=21 target=127 avg_nll=0.299583 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_047 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_047.json
+case_047 cases=48 prompt=18 target=127 avg_nll=0.499199 lcp=11 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_048 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_048.json
+case_048 cases=49 prompt=20 target=127 avg_nll=0.327385 lcp=18 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_049 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_049.json
+case_049 cases=50 prompt=21 target=127 avg_nll=0.703166 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_050 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_050.json
+case_050 cases=51 prompt=30 target=127 avg_nll=0.707885 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_051 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_051.json
+case_051 cases=52 prompt=23 target=127 avg_nll=0.487361 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_052 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_052.json
+case_052 cases=53 prompt=21 target=127 avg_nll=0.427360 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_053 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_053.json
+case_053 cases=54 prompt=24 target=127 avg_nll=0.133349 lcp=6 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_054 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_054.json
+case_054 cases=55 prompt=24 target=127 avg_nll=0.572770 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_055 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_055.json
+case_055 cases=56 prompt=28 target=127 avg_nll=0.726223 lcp=4 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_056 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_056.json
+case_056 cases=57 prompt=20 target=127 avg_nll=0.532296 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_057 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_057.json
+case_057 cases=58 prompt=24 target=127 avg_nll=0.381955 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_058 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_058.json
+case_058 cases=59 prompt=26 target=127 avg_nll=0.365300 lcp=2 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_059 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_059.json
+case_059 cases=60 prompt=25 target=127 avg_nll=0.449947 lcp=16 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_060 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_060.json
+case_060 cases=61 prompt=19 target=127 avg_nll=0.262785 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_061 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_061.json
+case_061 cases=62 prompt=19 target=127 avg_nll=0.386613 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_062 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_062.json
+case_062 cases=63 prompt=16 target=127 avg_nll=0.265647 lcp=22 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_063 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_063.json
+case_063 cases=64 prompt=17 target=127 avg_nll=0.137644 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_064 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_064.json
+case_064 cases=65 prompt=15 target=127 avg_nll=0.309324 lcp=8 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_065 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_065.json
+case_065 cases=66 prompt=16 target=127 avg_nll=0.500723 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_066 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_066.json
+case_066 cases=67 prompt=18 target=127 avg_nll=0.555150 lcp=10 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_067 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_067.json
+case_067 cases=68 prompt=18 target=127 avg_nll=0.567786 lcp=3 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_068 warning: API token count 1 != local target tokens 73; API logprob agreement skipped
+case_068 cases=69 prompt=21 target=73 avg_nll=0.741548 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_069 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_069.json
+case_069 cases=70 prompt=21 target=127 avg_nll=0.552850 lcp=12 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_070 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_070.json
+case_070 cases=71 prompt=27 target=127 avg_nll=0.229913 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_071 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_071.json
+case_071 cases=72 prompt=26 target=127 avg_nll=0.375461 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_072 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_072.json
+case_072 cases=73 prompt=19 target=127 avg_nll=0.372178 lcp=27 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_073 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_073.json
+case_073 cases=74 prompt=17 target=127 avg_nll=0.097977 lcp=11 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_074 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_074.json
+case_074 cases=75 prompt=17 target=127 avg_nll=0.357517 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_075 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_075.json
+case_075 cases=76 prompt=16 target=131 avg_nll=0.586395 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_076 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_076.json
+case_076 cases=77 prompt=23 target=127 avg_nll=0.487831 lcp=11 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_077 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_077.json
+case_077 cases=78 prompt=26 target=129 avg_nll=0.532974 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_078 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_078.json
+case_078 cases=79 prompt=29 target=127 avg_nll=0.429621 lcp=22 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_079 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_079.json
+case_079 cases=80 prompt=21 target=127 avg_nll=0.633675 lcp=18 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_080 warning: API token count 1 != local target tokens 124; API logprob agreement skipped
+case_080 cases=81 prompt=15 target=124 avg_nll=0.481772 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_081 warning: API token count 1 != local target tokens 114; API logprob agreement skipped
+case_081 cases=82 prompt=15 target=114 avg_nll=0.636670 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_082 warning: API token count 1 != local target tokens 116; API logprob agreement skipped
+case_082 cases=83 prompt=18 target=116 avg_nll=0.511600 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_083 warning: API token count 1 != local target tokens 16; API logprob agreement skipped
+case_083 cases=84 prompt=21 target=16 avg_nll=0.051964 lcp=16 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_084 warning: API token count 1 != local target tokens 34; API logprob agreement skipped
+case_084 cases=85 prompt=25 target=34 avg_nll=0.404134 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_085 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_085.json
+case_085 cases=86 prompt=20 target=127 avg_nll=0.362874 lcp=12 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_086 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_086.json
+case_086 cases=87 prompt=18 target=127 avg_nll=0.752371 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_087 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_087.json
+case_087 cases=88 prompt=14 target=127 avg_nll=0.369551 lcp=1 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_088 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_088.json
+case_088 cases=89 prompt=15 target=127 avg_nll=0.440385 lcp=5 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_089 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_089.json
+case_089 cases=90 prompt=15 target=127 avg_nll=0.323539 lcp=20 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_090 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_090.json
+case_090 cases=91 prompt=19 target=127 avg_nll=0.575534 lcp=10 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_091 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_091.json
+case_091 cases=92 prompt=16 target=127 avg_nll=0.384578 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_092 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_092.json
+case_092 cases=93 prompt=17 target=127 avg_nll=0.217505 lcp=7 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_093 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_093.json
+case_093 cases=94 prompt=20 target=127 avg_nll=0.532838 lcp=8 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_094 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_094.json
+case_094 cases=95 prompt=18 target=2 avg_nll=0.325383 lcp=2 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_095 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_095.json
+case_095 cases=96 prompt=19 target=11 avg_nll=0.111165 lcp=11 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_096 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_096.json
+case_096 cases=97 prompt=17 target=17 avg_nll=0.072709 lcp=17 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_097 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_097.json
+case_097 cases=98 prompt=23 target=12 avg_nll=0.091347 lcp=12 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_098 warning: API token count 1 != local target tokens 32; API logprob agreement skipped
+case_098 cases=99 prompt=22 target=32 avg_nll=0.348226 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+case_099 warning: no API logprobs parsed from gguf-tools/quality-testing/data/glm53-flash-openrouter-zai-fp8-100/responses/case_099.json
+case_099 cases=100 prompt=24 target=38 avg_nll=0.160719 lcp=0 api_target_mae=0.000000 api_top_coverage=0/0 api_top1=0.000 api_topn=0.000 api_pair=0.000
+summary cases=100 tokens=11559 avg_nll=0.452509016 first_match=88 avg_lcp=7.670
+api_summary ref_tokens=13 target_tokens=0 target_mae=0.000000000 target_mean_delta=0.000000000 top_items=0 top_mapped=0 top_coverage=0.000000000 top1_match=0/0 top1_rate=0.000000000 topn_hit=0/0 topn_recall=0.000000000 top_logprob_count=0 top_mae=0.000000000 top_mean_delta=0.000000000 pair_agree=0/0 pair_rate=0.000000000

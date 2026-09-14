@@ -1,0 +1,119 @@
+metal-tensor-equivalence:
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.710 ms, residency requested in 626.092 ms, warmup 3.589 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence candidate route=auto
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 10.183 ms, residency requested in 605.692 ms, warmup 3.746 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence short_italian_fact top1 ref=94546 cand=94546 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_italian_fact largest deltas: id=0 ref=5.86449 cand=5.86449 abs=0 id=1 ref=10.1495 cand=10.1495 abs=0 id=2 ref=15.8235 cand=15.8235 abs=0 id=3 ref=7.57942 cand=7.57942 abs=0 id=4 ref=6.08399 cand=6.08399 abs=0
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: Tensor equivalence short_code_completion top1 ref=689 cand=689 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_code_completion largest deltas: id=0 ref=8.62564 cand=8.62564 abs=0 id=1 ref=12.4314 cand=12.4314 abs=0 id=2 ref=13.5978 cand=13.5978 abs=0 id=3 ref=8.75718 cand=8.75718 abs=0 id=4 ref=7.74259 cand=7.74259 abs=0
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: Tensor equivalence short_reasoning_plain top1 ref=99317 cand=99317 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_reasoning_plain largest deltas: id=0 ref=6.71865 cand=6.71865 abs=0 id=1 ref=8.66495 cand=8.66495 abs=0 id=2 ref=13.5151 cand=13.5151 abs=0 id=3 ref=10.4056 cand=10.4056 abs=0 id=4 ref=6.00344 cand=6.00344 abs=0
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence long_memory_archive top1 ref=2189 cand=2189 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence long_memory_archive largest deltas: id=0 ref=4.45632 cand=4.45632 abs=0 id=1 ref=7.67151 cand=7.67151 abs=0 id=2 ref=11.7001 cand=11.7001 abs=0 id=3 ref=7.40985 cand=7.40985 abs=0 id=4 ref=7.12395 cand=7.12395 abs=0
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence long_code_audit top1 ref=1782 cand=1782 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence long_code_audit largest deltas: id=0 ref=8.05652 cand=8.05652 abs=0 id=1 ref=10.1843 cand=10.1843 abs=0 id=2 ref=12.4902 cand=12.4902 abs=0 id=3 ref=7.27641 cand=7.27641 abs=0 id=4 ref=6.56391 cand=6.56391 abs=0
+ds4-test: Tensor summary route=auto cases=5 capture_fail=0 logits_fail=0 greedy_fail=0 top1_mismatch=0 min_top5_overlap=5/5 min_overlap=20/20 worst_rank_delta=0 worst_rms=0 worst_max_abs=0 worst_top20_max_abs=0
+ds4-test: Tensor equivalence candidate route=tensor-optin
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 2.211 ms, residency requested in 623.838 ms, warmup 3.829 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence short_italian_fact top1 ref=94546 cand=94546 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_italian_fact largest deltas: id=0 ref=5.86449 cand=5.86449 abs=0 id=1 ref=10.1495 cand=10.1495 abs=0 id=2 ref=15.8235 cand=15.8235 abs=0 id=3 ref=7.57942 cand=7.57942 abs=0 id=4 ref=6.08399 cand=6.08399 abs=0
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: Tensor equivalence short_code_completion top1 ref=689 cand=689 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_code_completion largest deltas: id=0 ref=8.62564 cand=8.62564 abs=0 id=1 ref=12.4314 cand=12.4314 abs=0 id=2 ref=13.5978 cand=13.5978 abs=0 id=3 ref=8.75718 cand=8.75718 abs=0 id=4 ref=7.74259 cand=7.74259 abs=0
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: Tensor equivalence short_reasoning_plain top1 ref=99317 cand=99317 top5_overlap=5/5 overlap=20/20 max_rank_delta=0 rms=0 max_abs=0 top20_max_abs=0
+ds4-test: Tensor equivalence short_reasoning_plain largest deltas: id=0 ref=6.71865 cand=6.71865 abs=0 id=1 ref=8.66495 cand=8.66495 abs=0 id=2 ref=13.5151 cand=13.5151 abs=0 id=3 ref=10.4056 cand=10.4056 abs=0 id=4 ref=6.00344 cand=6.00344 abs=0
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence long_memory_archive top1 ref=2189 cand=2189 top5_overlap=5/5 overlap=10/20 max_rank_delta=5 rms=0.867647 max_abs=5.38074 top20_max_abs=3.46431
+ds4-test: Tensor equivalence long_memory_archive largest deltas: id=13646 ref=-1.44135 cand=3.93939 abs=5.38074 id=4636 ref=0.39174 cand=5.3921 abs=5.00036 id=10689 ref=3.16476 cand=8.0292 abs=4.86444 id=11772 ref=-1.28455 cand=3.4341 abs=4.71865 id=11153 ref=-4.03193 cand=0.604991 abs=4.63692
+ds4-test: Tensor equivalence long_memory_archive greedy token mismatch step=4 ref=23022 cand=3838
+ds4-test: Tensor equivalence long_memory_archive greedy token mismatch step=5 ref=3692 cand=1558
+ds4-test: Tensor equivalence long_memory_archive greedy token mismatch step=6 ref=13589 cand=3692
+ds4-test: Tensor equivalence long_memory_archive greedy token mismatch step=7 ref=7112 cand=8286
+ds4-test: Tensor equivalence long_memory_archive greedy token mismatch step=8 ref=23656 cand=2506
+ds4: GLM session ctx=16384 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=16384 logical_ctx=16384 kv_layers=45 indexer_layers=11 f16 0.18 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=32.00 MiB
+ds4-test: Tensor equivalence long_code_audit top1 ref=1782 cand=9030 top5_overlap=4/5 overlap=12/20 max_rank_delta=13 rms=1.21064 max_abs=7.15199 top20_max_abs=4.66586
+ds4-test: Tensor equivalence long_code_audit largest deltas: id=14557 ref=6.31108 cand=-0.840908 abs=7.15199 id=41838 ref=4.44396 cand=-2.67079 abs=7.11475 id=18410 ref=8.62744 cand=1.861 abs=6.76644 id=28902 ref=3.01374 cand=-3.51334 abs=6.52708 id=36744 ref=6.66972 cand=0.179734 abs=6.48998
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=0 ref=1782 cand=9030
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=1 ref=11499 cand=12414
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=2 ref=12414 cand=368
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=3 ref=368 cand=374
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=5 ref=13312 cand=19256
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=6 ref=8817 cand=1496
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=7 ref=36261 cand=979
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=8 ref=368 cand=264
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=9 ref=2669 cand=21737
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=10 ref=13442 cand=3084
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=11 ref=264 cand=504
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=12 ref=21737 cand=36261
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=13 ref=3084 cand=368
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=14 ref=13 cand=374
+ds4-test: Tensor equivalence long_code_audit greedy token mismatch step=15 ref=154827 cand=2669
+ds4-test: Tensor summary route=tensor-optin cases=5 capture_fail=0 logits_fail=1 greedy_fail=20 top1_mismatch=1 min_top5_overlap=4/5 min_overlap=10/20 worst_rank_delta=13 worst_rms=1.21064 worst_max_abs=7.15199 worst_top20_max_abs=4.66586
+metal-tensor-equivalence: OK
+ds4 tests: ok

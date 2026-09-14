@@ -1,0 +1,158 @@
+Starting monitored ds4-server (GLM 5.3 Flash Q2)
+  model:      /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  max tokens: 32768
+  KV cache:   /Users/panda/Projects/open-source/ds4-glm53/tasks/data/p4a/mtp-equiv-cross/kv-mtp (131072 MiB budget, min 2048, cold max 65536 tokens, continued every 20480 tokens)
+  build:      glm53-p4a @ 9da9683dc1db
+  repo:       dirty (code: clean)
+  binary:     STALE: older than the newest source commit; rebuild before benchmarking, built 2026-09-14T16:57:23
+  model file: 102621113664 bytes, mtime 2026-09-14T00:07:33
+  MTP:        enabled (--mtp, width 2, off past no ceiling) + timing (--mtp-timing)
+  trace:      off
+  monitor:    every 15s
+  fans:       ThermalForge 'balanced' profile (temperature-driven); Apple auto on stop
+  wired limit: 118000 MiB
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 3.151 ms, residency requested in 615.554 ms, warmup 4.386 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.92 GiB (raw 0.00 + compressed 2.92) + buffers 3.16 GiB + resident model 95.56 GiB = 101.65 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=262144 backend=metal
+0914 17:11:46 ds4-server: context buffers 6232.65 MiB (ctx=262144, backend=metal, prefill_chunk=2048, raw_kv_rows=0, compressed_kv_rows=262144)
+ds4: GLM session ctx=262144 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=262144 logical_ctx=262144 kv_layers=45 indexer_layers=11 f16 2.92 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=1024 score_scratch=256.00 MiB
+0914 17:11:46 ds4-server: KV disk cache /Users/panda/Projects/open-source/ds4-glm53/tasks/data/p4a/mtp-equiv-cross/kv-mtp (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=20480, trim=32, align=2048, hit_half_life=21600s)
+0914 17:11:46 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-14 17:11:47] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=0.0% footprint=0.0GiB swap=0.00GiB rss=0.0GiB fans=fan0=3454/5349,fan1=3726/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1275.9GiB
+Fans under ThermalForge 'balanced' profile (watch pid 3185).
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+0914 17:11:48 ds4-server: completion ctx=0..2488:2488 prompt start
+0914 17:11:58 ds4-server: completion ctx=0..2488:2488 prefill chunk 2048/2488 (82.3%) chunk=0.00 t/s avg=223.14 t/s 9.178s
+0914 17:11:58 ds4-server: kv cache stored tokens=2048 trimmed=440 reason=cold key=token-text size=192.96 MiB save=21.8 ms
+0914 17:12:01 ds4-server: completion ctx=0..2488:2488 prefill chunk 2488/2488 (100.0%) chunk=149.15 t/s avg=205.14 t/s 12.128s
+0914 17:12:01 ds4-server: completion ctx=0..2488:2488 prompt done 12.128s lookup=0.001s cold=9.230s sync=2.898s store=0.000s source=none
+0914 17:12:01 ds4-server: completion ctx=2488..2489:1 gen=1 THINKING decoding chunk=19.59 t/s avg=19.59 t/s 0.051s
+0914 17:12:01 ds4-server: completion ctx=0..2488:2488 gen=1 THINKING finish=length 12.179s
+0914 17:12:01 ds4-server: live kv cache miss live=2489 prompt=1839 common=1823 vision=match reason=token-mismatch
+0914 17:12:01 ds4-server: kv cache stored tokens=2489 trimmed=0 reason=evict key=token-text size=203.03 MiB save=24.5 ms
+0914 17:12:01 ds4-server: completion ctx=0..1839:1839 prompt start
+[monitor 2026-09-14 17:12:02] health=ok stats=ok state=busy queue=0 clients=2 live=0 requests=2 hits=0 cold=2 cached=0 prefill=205.1t/s decode=19.6t/s cpu=1.0% footprint=7.1GiB swap=1.45GiB rss=0.3GiB fans=fan0=3459/5349,fan1=3730/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1275.5GiB
+0914 17:12:08 ds4-server: completion ctx=0..1839:1839 prefill chunk 1839/1839 (100.0%) chunk=0.00 t/s avg=258.10 t/s 7.125s
+0914 17:12:08 ds4-server: completion ctx=0..1839:1839 prompt done 7.125s lookup=0.064s cold=0.000s sync=7.125s store=0.000s source=none
+0914 17:12:08 ds4-server: completion ctx=1839..1840:1 gen=1 THINKING decoding chunk=22.28 t/s avg=22.28 t/s 0.045s
+0914 17:12:08 ds4-server: completion ctx=0..1839:1839 gen=1 THINKING finish=length 7.170s
+0914 17:12:08 ds4-server: live kv cache miss live=1840 prompt=2147 common=1823 vision=match reason=token-mismatch
+0914 17:12:08 ds4-server: kv cache hit text tokens=2048 text=8947 quant=2 key=token-text load=17.0 ms file=/Users/panda/Projects/open-source/ds4-glm53/tasks/data/p4a/mtp-equiv-cross/kv-mtp/3276556fb3cfb43c1b2702c7517dcf8a4467e6e8.kv
+0914 17:12:08 ds4-server: completion ctx=2048..2147:99 prompt start
+0914 17:12:09 ds4-server: completion ctx=2048..2147:99 prefill chunk 99/99 (100.0%) chunk=0.00 t/s avg=67.04 t/s 1.477s
+0914 17:12:09 ds4-server: completion ctx=2048..2147:99 prompt done 1.477s lookup=0.017s cold=0.000s sync=1.477s store=0.000s source=disk-text
+0914 17:12:09 ds4-server: completion ctx=2147..2148:1 gen=1 THINKING decoding chunk=22.06 t/s avg=22.06 t/s 0.045s
+0914 17:12:09 ds4-server: completion ctx=2048..2147:99 gen=1 THINKING finish=length 1.522s
+0914 17:12:09 ds4-server: live kv cache miss live=2148 prompt=1992 common=1976 vision=match reason=token-mismatch
+0914 17:12:10 ds4-server: kv cache stored tokens=2148 trimmed=0 reason=evict key=token-text size=195.25 MiB save=26.4 ms
+0914 17:12:10 ds4-server: completion ctx=0..1992:1992 prompt start
+0914 17:12:17 ds4-server: completion ctx=0..1992:1992 prefill chunk 1992/1992 (100.0%) chunk=0.00 t/s avg=250.77 t/s 7.944s
+0914 17:12:17 ds4-server: completion ctx=0..1992:1992 prompt done 7.944s lookup=0.053s cold=0.000s sync=7.944s store=0.000s source=none
+0914 17:12:18 ds4-server: completion ctx=1992..1993:1 gen=1 THINKING decoding chunk=21.76 t/s avg=21.76 t/s 0.046s
+0914 17:12:18 ds4-server: completion ctx=0..1992:1992 gen=1 THINKING finish=length 7.990s
+0914 17:12:18 ds4-server: live kv cache miss live=1993 prompt=1899 common=1883 vision=match reason=token-mismatch
+0914 17:12:18 ds4-server: completion ctx=0..1899:1899 prompt start
+[monitor 2026-09-14 17:12:18] health=ok stats=ok state=busy queue=0 clients=2 live=1992 requests=4 hits=1 cold=3 cached=2048 prefill=250.8t/s decode=22.0t/s cpu=0.0% footprint=7.0GiB swap=1.45GiB rss=0.3GiB fans=fan0=3457/5349,fan1=3735/5777RPM kv=0.6/128.0GiB(0.5%) disk_free=1275.3GiB
+0914 17:12:25 ds4-server: completion ctx=0..1899:1899 prefill chunk 1899/1899 (100.0%) chunk=0.00 t/s avg=247.31 t/s 7.679s
+0914 17:12:25 ds4-server: completion ctx=0..1899:1899 prompt done 7.679s lookup=0.000s cold=0.000s sync=7.679s store=0.000s source=none
+0914 17:12:25 ds4-server: completion ctx=1899..1900:1 gen=1 THINKING decoding chunk=21.93 t/s avg=21.93 t/s 0.046s
+0914 17:12:25 ds4-server: completion ctx=0..1899:1899 gen=1 THINKING finish=length 7.724s
+0914 17:12:25 ds4-server: live kv cache miss live=1900 prompt=1930 common=1883 vision=match reason=token-mismatch
+0914 17:12:25 ds4-server: completion ctx=0..1930:1930 prompt start
+0914 17:12:33 ds4-server: completion ctx=0..1930:1930 prefill chunk 1930/1930 (100.0%) chunk=0.00 t/s avg=248.17 t/s 7.777s
+0914 17:12:33 ds4-server: completion ctx=0..1930:1930 prompt done 7.780s lookup=0.000s cold=0.000s sync=7.780s store=0.000s source=none
+0914 17:12:33 ds4-server: completion ctx=1930..1931:1 gen=1 THINKING decoding chunk=22.13 t/s avg=22.13 t/s 0.045s
+0914 17:12:33 ds4-server: completion ctx=0..1930:1930 gen=1 THINKING finish=length 7.825s
+0914 17:12:33 ds4-server: live kv cache miss live=1931 prompt=1961 common=1914 vision=match reason=token-mismatch
+0914 17:12:33 ds4-server: completion ctx=0..1961:1961 prompt start
+[monitor 2026-09-14 17:12:34] health=ok stats=ok state=busy queue=0 clients=2 live=0 requests=7 hits=1 cold=6 cached=2048 prefill=248.1t/s decode=22.1t/s cpu=8.0% footprint=7.1GiB swap=1.45GiB rss=0.3GiB fans=fan0=3457/5349,fan1=3729/5777RPM kv=0.6/128.0GiB(0.5%) disk_free=1275.3GiB
+0914 17:12:41 ds4-server: completion ctx=0..1961:1961 prefill chunk 1961/1961 (100.0%) chunk=0.00 t/s avg=249.16 t/s 7.870s
+0914 17:12:41 ds4-server: completion ctx=0..1961:1961 prompt done 7.870s lookup=0.000s cold=0.000s sync=7.870s store=0.000s source=none
+0914 17:12:41 ds4-server: completion ctx=1961..1962:1 gen=1 THINKING decoding chunk=22.32 t/s avg=22.32 t/s 0.045s
+0914 17:12:41 ds4-server: completion ctx=0..1961:1961 gen=1 THINKING finish=length 7.915s
+0914 17:12:41 ds4-server: GLM live prefix rewind from 1962 to 1960 is not restorable; falling back to the prefill path
+0914 17:12:41 ds4-server: live kv cache miss live=1962 prompt=1961 common=1961 vision=match reason=token-mismatch
+0914 17:12:41 ds4-server: completion ctx=0..1961:1961 prompt start
+0914 17:12:49 ds4-server: completion ctx=0..1961:1961 prefill chunk 1961/1961 (100.0%) chunk=0.00 t/s avg=253.62 t/s 7.732s
+0914 17:12:49 ds4-server: completion ctx=0..1961:1961 prompt done 7.735s lookup=0.000s cold=0.000s sync=7.735s store=0.000s source=none
+ds4: glm mtp utility: width=2 pos=1962 setup=4.3 ms verify[rows]=49.3 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=56.8 ms utility=17.60 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 25 ':' vs true 38864 ' readings')
+ds4: glm mtp utility: width=2 pos=1963 setup=0.8 ms verify[rows]=44.4 ms rollback=0.0 ms draft=3.2 ms other=1.5 ms result=ACCEPT committed=2 total=49.8 ms utility=40.13 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 25 ':' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1965 setup=0.8 ms verify[rows]=45.6 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=49.5 ms utility=20.18 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 308 ' n')
+ds4: glm mtp utility: width=2 pos=1966 setup=0.8 ms verify[rows]=45.6 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=49.4 ms utility=20.23 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1967 setup=0.8 ms verify[rows]=45.5 ms rollback=0.0 ms draft=3.1 ms other=1.6 ms result=ACCEPT committed=2 total=51.0 ms utility=39.25 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=1969 setup=0.8 ms verify[rows]=45.2 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=49.1 ms utility=20.35 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 308 ' n' vs true 77 'n')
+ds4: glm mtp utility: width=2 pos=1970 setup=0.8 ms verify[rows]=45.5 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.29 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 1463 ' mod' vs true 1463 ' mod')
+ds4: glm mtp utility: width=2 pos=1972 setup=0.8 ms verify[rows]=44.4 ms rollback=0.0 ms draft=3.2 ms other=1.6 ms result=ACCEPT committed=2 total=49.9 ms utility=40.08 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 99457 '100' vs true 99457 '100')
+ds4: glm mtp utility: width=2 pos=1974 setup=0.7 ms verify[rows]=43.6 ms rollback=0.0 ms draft=3.1 ms other=1.6 ms result=ACCEPT committed=2 total=49.0 ms utility=40.81 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 30 '?' vs true 30 '?')
+ds4: glm mtp utility: width=2 pos=1976 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=48.6 ms utility=41.16 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=1978 setup=0.7 ms verify[rows]=43.2 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=48.4 ms utility=41.35 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 25 ':' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1980 setup=0.8 ms verify[rows]=42.9 ms rollback=0.0 ms draft=2.9 ms other=1.5 ms result=ACCEPT committed=2 total=48.1 ms utility=41.58 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 15 '0' vs true 15 '0')
+ds4: glm mtp utility: width=2 pos=1982 setup=0.7 ms verify[rows]=42.8 ms rollback=0.0 ms draft=2.9 ms other=1.5 ms result=ACCEPT committed=2 total=47.9 ms utility=41.71 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=1984 setup=0.7 ms verify[rows]=44.5 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=49.7 ms utility=40.25 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 25 ':' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1986 setup=0.8 ms verify[rows]=44.8 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=50.1 ms utility=39.88 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=1988 setup=0.8 ms verify[rows]=44.9 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=50.2 ms utility=39.88 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=1990 setup=0.7 ms verify[rows]=44.9 ms rollback=0.7 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=48.6 ms utility=20.56 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 99951 '27' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1991 setup=0.7 ms verify[rows]=45.4 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=49.1 ms utility=20.35 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 102487 '96')
+ds4: glm mtp utility: width=2 pos=1992 setup=0.7 ms verify[rows]=45.0 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=50.2 ms utility=39.84 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 17 '2' vs true 17 '2')
+ds4: glm mtp utility: width=2 pos=1994 setup=0.7 ms verify[rows]=45.7 ms rollback=0.0 ms draft=3.0 ms other=1.4 ms result=ACCEPT committed=2 total=50.8 ms utility=39.35 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=1996 setup=0.7 ms verify[rows]=44.5 ms rollback=0.0 ms draft=3.0 ms other=1.6 ms result=ACCEPT committed=2 total=49.8 ms utility=40.13 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 25 ':' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=1998 setup=0.7 ms verify[rows]=45.3 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=50.5 ms utility=39.57 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2000 setup=0.7 ms verify[rows]=46.2 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=51.5 ms utility=38.83 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 99869 '28' vs true 99869 '28')
+ds4: glm mtp utility: width=2 pos=2002 setup=0.7 ms verify[rows]=46.5 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=51.8 ms utility=38.58 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 100632 '36' vs true 100632 '36')
+ds4: glm mtp utility: width=2 pos=2004 setup=0.8 ms verify[rows]=46.2 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=50.1 ms utility=19.95 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 100632 '36' vs true 109871 '102')
+ds4: glm mtp utility: width=2 pos=2005 setup=0.8 ms verify[rows]=46.2 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=50.2 ms utility=19.92 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 24 '9' vs true 21 '6')
+[monitor 2026-09-14 17:12:50] health=ok stats=ok state=busy queue=0 clients=2 live=1972 requests=8 hits=1 cold=7 cached=2048 prefill=253.5t/s decode=22.3t/s cpu=7.3% footprint=7.3GiB swap=1.45GiB rss=0.3GiB fans=fan0=3453/5349,fan1=3726/5777RPM kv=0.6/128.0GiB(0.5%) disk_free=1275.3GiB
+ds4: glm mtp utility: width=2 pos=2006 setup=0.8 ms verify[rows]=45.6 ms rollback=0.0 ms draft=3.0 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.28 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 1463 ' mod' vs true 1463 ' mod')
+ds4: glm mtp utility: width=2 pos=2008 setup=0.8 ms verify[rows]=46.2 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=51.5 ms utility=38.80 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 99457 '100' vs true 99457 '100')
+ds4: glm mtp utility: width=2 pos=2010 setup=0.8 ms verify[rows]=47.0 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=50.8 ms utility=19.67 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 30 '?' vs true 284 ' =')
+0914 17:12:50 ds4-server: completion ctx=1961..2011:50 gen=50 THINKING decoding chunk=33.33 t/s avg=33.33 t/s 1.500s
+ds4: glm mtp utility: width=2 pos=2011 setup=0.8 ms verify[rows]=46.4 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=51.8 ms utility=38.58 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=2013 setup=0.7 ms verify[rows]=46.5 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=50.4 ms utility=19.86 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 568 ').' vs true 30 '?')
+ds4: glm mtp utility: width=2 pos=2014 setup=0.7 ms verify[rows]=46.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=50.1 ms utility=19.97 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 902 ' no')
+ds4: glm mtp utility: width=2 pos=2015 setup=0.8 ms verify[rows]=47.5 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=52.9 ms utility=37.81 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2017 setup=0.8 ms verify[rows]=47.2 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=52.6 ms utility=38.01 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 100632 '36' vs true 100632 '36')
+ds4: glm mtp utility: width=2 pos=2019 setup=0.8 ms verify[rows]=47.4 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=51.3 ms utility=19.50 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 33601 ' Actually')
+ds4: glm mtp utility: width=2 pos=2020 setup=0.7 ms verify[rows]=47.2 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=52.6 ms utility=38.05 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=2022 setup=0.8 ms verify[rows]=47.3 ms rollback=0.0 ms draft=3.3 ms other=1.5 ms result=ACCEPT committed=2 total=52.9 ms utility=37.83 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 9 '*' vs true 9 '*')
+ds4: glm mtp utility: width=2 pos=2024 setup=0.8 ms verify[rows]=47.3 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=51.2 ms utility=19.53 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 284 ' =' vs true 28 '=')
+ds4: glm mtp utility: width=2 pos=2025 setup=0.8 ms verify[rows]=47.5 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=51.5 ms utility=19.42 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 109871 '102' vs true 110248 '103')
+ds4: glm mtp utility: width=2 pos=2026 setup=0.8 ms verify[rows]=47.3 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=52.7 ms utility=37.94 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 21 '6' vs true 21 '6')
+ds4: glm mtp utility: width=2 pos=2028 setup=0.8 ms verify[rows]=47.5 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=51.4 ms utility=19.46 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 1463 ' mod' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=2029 setup=0.8 ms verify[rows]=47.4 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=52.8 ms utility=37.91 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 100632 '36' vs true 100632 '36')
+ds4: glm mtp utility: width=2 pos=2031 setup=0.7 ms verify[rows]=48.0 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=53.4 ms utility=37.45 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 220 ' ')
+ds4: glm mtp utility: width=2 pos=2033 setup=0.8 ms verify[rows]=47.6 ms rollback=0.0 ms draft=3.3 ms other=1.5 ms result=ACCEPT committed=2 total=53.2 ms utility=37.60 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 15 '0' vs true 15 '0')
+ds4: glm mtp utility: width=2 pos=2035 setup=0.8 ms verify[rows]=48.2 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=52.0 ms utility=19.22 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 7414 ' Yes')
+ds4: glm mtp utility: width=2 pos=2036 setup=0.8 ms verify[rows]=47.9 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=51.9 ms utility=19.28 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 13 '.')
+ds4: glm mtp utility: width=2 pos=2037 setup=0.8 ms verify[rows]=48.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=52.0 ms utility=19.23 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 2055 ' So')
+ds4: glm mtp utility: width=2 pos=2038 setup=0.8 ms verify[rows]=48.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=52.0 ms utility=19.23 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 30765 ' gauge')
+ds4: glm mtp utility: width=2 pos=2039 setup=0.8 ms verify[rows]=48.3 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=53.7 ms utility=37.22 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 284 ' =' vs true 284 ' =')
+ds4: glm mtp utility: width=2 pos=2041 setup=0.7 ms verify[rows]=47.8 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=53.1 ms utility=37.67 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 101140 '37' vs true 101140 '37')
+ds4: glm mtp utility: width=2 pos=2043 setup=0.7 ms verify[rows]=48.3 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=53.7 ms utility=37.28 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 1463 ' mod' vs true 1463 ' mod')
+ds4: glm mtp utility: width=2 pos=2045 setup=0.8 ms verify[rows]=48.2 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=53.6 ms utility=37.32 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 99457 '100' vs true 99457 '100')
+ds4: glm mtp utility: width=2 pos=2047 setup=0.8 ms verify[rows]=48.4 ms rollback=0.0 ms draft=3.2 ms other=1.5 ms result=ACCEPT committed=2 total=53.9 ms utility=37.13 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 13 '.' vs true 13 '.')
+ds4: glm mtp utility: width=2 pos=2049 setup=0.8 ms verify[rows]=48.1 ms rollback=0.7 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=52.1 ms utility=19.21 tok/s-cycle footprint=7.31 GiB swap=1.45 GiB (draft 220 ' ' vs true 10770 ' cycle')
+ds4: glm mtp utility: width=2 pos=2050 setup=0.8 ms verify[batch]=61.9 ms rollback=0.0 ms draft=3.2 ms other=1.5 ms result=ACCEPT committed=2 total=67.4 ms utility=29.68 tok/s-cycle footprint=7.32 GiB swap=1.45 GiB (draft 284 ' =' vs true 284 ' =')
+ds4: glm mtp utility: width=2 pos=2052 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=3.2 ms other=1.5 ms result=ACCEPT committed=2 total=56.2 ms utility=35.56 tok/s-cycle footprint=7.32 GiB swap=1.45 GiB (draft 99366 '13' vs true 99366 '13')
+ds4: glm mtp utility: width=2 pos=2054 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=3.1 ms other=1.5 ms result=ACCEPT committed=2 total=56.5 ms utility=35.40 tok/s-cycle footprint=7.32 GiB swap=1.45 GiB (draft 1463 ' mod' vs true 1463 ' mod')
+0914 17:12:52 ds4-server: completion ctx=2011..2057:46 gen=96 THINKING decoding chunk=30.07 t/s avg=31.68 t/s 3.030s
+0914 17:12:52 ds4-server: completion ctx=0..1961:1961 gen=96 THINKING finish=length 10.766s
+0914 17:12:52 ds4-server: shutdown requested, draining requests
+0914 17:12:52 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=2057
+0914 17:12:52 ds4-server: kv cache stored tokens=2057 trimmed=0 reason=shutdown key=token-text size=193.17 MiB save=24.5 ms
+[monitor 2026-09-14 17:12:53] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-14 17:12:53] fans=auto reason=server-stopped
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+ds4-server stopped.

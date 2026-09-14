@@ -1,0 +1,2 @@
+model_path /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
+f1dc0b235812563c774a61a3c5e5b17728d4a6fe708f94ee210591dcfb73fcbc  /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf

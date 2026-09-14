@@ -1,0 +1,26 @@
+
+--- turn 1 (establish 60K live context) ---
+  prompt_tokens=59905 completion=256
+  wall=171.2s  decode=10.73s @ 23.86 t/s  prefill_phase=160.2s
+  non-decode = 160.5s (93.7% of wall)
+  rewind lines: none
+  last prefill chunk line: ('39425', '39425', '204.34', '160.223')
+
+--- turn 2 (APPEND: extends the frontier) ---
+  prompt_tokens=60173 completion=64
+  wall=3.1s  decode=2.77s @ 23.07 t/s  prefill_phase=0.2s
+  non-decode = 0.3s (9.3% of wall)
+  rewind lines: none
+  last prefill chunk line: ('12', '12', '0.00', '0.235')
+
+--- turn 3 (RE-SEND the original prompt: truncates) ---
+  prompt_tokens=59905 completion=256
+  wall=177.4s  decode=12.03s @ 21.29 t/s  prefill_phase=164.6s
+  non-decode = 165.4s (93.2% of wall)
+  rewind lines: none
+  last prefill chunk line: ('39425', '39425', '186.96', '164.550')
+
+=== VERDICT ===
+append non-decode       0.3s
+re-send non-decode    165.4s
+SCOPE CLAIM HOLDS: appending extends the frontier and skips the re-prefill.

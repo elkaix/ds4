@@ -32462,6 +32462,8 @@ extern "C" int ds4_gpu_matmul_quant_tensor(
     }
 }
 
+extern "C" uint64_t ds4_gpu_current_allocated_size(void) { return 0; }
+extern "C" int ds4_gpu_thermal_state(void) { return -1; }
 extern "C" uint64_t ds4_gpu_recommended_working_set_size(void) {
     /* GLM graph memory guard: on this backend the model weights are
      * distributed across all devices by the multi-tier placement, so the

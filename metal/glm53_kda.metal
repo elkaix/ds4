@@ -201,7 +201,7 @@ kernel glm53_kda_decode_values_t kernel_glm53_kda_decode_values<1u>;
 template [[host_name("kernel_glm53_kda_decode_v4")]]
 kernel glm53_kda_decode_values_t kernel_glm53_kda_decode_values<4u>;
 
-kernel void kernel_glm53_kda_prefill_prepare(
+static inline void glm53_kda_prefill_prepare_impl(
         constant glm53_kda_args &args,
         device float         *q,
         device float         *k,
@@ -213,11 +213,13 @@ kernel void kernel_glm53_kda_prefill_prepare(
         device const float   *a_log,
         device const float   *dt_bias,
         device float         *conv_state,
-        threadgroup float    *scratch [[threadgroup(0)]],
-        uint head [[threadgroup_position_in_grid]],
-        ushort tid [[thread_index_in_threadgroup]],
-        ushort lane [[thread_index_in_simdgroup]],
-        ushort sg [[simdgroup_index_in_threadgroup]]) {
+        device float         *conv_snapshot,
+        bool                  save_snapshot,
+        threadgroup float    *scratch,
+        uint                  head,
+        ushort                tid,
+        ushort                lane,
+        ushort                sg) {
     constexpr uint D = 128u;
     constexpr uint HISTORY = 3u;
     if (head >= args.n_heads) return;
@@ -259,6 +261,19 @@ kernel void kernel_glm53_kda_prefill_prepare(
         v_state[channel] = v_state[projection + channel];
         v_state[projection + channel] = v_state[2ul * projection + channel];
         v_state[2ul * projection + channel] = v_new;
+        if (save_snapshot && token == 0u) {
+            device float *q_prefix = conv_snapshot;
+            device float *k_prefix = q_prefix + HISTORY * projection;
+            device float *v_prefix = k_prefix + HISTORY * projection;
+            for (uint w = 0; w < HISTORY; w++) {
+                q_prefix[(ulong)w * projection + channel] =
+                    q_state[(ulong)w * projection + channel];
+                k_prefix[(ulong)w * projection + channel] =
+                    k_state[(ulong)w * projection + channel];
+                v_prefix[(ulong)w * projection + channel] =
+                    v_state[(ulong)w * projection + channel];
+            }
+        }
 
         sq[tid] = q_acc / (1.0f + exp(-q_acc));
         sk[tid] = k_acc / (1.0f + exp(-k_acc));
@@ -286,6 +301,53 @@ kernel void kernel_glm53_kda_prefill_prepare(
         threadgroup_barrier(mem_flags::mem_threadgroup |
                            mem_flags::mem_device);
     }
+}
+
+kernel void kernel_glm53_kda_prefill_prepare(
+        constant glm53_kda_args &args,
+        device float         *q,
+        device float         *k,
+        device float         *v,
+        device float         *raw_gate,
+        device const float   *q_conv,
+        device const float   *k_conv,
+        device const float   *v_conv,
+        device const float   *a_log,
+        device const float   *dt_bias,
+        device float         *conv_state,
+        threadgroup float    *scratch [[threadgroup(0)]],
+        uint head [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    glm53_kda_prefill_prepare_impl(args, q, k, v, raw_gate,
+                                   q_conv, k_conv, v_conv, a_log, dt_bias,
+                                   conv_state, conv_state, false, scratch,
+                                   head, tid, lane, sg);
+}
+
+kernel void kernel_glm53_kda_verify2_prepare_snapshot(
+        constant glm53_kda_args &args,
+        device float         *q,
+        device float         *k,
+        device float         *v,
+        device float         *raw_gate,
+        device const float   *q_conv,
+        device const float   *k_conv,
+        device const float   *v_conv,
+        device const float   *a_log,
+        device const float   *dt_bias,
+        device float         *conv_state,
+        device float         *conv_snapshot,
+        threadgroup float    *scratch [[threadgroup(0)]],
+        uint head [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    glm53_kda_prefill_prepare_impl(args, q, k, v, raw_gate,
+                                   q_conv, k_conv, v_conv, a_log, dt_bias,
+                                   conv_state, conv_snapshot, true, scratch,
+                                   head, tid, lane, sg);
 }
 
 /*
@@ -466,7 +528,7 @@ kernel void kernel_glm53_kda_prefill_prepare_blocked(
     }
 }
 
-kernel void kernel_glm53_kda_prefill_recurrence(
+static inline void glm53_kda_prefill_recurrence_impl(
         constant glm53_kda_args &args,
         device const float   *q,
         device const float   *k,
@@ -475,9 +537,11 @@ kernel void kernel_glm53_kda_prefill_recurrence(
         device const float   *raw_beta,
         device float         *state,
         device float         *out,
-        uint2 tgpig [[threadgroup_position_in_grid]],
-        ushort lane [[thread_index_in_simdgroup]],
-        ushort sg [[simdgroup_index_in_threadgroup]]) {
+        device float         *state_snapshot,
+        bool                  save_snapshot,
+        uint2                 tgpig,
+        ushort                lane,
+        ushort                sg) {
     constexpr uint D = 128u;
     const uint head = tgpig.x;
     const uint value = tgpig.y * 4u + sg;
@@ -500,10 +564,50 @@ kernel void kernel_glm53_kda_prefill_recurrence(
             (1.0f + exp(-raw_beta[(ulong)token * args.n_heads + head]));
         const float delta_v = (v[base + value] - hk) * beta;
         h = fma(k4, float4(delta_v), h);
+        if (save_snapshot && token == 0u) {
+            device float4 *snapshot_ptr = (device float4 *)(
+                state_snapshot + ((ulong)head * D + value) * D + k0);
+            *snapshot_ptr = h;
+        }
         const float result = simd_sum(dot(h, q4));
         if (lane == 0u) out[base + value] = result;
     }
     *state_ptr = h;
+}
+
+kernel void kernel_glm53_kda_prefill_recurrence(
+        constant glm53_kda_args &args,
+        device const float   *q,
+        device const float   *k,
+        device const float   *v,
+        device const float   *decay,
+        device const float   *raw_beta,
+        device float         *state,
+        device float         *out,
+        uint2 tgpig [[threadgroup_position_in_grid]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    glm53_kda_prefill_recurrence_impl(args, q, k, v, decay, raw_beta,
+                                      state, out, state, false,
+                                      tgpig, lane, sg);
+}
+
+kernel void kernel_glm53_kda_verify2_recurrence_snapshot(
+        constant glm53_kda_args &args,
+        device const float   *q,
+        device const float   *k,
+        device const float   *v,
+        device const float   *decay,
+        device const float   *raw_beta,
+        device float         *state,
+        device float         *out,
+        device float         *state_snapshot,
+        uint2 tgpig [[threadgroup_position_in_grid]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    glm53_kda_prefill_recurrence_impl(args, q, k, v, decay, raw_beta,
+                                      state, out, state_snapshot, true,
+                                      tgpig, lane, sg);
 }
 
 /* Each value row is an independent recurrence. Carrying two or four rows in

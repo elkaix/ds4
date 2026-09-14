@@ -1,0 +1,72 @@
+== 19:14:41 g3-9 layers=3-9 splice
+== 19:15:03 g3-9 score
+== 19:23:01 g3-9 summary cases=100 tokens=11559 avg_nll=0.461086007 first_match=83 avg_lcp=7.520
+== 19:23:01 g10-16 layers=10-16 splice
+== 19:23:22 g10-16 score
+== 19:31:22 g10-16 summary cases=100 tokens=11559 avg_nll=0.437172317 first_match=91 avg_lcp=8.440
+== 19:31:22 g17-23 layers=17-23 splice
+== 19:31:43 g17-23 score
+== 19:39:41 g17-23 summary cases=100 tokens=11559 avg_nll=0.436830393 first_match=90 avg_lcp=7.900
+== 19:39:41 g24-30 layers=24-30 splice
+== 19:40:01 g24-30 score
+== 19:48:01 g24-30 summary cases=100 tokens=11559 avg_nll=0.441795955 first_match=87 avg_lcp=8.400
+== 19:48:01 g31-37 layers=31-37 splice
+== 19:48:22 g31-37 score
+== 19:56:18 g31-37 summary cases=100 tokens=11559 avg_nll=0.450324232 first_match=86 avg_lcp=8.560
+== 19:56:19 g38-44 layers=38-44 splice
+== 19:56:39 g38-44 score
+== 20:04:48 g38-44 summary cases=100 tokens=11559 avg_nll=0.446949260 first_match=88 avg_lcp=8.310
+== 20:04:48 l17 layers=17 splice
+== 20:05:06 l17 score
+== 20:12:57 l17 summary cases=100 tokens=11559 avg_nll=0.467332370 first_match=88 avg_lcp=7.760
+== 20:12:57 l18 layers=18 splice
+== 20:13:14 l18 score
+== 20:21:19 l18 summary cases=100 tokens=11559 avg_nll=0.468014461 first_match=88 avg_lcp=8.330
+== 20:21:19 l19 layers=19 splice
+== 20:21:37 l19 score
+== 20:30:07 l19 summary cases=100 tokens=11559 avg_nll=0.467379905 first_match=86 avg_lcp=7.220
+== 20:30:07 l20 layers=20 splice
+== 20:30:25 l20 score
+== 20:38:45 l20 summary cases=100 tokens=11559 avg_nll=0.472510270 first_match=88 avg_lcp=7.900
+== 20:38:45 l21 layers=21 splice
+== 20:39:04 l21 score
+== 20:47:00 l21 summary cases=100 tokens=11559 avg_nll=0.469492375 first_match=87 avg_lcp=7.160
+== 20:47:00 l22 layers=22 splice
+== 20:47:18 l22 score
+== 20:55:12 l22 summary cases=100 tokens=11559 avg_nll=0.470891336 first_match=85 avg_lcp=7.310
+== 20:55:12 l23 layers=23 splice
+== 20:55:31 l23 score
+== 21:04:19 l23 summary cases=100 tokens=11559 avg_nll=0.471261417 first_match=88 avg_lcp=8.050
+== 21:04:19 l10 layers=10 splice
+== 21:04:54 l10 score
+== 21:15:07 l10 summary cases=100 tokens=11559 avg_nll=0.471872650 first_match=91 avg_lcp=8.210
+== 21:15:07 l11 layers=11 splice
+== 21:15:30 l11 score
+== 21:24:28 l11 summary cases=100 tokens=11559 avg_nll=0.470820161 first_match=85 avg_lcp=8.550
+== 21:24:28 l12 layers=12 splice
+== 21:24:46 l12 score
+== 21:33:48 l12 summary cases=100 tokens=11559 avg_nll=0.470729232 first_match=86 avg_lcp=7.530
+== 21:33:48 l13 layers=13 splice
+== 21:34:07 l13 score
+== 21:43:00 l13 summary cases=100 tokens=11559 avg_nll=0.469551440 first_match=86 avg_lcp=7.340
+== 21:43:00 l14 layers=14 splice
+== 21:43:19 l14 score
+== 21:53:45 l14 summary cases=100 tokens=11559 avg_nll=0.465024720 first_match=87 avg_lcp=8.450
+== 21:53:45 l15 layers=15 splice
+== 21:54:31 l15 score
+== 22:04:03 l15 summary cases=100 tokens=11559 avg_nll=0.468797423 first_match=90 avg_lcp=8.060
+== 22:04:03 l16 layers=16 splice
+== 22:04:23 l16 score
+== 22:12:26 l16 summary cases=100 tokens=11559 avg_nll=0.465076605 first_match=89 avg_lcp=7.880
+== 22:12:26 RANKING (lower avg_nll is better)
+0.465024720	l14
+0.465076605	l16
+0.467332370	l17
+0.467379905	l19
+0.468014461	l18
+0.468797423	l15
+0.469492375	l21
+0.469551440	l13
+0.470729232	l12
+0.470820161	l11
+== Sun Sep 13 22:12:26 EDT 2026 GLM_SWEEP_COMPLETE

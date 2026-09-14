@@ -1,0 +1,806 @@
+Starting monitored ds4-server (GLM 5.3 Flash Uncensored Q2)
+  model:      /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  max tokens: 32768
+  KV cache:   /Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-q2 (131072 MiB budget, min 2048, cold max 65536 tokens)
+  build:      glm53-pr920 @ bd2ca172f954
+  repo:       dirty (code: clean)
+  binary:     STALE: older than the newest source commit; rebuild before benchmarking, built 2026-08-31T23:29:04
+  model file: 96505818432 bytes, mtime 2026-08-31T18:40:44
+  MTP:        enabled (--mtp, width 2) + timing (--mtp-timing)
+  monitor:    every 15s
+  fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
+  wired limit: 118000 MiB
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+[monitor 2026-09-01 00:54:04] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=9.7% mem=0.1% rss=0.1GiB fans=fan0=4671/5349,fan1=5139/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=634.4GiB
+Fans at maximum: fan0=5130/5349RPM fan1=5497/5777RPM
+ds4: Metal model views created in 3.466 ms, residency requested in 2861.194 ms, warmup 5.872 ms (mapped 92026.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.92 GiB (raw 0.00 + compressed 2.92) + buffers 3.16 GiB + resident model 89.87 GiB = 95.96 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=262144 backend=metal
+0901 00:54:06 ds4-server: context buffers 6232.65 MiB (ctx=262144, backend=metal, prefill_chunk=2048, raw_kv_rows=0, compressed_kv_rows=262144)
+ds4: GLM session ctx=262144 (model max=1048576); full-attention prefill/work cap=4096; compact indexed decode is used beyond the cap
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=262144 logical_ctx=262144 kv_layers=45 indexer_layers=11 f16 2.92 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=1024 score_scratch=256.00 MiB
+0901 00:54:06 ds4-server: KV disk cache /Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-q2 (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=10000, trim=32, align=2048, hit_half_life=21600s)
+0901 00:54:06 ds4-server: listening on http://127.0.0.1:8000
+0901 00:54:18 ds4-server: chat ctx=0..2033:2033 prompt start
+[monitor 2026-09-01 00:54:20] health=ok stats=ok state=busy queue=0 clients=2 live=0 requests=1 hits=0 cold=1 cached=0 prefill=0.0t/s decode=0.0t/s cpu=64.8% mem=0.2% rss=0.3GiB fans=fan0=5362/5349,fan1=5773/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=634.3GiB
+0901 00:54:23 ds4-server: chat ctx=0..2033:2033 prefill chunk 2033/2033 (100.0%) chunk=0.00 t/s avg=382.76 t/s 5.311s
+0901 00:54:23 ds4-server: chat ctx=0..2033:2033 prompt done 5.323s
+ds4: glm mtp utility: width=2 pos=2034 setup=4.4 ms verify[rows]=49.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=56.7 ms utility=17.65 tok/s-cycle (draft 271 '
+
+' vs true 21466 ' Summary')
+ds4: glm mtp utility: width=2 pos=2035 setup=1.2 ms verify[rows]=44.5 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=48.9 ms utility=20.45 tok/s-cycle (draft 271 '
+
+' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=2036 setup=1.3 ms verify[rows]=43.7 ms rollback=0.9 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=48.2 ms utility=20.75 tok/s-cycle (draft 26582 ' Technical' vs true 18154 ' Deep')
+ds4: glm mtp utility: width=2 pos=2037 setup=0.8 ms verify[rows]=43.3 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.3 ms utility=21.12 tok/s-cycle (draft 20670 ' Agent' vs true 39138 'Seek')
+ds4: glm mtp utility: width=2 pos=2038 setup=0.8 ms verify[rows]=42.8 ms rollback=0.9 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.34 tok/s-cycle (draft 18154 ' Deep' vs true 647 ' V')
+ds4: glm mtp utility: width=2 pos=2039 setup=1.4 ms verify[rows]=43.0 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=50.5 ms utility=39.61 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=2041 setup=1.2 ms verify[rows]=42.2 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=49.7 ms utility=40.27 tok/s-cycle (draft 758 ' In' vs true 758 ' In')
+ds4: glm mtp utility: width=2 pos=2043 setup=0.8 ms verify[rows]=42.9 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.31 tok/s-cycle (draft 28552 ' (`' vs true 8199 ' Engine')
+ds4: glm mtp utility: width=2 pos=2044 setup=0.9 ms verify[rows]=42.8 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=49.7 ms utility=40.22 tok/s-cycle (draft 28552 ' (`' vs true 28552 ' (`')
+ds4: glm mtp utility: width=2 pos=2046 setup=0.8 ms verify[rows]=42.5 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=46.6 ms utility=21.47 tok/s-cycle (draft 63 '`' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=2047 setup=1.0 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.49 tok/s-cycle (draft 520 '.c' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=2049 setup=1.5 ms verify[rows]=42.6 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=50.4 ms utility=39.68 tok/s-cycle (draft 692 ')
+
+' vs true 692 ')
+
+')
+ds4: glm mtp utility: width=2 pos=2051 setup=0.8 ms verify[rows]=42.8 ms rollback=0.8 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=47.0 ms utility=21.30 tok/s-cycle (draft 220 ' ' vs true 34634 ' Overview')
+ds4: glm mtp utility: width=2 pos=2052 setup=1.4 ms verify[rows]=42.7 ms rollback=0.8 ms draft=2.6 ms other=0.1 ms result=reject committed=1 total=47.6 ms utility=21.00 tok/s-cycle (draft 198 '
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=2053 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.92 tok/s-cycle (draft 63 '`' vs true 63 '`')
+ds4: glm mtp utility: width=2 pos=2055 setup=0.8 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=50.5 ms utility=39.64 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=2057 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.91 tok/s-cycle (draft 63 '`' vs true 63 '`')
+ds4: glm mtp utility: width=2 pos=2059 setup=1.3 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.0 ms utility=39.24 tok/s-cycle (draft 264 ' a' vs true 264 ' a')
+ds4: glm mtp utility: width=2 pos=2061 setup=1.0 ms verify[rows]=42.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.0 ms utility=39.97 tok/s-cycle (draft 51274 '-built' vs true 51274 '-built')
+ds4: glm mtp utility: width=2 pos=2063 setup=0.9 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.31 tok/s-cycle (draft 4712 ' engine' vs true 4712 ' engine')
+ds4: glm mtp utility: width=2 pos=2065 setup=1.3 ms verify[rows]=43.5 ms rollback=0.0 ms draft=5.1 ms other=1.7 ms result=ACCEPT committed=2 total=51.7 ms utility=38.68 tok/s-cycle (draft 18154 ' Deep' vs true 18154 ' Deep')
+ds4: glm mtp utility: width=2 pos=2067 setup=1.5 ms verify[rows]=43.1 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=51.1 ms utility=39.11 tok/s-cycle (draft 647 ' V' vs true 647 ' V')
+ds4: glm mtp utility: width=2 pos=2069 setup=0.8 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.8 ms other=1.9 ms result=ACCEPT committed=2 total=50.4 ms utility=39.71 tok/s-cycle (draft 17242 ' Flash' vs true 17242 ' Flash')
+ds4: glm mtp utility: width=2 pos=2071 setup=0.9 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.63 tok/s-cycle (draft 537 ' not' vs true 537 ' not')
+ds4: glm mtp utility: width=2 pos=2073 setup=1.6 ms verify[rows]=42.3 ms rollback=0.9 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.2 ms utility=21.20 tok/s-cycle (draft 4586 ' general' vs true 13945 ' generic')
+ds4: glm mtp utility: width=2 pos=2074 setup=1.6 ms verify[rows]=42.9 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=47.5 ms utility=21.04 tok/s-cycle (draft 198 '
+' vs true 56316 ' GG')
+ds4: glm mtp utility: width=2 pos=2075 setup=0.8 ms verify[rows]=42.9 ms rollback=0.9 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.32 tok/s-cycle (draft 13 '.' vs true 20495 'UF')
+ds4: glm mtp utility: width=2 pos=2076 setup=0.8 ms verify[rows]=42.6 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=49.5 ms utility=40.40 tok/s-cycle (draft 22202 ' runner' vs true 22202 ' runner')
+ds4: glm mtp utility: width=2 pos=2078 setup=0.8 ms verify[rows]=43.1 ms rollback=0.0 ms draft=4.9 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.62 tok/s-cycle (draft 1084 ' It' vs true 1084 ' It')
+ds4: glm mtp utility: width=2 pos=2080 setup=1.2 ms verify[rows]=42.6 ms rollback=0.0 ms draft=4.9 ms other=1.7 ms result=ACCEPT committed=2 total=50.3 ms utility=39.78 tok/s-cycle (draft 264 ' a' vs true 264 ' a')
+ds4: glm mtp utility: width=2 pos=2082 setup=1.3 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.89 tok/s-cycle (draft 11 ',' vs true 11 ',')
+0901 00:54:25 ds4-server: chat ctx=2033..2083:50 gen=50 decoding chunk=28.90 t/s avg=28.90 t/s 1.730s
+ds4: glm mtp utility: width=2 pos=2084 setup=1.2 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=50.2 ms utility=39.85 tok/s-cycle (draft 57084 '-performance' vs true 57084 '-performance')
+ds4: glm mtp utility: width=2 pos=2086 setup=1.2 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=50.8 ms utility=39.34 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2088 setup=0.9 ms verify[rows]=43.7 ms rollback=0.9 ms draft=2.6 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.80 tok/s-cycle (draft 320 ' (' vs true 448 ' with')
+ds4: glm mtp utility: width=2 pos=2089 setup=1.5 ms verify[rows]=43.5 ms rollback=0.0 ms draft=5.1 ms other=1.8 ms result=ACCEPT committed=2 total=51.9 ms utility=38.55 tok/s-cycle (draft 53927 ' Objective' vs true 53927 ' Objective')
+ds4: glm mtp utility: width=2 pos=2091 setup=1.4 ms verify[rows]=43.5 ms rollback=0.9 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.3 ms utility=20.70 tok/s-cycle (draft 1172 ' only' vs true 1483 ' used')
+ds4: glm mtp utility: width=2 pos=2092 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=50.8 ms utility=39.34 tok/s-cycle (draft 1172 ' only' vs true 1172 ' only')
+ds4: glm mtp utility: width=2 pos=2094 setup=1.2 ms verify[rows]=43.1 ms rollback=0.9 ms draft=2.7 ms other=0.1 ms result=reject committed=1 total=48.0 ms utility=20.82 tok/s-cycle (draft 279 ' the' vs true 19170 ' Metal')
+ds4: glm mtp utility: width=2 pos=2095 setup=0.8 ms verify[rows]=43.4 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.3 ms utility=21.16 tok/s-cycle (draft 20928 ' explicitly' vs true 7460 ' requires')
+ds4: glm mtp utility: width=2 pos=2096 setup=1.2 ms verify[rows]=42.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.89 tok/s-cycle (draft 432 ' it' vs true 432 ' it')
+ds4: glm mtp utility: width=2 pos=2098 setup=1.5 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.3 ms utility=39.75 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=2100 setup=1.2 ms verify[rows]=42.7 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.1 ms utility=21.23 tok/s-cycle (draft 63062 ' kernels' vs true 12558 ' compute')
+ds4: glm mtp utility: width=2 pos=2101 setup=1.4 ms verify[rows]=42.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.3 ms utility=39.75 tok/s-cycle (draft 63062 ' kernels' vs true 63062 ' kernels')
+ds4: glm mtp utility: width=2 pos=2103 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=51.0 ms utility=39.22 tok/s-cycle (draft 1212 ' under' vs true 1212 ' under')
+ds4: glm mtp utility: width=2 pos=2105 setup=1.2 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=50.7 ms utility=39.47 tok/s-cycle (draft 53648 'metal' vs true 53648 'metal')
+ds4: glm mtp utility: width=2 pos=2107 setup=1.1 ms verify[rows]=42.5 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=49.5 ms utility=40.43 tok/s-cycle (draft 28487 '`.' vs true 28487 '`.')
+ds4: glm mtp utility: width=2 pos=2109 setup=0.8 ms verify[rows]=42.9 ms rollback=0.8 ms draft=2.3 ms other=0.2 ms result=reject committed=1 total=47.0 ms utility=21.28 tok/s-cycle (draft 4712 ' engine' vs true 2884 ' design')
+ds4: glm mtp utility: width=2 pos=2110 setup=0.8 ms verify[rows]=42.9 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.31 tok/s-cycle (draft 8844 ' goals' vs true 19092 ' philosophy')
+ds4: glm mtp utility: width=2 pos=2111 setup=0.8 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.78 tok/s-cycle (draft 374 ' is' vs true 44418 ' priorit')
+ds4: glm mtp utility: width=2 pos=2112 setup=1.5 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=50.3 ms utility=39.79 tok/s-cycle (draft 4756 'izes' vs true 4756 'izes')
+ds4: glm mtp utility: width=2 pos=2114 setup=0.8 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=49.8 ms utility=40.16 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2116 setup=1.7 ms verify[rows]=43.1 ms rollback=1.0 ms draft=2.3 ms other=0.2 ms result=reject committed=1 total=48.3 ms utility=20.70 tok/s-cycle (draft 90728 ' readability' vs true 2142 'ism')
+ds4: glm mtp utility: width=2 pos=2117 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.89 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2119 setup=1.3 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.47 tok/s-cycle (draft 90728 ' readability' vs true 90728 ' readability')
+ds4: glm mtp utility: width=2 pos=2121 setup=0.9 ms verify[rows]=42.6 ms rollback=0.9 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=46.8 ms utility=21.37 tok/s-cycle (draft 330 ' "' vs true 4565 ' feature')
+ds4: glm mtp utility: width=2 pos=2122 setup=1.6 ms verify[rows]=42.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.51 tok/s-cycle (draft 56835 ' breadth' vs true 56835 ' breadth')
+ds4: glm mtp utility: width=2 pos=2124 setup=1.2 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.3 ms utility=39.74 tok/s-cycle (draft 448 ' with' vs true 448 ' with')
+ds4: glm mtp utility: width=2 pos=2126 setup=1.7 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.16 tok/s-cycle (draft 5670 ' production' vs true 5670 ' production')
+ds4: glm mtp utility: width=2 pos=2128 setup=1.2 ms verify[rows]=43.0 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.4 ms utility=21.10 tok/s-cycle (draft 315 ' of' vs true 1660 ' being')
+ds4: glm mtp utility: width=2 pos=2129 setup=1.3 ms verify[rows]=42.4 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.31 tok/s-cycle (draft 264 ' a' vs true 4361 ' whole')
+ds4: glm mtp utility: width=2 pos=2130 setup=0.8 ms verify[rows]=42.7 ms rollback=0.9 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=46.9 ms utility=21.34 tok/s-cycle (draft 438 ' as' vs true 28147 '-model')
+ds4: glm mtp utility: width=2 pos=2131 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.0 ms utility=40.02 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+0901 00:54:27 ds4-server: chat ctx=2083..2133:50 gen=100 decoding chunk=29.02 t/s avg=28.96 t/s 3.453s
+ds4: glm mtp utility: width=2 pos=2133 setup=0.8 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=49.5 ms utility=40.40 tok/s-cycle (draft 44120 ' inference' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=2135 setup=1.2 ms verify[rows]=42.4 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=49.9 ms utility=40.10 tok/s-cycle (draft 565 '##' vs true 565 '##')
+ds4: glm mtp utility: width=2 pos=2137 setup=0.8 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.8 ms other=1.9 ms result=ACCEPT committed=2 total=50.5 ms utility=39.62 tok/s-cycle (draft 4176 'ural' vs true 4176 'ural')
+ds4: glm mtp utility: width=2 pos=2139 setup=1.1 ms verify[rows]=43.0 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.2 ms utility=39.81 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=2141 setup=1.5 ms verify[rows]=43.2 ms rollback=0.8 ms draft=2.2 ms other=0.1 ms result=reject committed=1 total=47.7 ms utility=20.96 tok/s-cycle (draft 5670 ' production' vs true 4712 ' engine')
+ds4: glm mtp utility: width=2 pos=2142 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=5.0 ms other=1.7 ms result=ACCEPT committed=2 total=50.7 ms utility=39.47 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=2144 setup=0.8 ms verify[rows]=43.0 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=49.8 ms utility=40.20 tok/s-cycle (draft 2163 ' around' vs true 2163 ' around')
+ds4: glm mtp utility: width=2 pos=2146 setup=0.9 ms verify[rows]=43.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.2 ms utility=21.17 tok/s-cycle (draft 2588 ' hard' vs true 6200 ' core')
+ds4: glm mtp utility: width=2 pos=2147 setup=0.8 ms verify[rows]=43.3 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.3 ms utility=21.16 tok/s-cycle (draft 16156 ' principles' vs true 41025 ' commitments')
+ds4: glm mtp utility: width=2 pos=2148 setup=1.2 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=50.5 ms utility=39.57 tok/s-cycle (draft 1447 ':
+
+' vs true 1447 ':
+
+')
+ds4: glm mtp utility: width=2 pos=2150 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.4 ms utility=39.68 tok/s-cycle (draft 13 '.' vs true 13 '.')
+ds4: glm mtp utility: width=2 pos=2152 setup=1.5 ms verify[rows]=43.7 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.4 ms utility=20.66 tok/s-cycle (draft 40271 ' Whole' vs true 89833 'Whole')
+ds4: glm mtp utility: width=2 pos=2153 setup=0.8 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=49.5 ms utility=40.37 tok/s-cycle (draft 28147 '-model' vs true 28147 '-model')
+ds4: glm mtp utility: width=2 pos=2155 setup=1.2 ms verify[rows]=43.4 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=39.02 tok/s-cycle (draft 4771 ' graph' vs true 4771 ' graph')
+ds4: glm mtp utility: width=2 pos=2157 setup=1.2 ms verify[rows]=43.1 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=50.5 ms utility=39.63 tok/s-cycle (draft 334 '**' vs true 334 '**')
+ds4: glm mtp utility: width=2 pos=2159 setup=0.8 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=49.8 ms utility=40.13 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2161 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=50.8 ms utility=39.40 tok/s-cycle (draft 1815 ' path' vs true 1815 ' path')
+ds4: glm mtp utility: width=2 pos=2163 setup=0.8 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=51.2 ms utility=39.05 tok/s-cycle (draft 17 '2' vs true 17 '2')
+ds4: glm mtp utility: width=2 pos=2165 setup=1.6 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=51.3 ms utility=38.98 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=2167 setup=1.5 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.7 ms other=1.8 ms result=ACCEPT committed=2 total=51.3 ms utility=38.96 tok/s-cycle (draft 34788 'olation' vs true 34788 'olation')
+ds4: glm mtp utility: width=2 pos=2169 setup=1.4 ms verify[rows]=43.2 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.80 tok/s-cycle (draft 9020 ' critical' vs true 52437 ' subsystem')
+ds4: glm mtp utility: width=2 pos=2170 setup=0.8 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.52 tok/s-cycle (draft 82 's' vs true 82 's')
+ds4: glm mtp utility: width=2 pos=2172 setup=1.2 ms verify[rows]=43.3 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.7 ms utility=20.97 tok/s-cycle (draft 26452 ' fixes' vs true 36178 ' SSD')
+ds4: glm mtp utility: width=2 pos=2173 setup=0.8 ms verify[rows]=43.3 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.4 ms utility=21.08 tok/s-cycle (draft 26452 ' fixes' vs true 16824 ' streaming')
+ds4: glm mtp utility: width=2 pos=2174 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.29 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2176 setup=0.8 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.35 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2178 setup=0.8 ms verify[rows]=43.6 ms rollback=1.0 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.0 ms utility=20.83 tok/s-cycle (draft 11 ',' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=2179 setup=1.3 ms verify[rows]=44.9 ms rollback=0.0 ms draft=5.0 ms other=1.8 ms result=ACCEPT committed=2 total=53.0 ms utility=37.74 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2181 setup=1.5 ms verify[rows]=45.0 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=53.1 ms utility=37.69 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+0901 00:54:28 ds4-server: chat ctx=2133..2183:50 gen=150 decoding chunk=31.44 t/s avg=29.74 t/s 5.043s
+ds4: glm mtp utility: width=2 pos=2183 setup=0.9 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=50.7 ms utility=39.47 tok/s-cycle (draft 44120 ' inference' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=2185 setup=1.3 ms verify[rows]=43.3 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.0 ms utility=20.82 tok/s-cycle (draft 387 ' be' vs true 7146 ' remain')
+ds4: glm mtp utility: width=2 pos=2186 setup=1.5 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=51.6 ms utility=38.80 tok/s-cycle (draft 76903 ' unaffected' vs true 76903 ' unaffected')
+ds4: glm mtp utility: width=2 pos=2188 setup=1.5 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.9 ms other=1.6 ms result=ACCEPT committed=2 total=51.9 ms utility=38.53 tok/s-cycle (draft 26452 ' fixes' vs true 26452 ' fixes')
+ds4: glm mtp utility: width=2 pos=2190 setup=0.9 ms verify[rows]=44.4 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=51.6 ms utility=38.74 tok/s-cycle (draft 44937 ' unrelated' vs true 44937 ' unrelated')
+ds4: glm mtp utility: width=2 pos=2192 setup=1.4 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.29 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=2194 setup=1.4 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=51.5 ms utility=38.83 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2196 setup=1.2 ms verify[rows]=43.0 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.58 tok/s-cycle (draft 18 '3' vs true 18 '3')
+ds4: glm mtp utility: width=2 pos=2198 setup=1.0 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.33 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=2200 setup=1.2 ms verify[rows]=42.7 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=50.0 ms utility=39.99 tok/s-cycle (draft 2186 'map' vs true 2186 'map')
+ds4: glm mtp utility: width=2 pos=2202 setup=1.2 ms verify[rows]=43.7 ms rollback=0.0 ms draft=5.0 ms other=1.8 ms result=ACCEPT committed=2 total=51.7 ms utility=38.67 tok/s-cycle (draft 1614 ' model' vs true 1614 ' model')
+ds4: glm mtp utility: width=2 pos=2204 setup=1.4 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.3 ms utility=39.75 tok/s-cycle (draft 334 '**' vs true 334 '**')
+ds4: glm mtp utility: width=2 pos=2206 setup=1.2 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=51.1 ms utility=39.13 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2208 setup=1.3 ms verify[rows]=42.9 ms rollback=0.0 ms draft=4.6 ms other=1.8 ms result=ACCEPT committed=2 total=50.5 ms utility=39.57 tok/s-cycle (draft 1638 ' default' vs true 1638 ' default')
+ds4: glm mtp utility: width=2 pos=2210 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.42 tok/s-cycle (draft 1959 ' —' vs true 1959 ' —')
+ds4: glm mtp utility: width=2 pos=2212 setup=1.3 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.2 ms utility=39.08 tok/s-cycle (draft 2480 ' full' vs true 2480 ' full')
+ds4: glm mtp utility: width=2 pos=2214 setup=1.3 ms verify[rows]=44.5 ms rollback=0.0 ms draft=5.0 ms other=1.7 ms result=ACCEPT committed=2 total=52.6 ms utility=38.04 tok/s-cycle (draft 20495 'UF' vs true 20495 'UF')
+ds4: glm mtp utility: width=2 pos=2216 setup=0.8 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.3 ms utility=39.74 tok/s-cycle (draft 2581 ' never' vs true 2581 ' never')
+ds4: glm mtp utility: width=2 pos=2218 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=50.3 ms utility=39.74 tok/s-cycle (draft 21722 ' copied' vs true 21722 ' copied')
+ds4: glm mtp utility: width=2 pos=2220 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.51 tok/s-cycle (draft 1752 ' For' vs true 1752 ' For')
+ds4: glm mtp utility: width=2 pos=2222 setup=0.8 ms verify[rows]=43.7 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.8 ms utility=20.93 tok/s-cycle (draft 71664 ' routed' vs true 16824 ' streaming')
+ds4: glm mtp utility: width=2 pos=2223 setup=0.8 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.59 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=2225 setup=1.4 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=51.2 ms utility=39.09 tok/s-cycle (draft 11641 ' experts' vs true 11641 ' experts')
+ds4: glm mtp utility: width=2 pos=2227 setup=1.4 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.4 ms utility=38.90 tok/s-cycle (draft 8276 ' loading' vs true 8276 ' loading')
+ds4: glm mtp utility: width=2 pos=2229 setup=1.3 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=50.8 ms utility=39.39 tok/s-cycle (draft 11459 ' explicit' vs true 11459 ' explicit')
+ds4: glm mtp utility: width=2 pos=2231 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=5.0 ms other=1.7 ms result=ACCEPT committed=2 total=51.2 ms utility=39.05 tok/s-cycle (draft 20164 ' allocated' vs true 20164 ' allocated')
+0901 00:54:30 ds4-server: chat ctx=2183..2233:50 gen=200 decoding chunk=35.41 t/s avg=30.98 t/s 6.455s
+ds4: glm mtp utility: width=2 pos=2233 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.8 ms other=1.9 ms result=ACCEPT committed=2 total=51.3 ms utility=39.01 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2235 setup=1.4 ms verify[rows]=43.7 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.5 ms utility=20.61 tok/s-cycle (draft 15792 ' reads' vs true 13355 ' disk')
+ds4: glm mtp utility: width=2 pos=2236 setup=0.8 ms verify[rows]=44.3 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=51.3 ms utility=38.96 tok/s-cycle (draft 15792 ' reads' vs true 15792 ' reads')
+ds4: glm mtp utility: width=2 pos=2238 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.28 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=2240 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.4 ms utility=39.67 tok/s-cycle (draft 4532 'istic' vs true 4532 'istic')
+ds4: glm mtp utility: width=2 pos=2242 setup=0.8 ms verify[rows]=43.5 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.7 ms utility=20.98 tok/s-cycle (draft 315 ' of' vs true 287 'ing')
+ds4: glm mtp utility: width=2 pos=2243 setup=1.5 ms verify[rows]=44.0 ms rollback=0.8 ms draft=2.6 ms other=0.1 ms result=reject committed=1 total=49.0 ms utility=20.42 tok/s-cycle (draft 315 ' of' vs true 429 ' that')
+ds4: glm mtp utility: width=2 pos=2244 setup=1.3 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.26 tok/s-cycle (draft 57211 ' hides' vs true 57211 ' hides')
+ds4: glm mtp utility: width=2 pos=2246 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.7 ms other=1.8 ms result=ACCEPT committed=2 total=51.0 ms utility=39.25 tok/s-cycle (draft 8276 ' loading' vs true 8276 ' loading')
+ds4: glm mtp utility: width=2 pos=2248 setup=1.4 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.18 tok/s-cycle (draft 7402 ' missing' vs true 7402 ' missing')
+ds4: glm mtp utility: width=2 pos=2250 setup=0.9 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.63 tok/s-cycle (draft 11641 ' experts' vs true 11641 ' experts')
+ds4: glm mtp utility: width=2 pos=2252 setup=1.2 ms verify[rows]=43.6 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.79 tok/s-cycle (draft 279 ' the' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=2253 setup=0.9 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=50.4 ms utility=39.68 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=2255 setup=1.2 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.0 ms utility=39.25 tok/s-cycle (draft 6094 ' shared' vs true 6094 ' shared')
+ds4: glm mtp utility: width=2 pos=2257 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.48 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=2259 setup=0.8 ms verify[rows]=43.6 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.6 ms utility=21.01 tok/s-cycle (draft 18347 '-exp' vs true 11583 '-res')
+ds4: glm mtp utility: width=2 pos=2260 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.0 ms utility=39.99 tok/s-cycle (draft 1713 'ident' vs true 1713 'ident')
+ds4: glm mtp utility: width=2 pos=2262 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=50.2 ms utility=39.80 tok/s-cycle (draft 11641 ' experts' vs true 11641 ' experts')
+ds4: glm mtp utility: width=2 pos=2264 setup=1.8 ms verify[rows]=42.9 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.0 ms utility=20.84 tok/s-cycle (draft 34071 ' Similarly' vs true 22674 ' Layer')
+ds4: glm mtp utility: width=2 pos=2265 setup=0.8 ms verify[rows]=43.1 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.2 ms utility=21.20 tok/s-cycle (draft 855 ' pre' vs true 8276 ' loading')
+ds4: glm mtp utility: width=2 pos=2266 setup=1.6 ms verify[rows]=43.8 ms rollback=1.0 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.9 ms utility=20.44 tok/s-cycle (draft 369 ' for' vs true 2337 ' during')
+ds4: glm mtp utility: width=2 pos=2267 setup=1.4 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.41 tok/s-cycle (draft 855 ' pre' vs true 855 ' pre')
+ds4: glm mtp utility: width=2 pos=2269 setup=0.9 ms verify[rows]=43.1 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.3 ms utility=21.16 tok/s-cycle (draft 374 ' is' vs true 304 ' in')
+ds4: glm mtp utility: width=2 pos=2270 setup=1.5 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=38.99 tok/s-cycle (draft 36178 ' SSD' vs true 36178 ' SSD')
+ds4: glm mtp utility: width=2 pos=2272 setup=1.3 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.26 tok/s-cycle (draft 3856 ' mode' vs true 3856 ' mode')
+ds4: glm mtp utility: width=2 pos=2274 setup=0.8 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=51.2 ms utility=39.07 tok/s-cycle (draft 29086 ' similarly' vs true 29086 ' similarly')
+ds4: glm mtp utility: width=2 pos=2276 setup=0.8 ms verify[rows]=43.4 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.4 ms utility=21.11 tok/s-cycle (draft 553 ' by' vs true 4815 ' behind')
+ds4: glm mtp utility: width=2 pos=2277 setup=1.0 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.35 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2279 setup=0.9 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.33 tok/s-cycle (draft 882 ' time' vs true 882 ' time')
+ds4: glm mtp utility: width=2 pos=2281 setup=0.8 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=50.4 ms utility=39.66 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+0901 00:54:31 ds4-server: chat ctx=2233..2283:50 gen=250 decoding chunk=30.93 t/s avg=30.97 t/s 8.072s
+ds4: glm mtp utility: width=2 pos=2283 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.5 ms utility=39.57 tok/s-cycle (draft 6193 ' layer' vs true 6193 ' layer')
+ds4: glm mtp utility: width=2 pos=2285 setup=0.8 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.1 ms utility=39.96 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=2287 setup=0.8 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=50.3 ms utility=39.78 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=2289 setup=0.9 ms verify[rows]=43.2 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.4 ms utility=21.09 tok/s-cycle (draft 15370 '-only' vs true 19127 ' backend')
+ds4: glm mtp utility: width=2 pos=2290 setup=0.9 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.4 ms utility=39.65 tok/s-cycle (draft 438 ' as' vs true 438 ' as')
+ds4: glm mtp utility: width=2 pos=2292 setup=1.1 ms verify[rows]=43.5 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.9 ms utility=20.89 tok/s-cycle (draft 1172 ' only' vs true 66987 '/debug')
+ds4: glm mtp utility: width=2 pos=2293 setup=0.7 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.53 tok/s-cycle (draft 1172 ' only' vs true 1172 ' only')
+ds4: glm mtp utility: width=2 pos=2295 setup=1.2 ms verify[rows]=44.3 ms rollback=0.0 ms draft=5.1 ms other=1.6 ms result=ACCEPT committed=2 total=52.2 ms utility=38.34 tok/s-cycle (draft 1959 ' —' vs true 1959 ' —')
+ds4: glm mtp utility: width=2 pos=2297 setup=1.4 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.11 tok/s-cycle (draft 25392 ' strictly' vs true 25392 ' strictly')
+ds4: glm mtp utility: width=2 pos=2299 setup=1.2 ms verify[rows]=43.5 ms rollback=0.8 ms draft=2.6 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.79 tok/s-cycle (draft 11 ',' vs true 15370 '-only')
+ds4: glm mtp utility: width=2 pos=2300 setup=1.6 ms verify[rows]=44.3 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=52.0 ms utility=38.47 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2302 setup=1.2 ms verify[rows]=43.1 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=50.4 ms utility=39.67 tok/s-cycle (draft 1483 ' used' vs true 1483 ' used')
+ds4: glm mtp utility: width=2 pos=2304 setup=0.8 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=50.7 ms utility=39.42 tok/s-cycle (draft 5670 ' production' vs true 5670 ' production')
+ds4: glm mtp utility: width=2 pos=2306 setup=1.6 ms verify[rows]=45.8 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=53.8 ms utility=37.18 tok/s-cycle (draft 624 '.
+' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=2308 setup=1.5 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.7 ms utility=38.67 tok/s-cycle (draft 13 '.' vs true 13 '.')
+ds4: glm mtp utility: width=2 pos=2310 setup=1.6 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=51.4 ms utility=38.94 tok/s-cycle (draft 32934 'Correct' vs true 32934 'Correct')
+ds4: glm mtp utility: width=2 pos=2312 setup=1.1 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.36 tok/s-cycle (draft 1573 ' before' vs true 1573 ' before')
+ds4: glm mtp utility: width=2 pos=2314 setup=1.5 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=51.4 ms utility=38.93 tok/s-cycle (draft 94713 '**:' vs true 94713 '**:')
+ds4: glm mtp utility: width=2 pos=2316 setup=1.3 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.4 ms utility=38.89 tok/s-cycle (draft 10591 ' faster' vs true 10591 ' faster')
+ds4: glm mtp utility: width=2 pos=2318 setup=1.5 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=51.5 ms utility=38.85 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=2320 setup=0.8 ms verify[rows]=43.5 ms rollback=0.9 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.7 ms utility=20.96 tok/s-cycle (draft 64864 ' tolerated' vs true 421 ' if')
+ds4: glm mtp utility: width=2 pos=2321 setup=1.3 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=50.8 ms utility=39.38 tok/s-cycle (draft 432 ' it' vs true 432 ' it')
+ds4: glm mtp utility: width=2 pos=2323 setup=1.3 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=51.0 ms utility=39.19 tok/s-cycle (draft 650 ' un' vs true 650 ' un')
+ds4: glm mtp utility: width=2 pos=2325 setup=0.8 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=50.4 ms utility=39.71 tok/s-cycle (draft 33476 ' drift' vs true 33476 ' drift')
+ds4: glm mtp utility: width=2 pos=2327 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.27 tok/s-cycle (draft 6529 ' attention' vs true 6529 ' attention')
+ds4: glm mtp utility: width=2 pos=2329 setup=1.1 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=51.0 ms utility=39.19 tok/s-cycle (draft 83952 ' KV' vs true 83952 ' KV')
+ds4: glm mtp utility: width=2 pos=2331 setup=1.2 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=51.0 ms utility=39.24 tok/s-cycle (draft 11 ',' vs true 11 ',')
+0901 00:54:33 ds4-server: chat ctx=2283..2333:50 gen=300 decoding chunk=33.10 t/s avg=31.31 t/s 9.582s
+ds4: glm mtp utility: width=2 pos=2333 setup=0.8 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.17 tok/s-cycle (draft 60362 ' logits' vs true 60362 ' logits')
+ds4: glm mtp utility: width=2 pos=2335 setup=0.9 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.4 ms utility=39.65 tok/s-cycle (draft 21 '6' vs true 21 '6')
+ds4: glm mtp utility: width=2 pos=2337 setup=1.2 ms verify[rows]=43.3 ms rollback=0.0 ms draft=4.7 ms other=1.8 ms result=ACCEPT committed=2 total=51.1 ms utility=39.16 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=2339 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=51.2 ms utility=39.09 tok/s-cycle (draft 35837 'actical' vs true 35837 'actical')
+ds4: glm mtp utility: width=2 pos=2341 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.9 ms result=ACCEPT committed=2 total=51.2 ms utility=39.09 tok/s-cycle (draft 2205 ' local' vs true 2205 ' local')
+ds4: glm mtp utility: width=2 pos=2343 setup=1.3 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.38 tok/s-cycle (draft 15692 ' sessions' vs true 15692 ' sessions')
+ds4: glm mtp utility: width=2 pos=2345 setup=1.5 ms verify[rows]=43.8 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.6 ms utility=20.59 tok/s-cycle (draft 4566 ' via' vs true 8967 ' enabled')
+ds4: glm mtp utility: width=2 pos=2346 setup=1.2 ms verify[rows]=43.5 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=47.9 ms utility=20.86 tok/s-cycle (draft 553 ' by' vs true 1526 ' through')
+ds4: glm mtp utility: width=2 pos=2347 setup=0.8 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.32 tok/s-cycle (draft 3887 ' live' vs true 3887 ' live')
+ds4: glm mtp utility: width=2 pos=2349 setup=1.4 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=51.2 ms utility=39.07 tok/s-cycle (draft 25897 ' reuse' vs true 25897 ' reuse')
+ds4: glm mtp utility: width=2 pos=2351 setup=1.2 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.4 ms utility=38.89 tok/s-cycle (draft 13355 ' disk' vs true 13355 ' disk')
+ds4: glm mtp utility: width=2 pos=2353 setup=1.6 ms verify[rows]=43.2 ms rollback=0.9 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.80 tok/s-cycle (draft 6500 ' cache' vs true 66720 ' checkpoints')
+ds4: glm mtp utility: width=2 pos=2354 setup=0.8 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.35 tok/s-cycle (draft 382 '.
+
+' vs true 382 '.
+
+')
+ds4: glm mtp utility: width=2 pos=2356 setup=1.4 ms verify[rows]=44.6 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=52.2 ms utility=38.31 tok/s-cycle (draft 6119 ' Code' vs true 6119 ' Code')
+ds4: glm mtp utility: width=2 pos=2358 setup=1.6 ms verify[rows]=43.8 ms rollback=0.8 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.9 ms utility=20.46 tok/s-cycle (draft 271 '
+
+' vs true 22786 ' Rules')
+ds4: glm mtp utility: width=2 pos=2359 setup=1.4 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=51.6 ms utility=38.74 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=2361 setup=0.8 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.9 ms utility=20.88 tok/s-cycle (draft 8128 ' implementation' vs true 2390 ' project')
+ds4: glm mtp utility: width=2 pos=2362 setup=0.8 ms verify[rows]=43.8 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.7 ms utility=20.95 tok/s-cycle (draft 31855 ' maintains' vs true 662 ' en')
+ds4: glm mtp utility: width=2 pos=2363 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.42 tok/s-cycle (draft 48490 'forces' vs true 48490 'forces')
+ds4: glm mtp utility: width=2 pos=2365 setup=1.2 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=48.3 ms utility=20.71 tok/s-cycle (draft 7304 ' strict' vs true 34674 ' distinctive')
+ds4: glm mtp utility: width=2 pos=2366 setup=1.4 ms verify[rows]=43.4 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.81 tok/s-cycle (draft 36352 ' aesthetic' vs true 330 ' "')
+ds4: glm mtp utility: width=2 pos=2367 setup=0.8 ms verify[rows]=43.7 ms rollback=0.8 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=47.9 ms utility=20.90 tok/s-cycle (draft 1851 'code' vs true 2454 'state')
+ds4: glm mtp utility: width=2 pos=2368 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=50.6 ms utility=39.54 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=2370 setup=1.6 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.5 ms utility=38.81 tok/s-cycle (draft 1 '"' vs true 1 '"')
+ds4: glm mtp utility: width=2 pos=2372 setup=0.8 ms verify[rows]=43.6 ms rollback=1.0 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.8 ms utility=20.92 tok/s-cycle (draft 5297 ' standard' vs true 25286 ' discipline')
+ds4: glm mtp utility: width=2 pos=2373 setup=1.2 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=51.6 ms utility=38.78 tok/s-cycle (draft 1447 ':
+
+' vs true 1447 ':
+
+')
+ds4: glm mtp utility: width=2 pos=2375 setup=0.8 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=47.9 ms utility=20.87 tok/s-cycle (draft 576 ' The' vs true 30691 ' Implementation')
+ds4: glm mtp utility: width=2 pos=2376 setup=1.4 ms verify[rows]=43.9 ms rollback=0.9 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.5 ms utility=20.62 tok/s-cycle (draft 374 ' is' vs true 1265 ' should')
+ds4: glm mtp utility: width=2 pos=2377 setup=1.6 ms verify[rows]=43.2 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.26 tok/s-cycle (draft 387 ' be' vs true 387 ' be')
+ds4: glm mtp utility: width=2 pos=2379 setup=0.8 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.27 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2381 setup=0.9 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.8 ms utility=39.39 tok/s-cycle (draft 11 ',' vs true 11 ',')
+0901 00:54:35 ds4-server: chat ctx=2333..2383:50 gen=350 decoding chunk=29.43 t/s avg=31.03 t/s 11.281s
+ds4: glm mtp utility: width=2 pos=2383 setup=0.8 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.1 ms utility=39.15 tok/s-cycle (draft 4135 ' easy' vs true 4135 ' easy')
+ds4: glm mtp utility: width=2 pos=2385 setup=0.8 ms verify[rows]=43.5 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=50.4 ms utility=39.66 tok/s-cycle (draft 3535 ' understand' vs true 3535 ' understand')
+ds4: glm mtp utility: width=2 pos=2387 setup=0.8 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.13 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2389 setup=1.4 ms verify[rows]=43.4 ms rollback=0.0 ms draft=4.9 ms other=1.7 ms result=ACCEPT committed=2 total=51.5 ms utility=38.84 tok/s-cycle (draft 17355 ' minimal' vs true 17355 ' minimal')
+ds4: glm mtp utility: width=2 pos=2391 setup=1.2 ms verify[rows]=44.5 ms rollback=0.8 ms draft=2.6 ms other=0.1 ms result=reject committed=1 total=49.2 ms utility=20.34 tok/s-cycle (draft 2664 ' better' vs true 7373 ' effective')
+ds4: glm mtp utility: width=2 pos=2392 setup=1.4 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.9 ms other=1.6 ms result=ACCEPT committed=2 total=52.0 ms utility=38.43 tok/s-cycle (draft 2884 ' design' vs true 2884 ' design')
+ds4: glm mtp utility: width=2 pos=2394 setup=0.8 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.4 ms utility=38.92 tok/s-cycle (draft 14878 ' preferred' vs true 14878 ' preferred')
+ds4: glm mtp utility: width=2 pos=2396 setup=0.8 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.9 ms utility=39.33 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2398 setup=1.1 ms verify[rows]=43.9 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.5 ms utility=20.63 tok/s-cycle (draft 21504 ' acceptable' vs true 3238 ' working')
+ds4: glm mtp utility: width=2 pos=2399 setup=0.9 ms verify[rows]=44.8 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=49.0 ms utility=20.41 tok/s-cycle (draft 4522 ' idea' vs true 2319 ' version')
+ds4: glm mtp utility: width=2 pos=2400 setup=1.4 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.9 ms utility=38.51 tok/s-cycle (draft 624 '.
+' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=2402 setup=1.2 ms verify[rows]=43.9 ms rollback=0.9 ms draft=2.6 ms other=0.2 ms result=reject committed=1 total=48.8 ms utility=20.47 tok/s-cycle (draft 3070 ' **' vs true 2308 ' No')
+ds4: glm mtp utility: width=2 pos=2403 setup=1.1 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=51.0 ms utility=39.25 tok/s-cycle (draft 330 ' "' vs true 330 ' "')
+ds4: glm mtp utility: width=2 pos=2405 setup=1.2 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=51.1 ms utility=39.13 tok/s-cycle (draft 22231 'lop' vs true 22231 'lop')
+ds4: glm mtp utility: width=2 pos=2407 setup=0.8 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=51.1 ms utility=39.13 tok/s-cycle (draft 43994 ' fragile' vs true 43994 ' fragile')
+ds4: glm mtp utility: width=2 pos=2409 setup=0.9 ms verify[rows]=43.9 ms rollback=0.7 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.80 tok/s-cycle (draft 28155 '-over' vs true 11292 '-style')
+ds4: glm mtp utility: width=2 pos=2410 setup=1.3 ms verify[rows]=44.6 ms rollback=0.8 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=49.1 ms utility=20.36 tok/s-cycle (draft 11 ',' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2411 setup=0.8 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=50.3 ms utility=39.79 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2413 setup=1.2 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.7 ms utility=38.70 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2415 setup=1.2 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.2 ms utility=39.07 tok/s-cycle (draft 28745 ' useless' vs true 28745 ' useless')
+ds4: glm mtp utility: width=2 pos=2417 setup=1.2 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.1 ms utility=39.17 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2419 setup=0.7 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.2 ms utility=39.08 tok/s-cycle (draft 916 ' over' vs true 916 ' over')
+ds4: glm mtp utility: width=2 pos=2421 setup=0.9 ms verify[rows]=43.6 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.5 ms utility=39.61 tok/s-cycle (draft 13715 'licated' vs true 13715 'licated')
+ds4: glm mtp utility: width=2 pos=2423 setup=1.2 ms verify[rows]=44.7 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=52.0 ms utility=38.48 tok/s-cycle (draft 624 '.
+' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=2425 setup=1.4 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.5 ms utility=38.84 tok/s-cycle (draft 17656 ' Comments' vs true 17656 ' Comments')
+ds4: glm mtp utility: width=2 pos=2427 setup=1.2 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.3 ms utility=20.70 tok/s-cycle (draft 279 ' the' vs true 2989 ' important')
+[monitor 2026-09-01 00:54:36] health=ok stats=ok state=busy queue=0 clients=2 live=2400 requests=1 hits=0 cold=1 cached=0 prefill=381.9t/s decode=0.0t/s cpu=4.6% mem=0.2% rss=0.2GiB fans=fan0=5329/5349,fan1=5791/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=634.2GiB
+ds4: glm mtp utility: width=2 pos=2428 setup=0.9 ms verify[rows]=44.0 ms rollback=0.7 ms draft=2.3 ms other=0.1 ms result=reject committed=1 total=48.0 ms utility=20.84 tok/s-cycle (draft 8128 ' implementation' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=2429 setup=1.2 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.4 ms utility=38.95 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2431 setup=1.1 ms verify[rows]=44.1 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.6 ms utility=20.58 tok/s-cycle (draft 279 ' the' vs true 1614 ' model')
+ds4: glm mtp utility: width=2 pos=2432 setup=1.4 ms verify[rows]=43.8 ms rollback=1.0 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.7 ms utility=20.52 tok/s-cycle (draft 11 ',' vs true 28921 ' mechanics')
+0901 00:54:36 ds4-server: chat ctx=2383..2433:50 gen=400 decoding chunk=29.82 t/s avg=30.87 t/s 12.958s
+ds4: glm mtp utility: width=2 pos=2433 setup=0.8 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.26 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2435 setup=1.2 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.4 ms utility=20.64 tok/s-cycle (draft 11 ',' vs true 18996 ' lifetime')
+ds4: glm mtp utility: width=2 pos=2436 setup=1.3 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=38.99 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2438 setup=1.0 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.2 ms utility=20.75 tok/s-cycle (draft 11 ',' vs true 4842 ' policy')
+ds4: glm mtp utility: width=2 pos=2439 setup=0.9 ms verify[rows]=44.4 ms rollback=0.0 ms draft=5.0 ms other=1.5 ms result=ACCEPT committed=2 total=51.8 ms utility=38.61 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2441 setup=1.4 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=39.01 tok/s-cycle (draft 5333 ' API' vs true 5333 ' API')
+ds4: glm mtp utility: width=2 pos=2443 setup=1.6 ms verify[rows]=44.6 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=52.6 ms utility=38.05 tok/s-cycle (draft 2165 'ration' vs true 2165 'ration')
+ds4: glm mtp utility: width=2 pos=2445 setup=1.4 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.6 ms utility=38.75 tok/s-cycle (draft 537 ' not' vs true 537 ' not')
+ds4: glm mtp utility: width=2 pos=2447 setup=1.4 ms verify[rows]=44.0 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.7 ms utility=20.52 tok/s-cycle (draft 504 ' from' vs true 23425 ' locally')
+ds4: glm mtp utility: width=2 pos=2448 setup=0.8 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=50.7 ms utility=39.44 tok/s-cycle (draft 13 '.' vs true 13 '.')
+ds4: glm mtp utility: width=2 pos=2450 setup=1.2 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.4 ms utility=38.94 tok/s-cycle (draft 525 ' are' vs true 525 ' are')
+ds4: glm mtp utility: width=2 pos=2452 setup=1.0 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.1 ms utility=39.15 tok/s-cycle (draft 533 'ive' vs true 533 'ive')
+ds4: glm mtp utility: width=2 pos=2454 setup=1.3 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.5 ms utility=38.80 tok/s-cycle (draft 16812 ' compact' vs true 16812 ' compact')
+ds4: glm mtp utility: width=2 pos=2456 setup=1.7 ms verify[rows]=44.2 ms rollback=0.0 ms draft=5.1 ms other=1.7 ms result=ACCEPT committed=2 total=52.7 ms utility=37.97 tok/s-cycle (draft 24945 ' explaining' vs true 24945 ' explaining')
+ds4: glm mtp utility: width=2 pos=2458 setup=0.8 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=38.98 tok/s-cycle (draft 34464 'why' vs true 34464 'why')
+ds4: glm mtp utility: width=2 pos=2460 setup=1.4 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.7 ms utility=38.72 tok/s-cycle (draft 264 ' a' vs true 264 ' a')
+ds4: glm mtp utility: width=2 pos=2462 setup=1.2 ms verify[rows]=44.5 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=52.0 ms utility=38.49 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2464 setup=1.7 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.7 ms other=1.8 ms result=ACCEPT committed=2 total=52.1 ms utility=38.40 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2466 setup=1.2 ms verify[rows]=44.2 ms rollback=0.8 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.8 ms utility=20.47 tok/s-cycle (draft 11 ',' vs true 18699 ' boundary')
+ds4: glm mtp utility: width=2 pos=2467 setup=0.8 ms verify[rows]=44.5 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=51.7 ms utility=38.69 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=2469 setup=0.9 ms verify[rows]=44.3 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=38.99 tok/s-cycle (draft 4938 ' memory' vs true 4938 ' memory')
+ds4: glm mtp utility: width=2 pos=2471 setup=1.3 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.9 ms other=1.8 ms result=ACCEPT committed=2 total=52.1 ms utility=38.35 tok/s-cycle (draft 6724 ' exists' vs true 6724 ' exists')
+ds4: glm mtp utility: width=2 pos=2473 setup=1.4 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.5 ms utility=38.85 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=2475 setup=0.8 ms verify[rows]=44.3 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.5 ms utility=20.63 tok/s-cycle (draft 525 ' are' vs true 3887 ' live')
+ds4: glm mtp utility: width=2 pos=2476 setup=0.8 ms verify[rows]=43.8 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.1 ms utility=20.79 tok/s-cycle (draft 16249 ' alongside' vs true 29279 ' beside')
+ds4: glm mtp utility: width=2 pos=2477 setup=0.8 ms verify[rows]=43.9 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=50.9 ms utility=39.26 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2479 setup=0.8 ms verify[rows]=44.0 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.3 ms utility=20.71 tok/s-cycle (draft 26 ';' vs true 4751 ' rather')
+ds4: glm mtp utility: width=2 pos=2480 setup=1.2 ms verify[rows]=43.8 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.3 ms utility=39.02 tok/s-cycle (draft 1091 ' than' vs true 1091 ' than')
+ds4: glm mtp utility: width=2 pos=2482 setup=0.8 ms verify[rows]=44.0 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=51.0 ms utility=39.21 tok/s-cycle (draft 8650 ' separate' vs true 8650 ' separate')
+0901 00:54:38 ds4-server: chat ctx=2433..2483:50 gen=450 decoding chunk=30.32 t/s avg=30.81 t/s 14.607s
+ds4: glm mtp utility: width=2 pos=2484 setup=1.2 ms verify[rows]=44.6 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=51.9 ms utility=38.53 tok/s-cycle (draft 9290 ' documents' vs true 9290 ' documents')
+ds4: glm mtp utility: width=2 pos=2486 setup=1.3 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.7 ms utility=38.66 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=2488 setup=1.3 ms verify[rows]=43.7 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.4 ms utility=38.92 tok/s-cycle (draft 33196 ' APIs' vs true 33196 ' APIs')
+ds4: glm mtp utility: width=2 pos=2490 setup=1.5 ms verify[rows]=44.4 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=52.2 ms utility=38.28 tok/s-cycle (draft 15014 ' narrow' vs true 15014 ' narrow')
+ds4: glm mtp utility: width=2 pos=2492 setup=1.0 ms verify[rows]=44.9 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=52.2 ms utility=38.30 tok/s-cycle (draft 39065 ' CLI' vs true 39065 ' CLI')
+ds4: glm mtp utility: width=2 pos=2494 setup=1.1 ms verify[rows]=44.5 ms rollback=0.0 ms draft=4.9 ms other=1.8 ms result=ACCEPT committed=2 total=52.2 ms utility=38.30 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=2496 setup=1.3 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=51.9 ms utility=38.50 tok/s-cycle (draft 537 ' not' vs true 537 ' not')
+ds4: glm mtp utility: width=2 pos=2498 setup=0.8 ms verify[rows]=44.6 ms rollback=0.9 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.8 ms utility=20.48 tok/s-cycle (draft 911 ' about' vs true 15614 ' tensor')
+ds4: glm mtp utility: width=2 pos=2499 setup=0.9 ms verify[rows]=45.4 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=52.9 ms utility=37.84 tok/s-cycle (draft 90266 ' internals' vs true 90266 ' internals')
+ds4: glm mtp utility: width=2 pos=2501 setup=0.8 ms verify[rows]=44.8 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=52.0 ms utility=38.47 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=2503 setup=1.5 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=52.0 ms utility=38.46 tok/s-cycle (draft 15318 ' permanent' vs true 15318 ' permanent')
+ds4: glm mtp utility: width=2 pos=2505 setup=1.3 ms verify[rows]=44.1 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.8 ms utility=38.63 tok/s-cycle (draft 25931 ' variants' vs true 25931 ' variants')
+ds4: glm mtp utility: width=2 pos=2507 setup=0.8 ms verify[rows]=44.8 ms rollback=0.0 ms draft=5.1 ms other=1.7 ms result=ACCEPT committed=2 total=52.4 ms utility=38.16 tok/s-cycle (draft 8041 ' flags' vs true 8041 ' flags')
+ds4: glm mtp utility: width=2 pos=2509 setup=1.4 ms verify[rows]=44.7 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=49.4 ms utility=20.24 tok/s-cycle (draft 1172 ' only' vs true 15077 ' diagnostic')
+ds4: glm mtp utility: width=2 pos=2510 setup=1.2 ms verify[rows]=44.1 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.6 ms utility=20.56 tok/s-cycle (draft 1172 ' only' vs true 31039 ' switches')
+ds4: glm mtp utility: width=2 pos=2511 setup=1.3 ms verify[rows]=44.7 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=52.3 ms utility=38.22 tok/s-cycle (draft 525 ' are' vs true 525 ' are')
+ds4: glm mtp utility: width=2 pos=2513 setup=1.4 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.8 ms utility=38.61 tok/s-cycle (draft 1172 ' only' vs true 1172 ' only')
+ds4: glm mtp utility: width=2 pos=2515 setup=0.9 ms verify[rows]=44.2 ms rollback=1.0 ms draft=2.5 ms other=0.1 ms result=reject committed=1 total=48.6 ms utility=20.56 tok/s-cycle (draft 807 ' they' vs true 68173 ' validating')
+ds4: glm mtp utility: width=2 pos=2516 setup=1.1 ms verify[rows]=43.9 ms rollback=0.8 ms draft=2.4 ms other=0.1 ms result=reject committed=1 total=48.3 ms utility=20.69 tok/s-cycle (draft 807 ' they' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2517 setup=0.8 ms verify[rows]=44.3 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=51.5 ms utility=38.83 tok/s-cycle (draft 3175 ' single' vs true 3175 ' single')
+ds4: glm mtp utility: width=2 pos=2519 setup=1.2 ms verify[rows]=45.1 ms rollback=0.0 ms draft=4.5 ms other=1.9 ms result=ACCEPT committed=2 total=52.8 ms utility=37.91 tok/s-cycle (draft 1815 ' path' vs true 1815 ' path')
+ds4: glm mtp utility: width=2 pos=2521 setup=1.5 ms verify[rows]=44.2 ms rollback=0.0 ms draft=4.9 ms other=1.5 ms result=ACCEPT committed=2 total=52.1 ms utility=38.35 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=2523 setup=1.2 ms verify[rows]=44.5 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.9 ms utility=38.54 tok/s-cycle (draft 356 ' C' vs true 356 ' C')
+ds4: glm mtp utility: width=2 pos=2525 setup=1.1 ms verify[rows]=44.4 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=51.7 ms utility=38.71 tok/s-cycle (draft 382 '.
+
+' vs true 382 '.
+
+')
+ds4: glm mtp utility: width=2 pos=2527 setup=1.2 ms verify[rows]=44.7 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=52.6 ms utility=38.05 tok/s-cycle (draft 18669 ' Safety' vs true 18669 ' Safety')
+ds4: glm mtp utility: width=2 pos=2529 setup=1.5 ms verify[rows]=45.4 ms rollback=0.0 ms draft=4.9 ms other=1.7 ms result=ACCEPT committed=2 total=53.4 ms utility=37.43 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=2531 setup=0.8 ms verify[rows]=45.1 ms rollback=0.0 ms draft=4.9 ms other=1.5 ms result=ACCEPT committed=2 total=52.4 ms utility=38.16 tok/s-cycle (draft 33841 ' Avoid' vs true 33841 ' Avoid')
+0901 00:54:40 ds4-server: chat ctx=2483..2533:50 gen=500 decoding chunk=32.44 t/s avg=30.96 t/s 16.148s
+ds4: glm mtp utility: width=2 pos=2533 setup=0.8 ms verify[rows]=44.6 ms rollback=0.0 ms draft=4.8 ms other=1.8 ms result=ACCEPT committed=2 total=52.1 ms utility=38.41 tok/s-cycle (draft 13931 ' CPU' vs true 13931 ' CPU')
+ds4: glm mtp utility: width=2 pos=2535 setup=0.8 ms verify[rows]=44.5 ms rollback=0.0 ms draft=5.0 ms other=1.8 ms result=ACCEPT committed=2 total=52.1 ms utility=38.36 tok/s-cycle (draft 8472 ' runs' vs true 8472 ' runs')
+ds4: glm mtp utility: width=2 pos=2537 setup=0.8 ms verify[rows]=45.1 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=52.2 ms utility=38.31 tok/s-cycle (draft 66689 ' macOS' vs true 66689 ' macOS')
+ds4: glm mtp utility: width=2 pos=2539 setup=0.9 ms verify[rows]=45.6 ms rollback=0.0 ms draft=5.3 ms other=2.0 ms result=ACCEPT committed=2 total=53.8 ms utility=37.19 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=2541 setup=0.9 ms verify[rows]=44.6 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=51.8 ms utility=38.58 tok/s-cycle (draft 1815 ' path' vs true 1815 ' path')
+ds4: glm mtp utility: width=2 pos=2543 setup=1.4 ms verify[rows]=44.7 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=52.7 ms utility=37.98 tok/s-cycle (draft 34628 ' historically' vs true 34628 ' historically')
+0901 00:54:40 ds4-server: chat ctx=2533..2545:12 gen=512 decoding chunk=34.81 t/s avg=31.04 t/s 16.493s
+0901 00:54:40 ds4-server: chat ctx=0..2033:2033 gen=512 finish=length 21.833s
+0901 00:54:40 ds4-server: live kv cache miss live=2545 prompt=35146 common=2030 reason=token-mismatch
+0901 00:54:42 ds4-server: kv cache stored tokens=2545 trimmed=0 reason=evict key=token-text size=204.31 MiB save=537.2 ms
+0901 00:54:42 ds4-server: chat ctx=0..35146:35146 prompt start
+0901 00:54:45 ds4-server: chat ctx=0..35146:35146 prefill chunk 2048/35146 (5.8%) chunk=0.00 t/s avg=548.81 t/s 3.732s
+0901 00:54:51 ds4-server: chat ctx=0..35146:35146 prefill chunk 4096/35146 (11.7%) chunk=389.38 t/s avg=455.55 t/s 8.991s
+[monitor 2026-09-01 00:54:52] health=ok stats=ok state=busy queue=0 clients=2 live=4096 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=1.4% mem=0.2% rss=0.3GiB fans=fan0=5362/5349,fan1=5781/5777RPM kv=0.2/128.0GiB(0.2%) disk_free=633.7GiB
+0901 00:54:57 ds4-server: chat ctx=0..35146:35146 prefill chunk 6144/35146 (17.5%) chunk=327.67 t/s avg=403.11 t/s 15.242s
+0901 00:55:03 ds4-server: chat ctx=0..35146:35146 prefill chunk 8192/35146 (23.3%) chunk=330.58 t/s avg=382.15 t/s 21.437s
+[monitor 2026-09-01 00:55:08] health=ok stats=ok state=busy queue=0 clients=2 live=8192 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=0.0% mem=0.2% rss=0.3GiB fans=fan0=5353/5349,fan1=5773/5777RPM kv=0.2/128.0GiB(0.2%) disk_free=633.7GiB
+0901 00:55:09 ds4-server: chat ctx=0..35146:35146 prefill chunk 10240/35146 (29.1%) chunk=334.35 t/s avg=371.53 t/s 27.562s
+0901 00:55:10 ds4-server: kv cache stored tokens=10240 trimmed=0 reason=continued key=token-text size=380.02 MiB save=112.3 ms
+0901 00:55:16 ds4-server: chat ctx=0..35146:35146 prefill chunk 12288/35146 (35.0%) chunk=307.19 t/s avg=359.00 t/s 34.229s
+0901 00:55:22 ds4-server: chat ctx=0..35146:35146 prefill chunk 14336/35146 (40.8%) chunk=327.33 t/s avg=354.10 t/s 40.485s
+[monitor 2026-09-01 00:55:24] health=ok stats=ok state=busy queue=0 clients=2 live=14336 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=0.1% mem=0.3% rss=0.3GiB fans=fan0=5344/5349,fan1=5775/5777RPM kv=0.6/128.0GiB(0.4%) disk_free=633.3GiB
+0901 00:55:28 ds4-server: chat ctx=0..35146:35146 prefill chunk 16384/35146 (46.6%) chunk=349.50 t/s avg=353.52 t/s 46.345s
+0901 00:55:33 ds4-server: chat ctx=0..35146:35146 prefill chunk 18432/35146 (52.4%) chunk=395.67 t/s avg=357.76 t/s 51.521s
+0901 00:55:38 ds4-server: chat ctx=0..35146:35146 prefill chunk 20480/35146 (58.3%) chunk=389.97 t/s avg=360.74 t/s 56.773s
+0901 00:55:39 ds4-server: kv cache stored tokens=20480 trimmed=0 reason=continued key=token-text size=613.84 MiB save=183.3 ms
+[monitor 2026-09-01 00:55:40] health=ok stats=ok state=busy queue=0 clients=2 live=20480 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=22.3% mem=0.4% rss=0.5GiB fans=fan0=5360/5349,fan1=5791/5777RPM kv=1.2/128.0GiB(0.9%) disk_free=633.0GiB
+0901 00:55:44 ds4-server: chat ctx=0..35146:35146 prefill chunk 22189/35146 (63.1%) chunk=314.09 t/s avg=356.66 t/s 62.214s
+0901 00:55:44 ds4-server: kv cache stored tokens=22189 trimmed=12957 reason=cold key=token-text size=652.86 MiB save=98.0 ms
+0901 00:55:49 ds4-server: chat ctx=0..35146:35146 prefill chunk 24237/35146 (69.0%) chunk=384.22 t/s avg=358.83 t/s 67.544s
+0901 00:55:55 ds4-server: chat ctx=0..35146:35146 prefill chunk 26285/35146 (74.8%) chunk=364.82 t/s avg=359.29 t/s 73.158s
+[monitor 2026-09-01 00:55:56] health=ok stats=ok state=busy queue=0 clients=2 live=26285 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=1.9% mem=0.4% rss=0.5GiB fans=fan0=5351/5349,fan1=5773/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=632.4GiB
+0901 00:56:00 ds4-server: chat ctx=0..35146:35146 prefill chunk 28333/35146 (80.6%) chunk=363.42 t/s avg=359.59 t/s 78.794s
+0901 00:56:06 ds4-server: chat ctx=0..35146:35146 prefill chunk 30381/35146 (86.4%) chunk=365.42 t/s avg=359.97 t/s 84.398s
+0901 00:56:11 ds4-server: chat ctx=0..35146:35146 prefill chunk 32429/35146 (92.3%) chunk=386.41 t/s avg=361.54 t/s 89.698s
+[monitor 2026-09-01 00:56:12] health=ok stats=ok state=busy queue=0 clients=2 live=30381 requests=2 hits=0 cold=2 cached=0 prefill=381.9t/s decode=31.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5355/5349,fan1=5768/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=632.3GiB
+0901 00:56:17 ds4-server: chat ctx=0..35146:35146 prefill chunk 34477/35146 (98.1%) chunk=388.02 t/s avg=363.01 t/s 94.976s
+0901 00:56:19 ds4-server: chat ctx=0..35146:35146 prefill chunk 35146/35146 (100.0%) chunk=295.44 t/s avg=361.43 t/s 97.240s
+0901 00:56:19 ds4-server: chat ctx=0..35146:35146 prompt done 97.241s
+ds4: glm mtp utility: width=2 pos=35147 setup=20.0 ms verify[batch]=70.2 ms rollback=0.8 ms draft=2.5 ms other=1.5 ms result=reject committed=1 total=94.9 ms utility=10.53 tok/s-cycle (draft 271 '
+
+' vs true 39138 'Seek')
+ds4: glm mtp utility: width=2 pos=35148 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=57.5 ms utility=34.76 tok/s-cycle (draft 647 ' V' vs true 647 ' V')
+ds4: glm mtp utility: width=2 pos=35150 setup=0.8 ms verify[batch]=50.4 ms rollback=0.7 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=55.7 ms utility=17.94 tok/s-cycle (draft 1298 ' Pro' vs true 17242 ' Flash')
+ds4: glm mtp utility: width=2 pos=35151 setup=0.8 ms verify[batch]=50.2 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.5 ms utility=18.02 tok/s-cycle (draft 647 ' V' vs true 1959 ' —')
+ds4: glm mtp utility: width=2 pos=35152 setup=0.8 ms verify[batch]=50.5 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.7 ms utility=17.95 tok/s-cycle (draft 1959 ' —' vs true 11467 ' ds')
+ds4: glm mtp utility: width=2 pos=35153 setup=1.5 ms verify[batch]=50.9 ms rollback=0.8 ms draft=2.3 ms other=1.7 ms result=reject committed=1 total=57.2 ms utility=17.49 tok/s-cycle (draft 11 ',' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=35154 setup=0.8 ms verify[batch]=51.0 ms rollback=1.0 ms draft=2.4 ms other=1.6 ms result=reject committed=1 total=56.8 ms utility=17.61 tok/s-cycle (draft 8216 ' flash' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=35155 setup=0.8 ms verify[batch]=50.4 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=55.8 ms utility=17.92 tok/s-cycle (draft 1959 ' —' vs true 26582 ' Technical')
+ds4: glm mtp utility: width=2 pos=35156 setup=0.8 ms verify[batch]=50.0 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=55.3 ms utility=18.09 tok/s-cycle (draft 271 '
+
+' vs true 21466 ' Summary')
+ds4: glm mtp utility: width=2 pos=35157 setup=0.8 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=57.2 ms utility=35.00 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=35159 setup=0.8 ms verify[batch]=50.1 ms rollback=0.7 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=55.3 ms utility=18.08 tok/s-cycle (draft 1565 ' `' vs true 34634 ' Overview')
+ds4: glm mtp utility: width=2 pos=35160 setup=0.7 ms verify[batch]=49.6 ms rollback=0.0 ms draft=4.3 ms other=1.7 ms result=ACCEPT committed=2 total=56.4 ms utility=35.49 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=35162 setup=0.8 ms verify[batch]=49.8 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=56.3 ms utility=35.50 tok/s-cycle (draft 5356 'ds' vs true 5356 'ds')
+ds4: glm mtp utility: width=2 pos=35164 setup=0.7 ms verify[batch]=50.2 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=56.8 ms utility=35.22 tok/s-cycle (draft 520 '.c' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=35166 setup=0.7 ms verify[batch]=49.4 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=55.9 ms utility=35.76 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35168 setup=0.9 ms verify[batch]=50.2 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.5 ms utility=18.03 tok/s-cycle (draft 2613 ' small' vs true 18154 ' Deep')
+ds4: glm mtp utility: width=2 pos=35169 setup=0.8 ms verify[batch]=50.2 ms rollback=0.0 ms draft=4.2 ms other=1.5 ms result=ACCEPT committed=2 total=56.7 ms utility=35.27 tok/s-cycle (draft 39138 'Seek' vs true 39138 'Seek')
+ds4: glm mtp utility: width=2 pos=35171 setup=0.7 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.3 ms other=1.7 ms result=ACCEPT committed=2 total=57.1 ms utility=35.05 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=35173 setup=1.2 ms verify[batch]=49.6 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.2 ms utility=18.13 tok/s-cycle (draft 320 ' (' vs true 4142 '–')
+ds4: glm mtp utility: width=2 pos=35174 setup=0.7 ms verify[batch]=50.1 ms rollback=0.8 ms draft=2.2 ms other=1.5 ms result=reject committed=1 total=55.3 ms utility=18.09 tok/s-cycle (draft 3151 ' specific' vs true 50902 'specific')
+ds4: glm mtp utility: width=2 pos=35175 setup=0.8 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.0 ms utility=35.06 tok/s-cycle (draft 44120 ' inference' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35177 setup=0.8 ms verify[batch]=50.4 ms rollback=0.7 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=55.8 ms utility=17.93 tok/s-cycle (draft 13 '.' vs true 5326 ' written')
+ds4: glm mtp utility: width=2 pos=35178 setup=0.8 ms verify[batch]=49.9 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=56.5 ms utility=35.39 tok/s-cycle (draft 304 ' in' vs true 304 ' in')
+ds4: glm mtp utility: width=2 pos=35180 setup=0.8 ms verify[batch]=50.6 ms rollback=0.7 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=55.7 ms utility=17.96 tok/s-cycle (draft 13 '.' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35181 setup=0.8 ms verify[batch]=49.5 ms rollback=0.0 ms draft=4.3 ms other=1.7 ms result=ACCEPT committed=2 total=56.2 ms utility=35.59 tok/s-cycle (draft 448 ' with' vs true 448 ' with')
+ds4: glm mtp utility: width=2 pos=35183 setup=0.8 ms verify[batch]=50.8 ms rollback=0.7 ms draft=2.2 ms other=1.6 ms result=reject committed=1 total=56.1 ms utility=17.84 tok/s-cycle (draft 25 ':' vs true 7658 '-C')
+ds4: glm mtp utility: width=2 pos=35184 setup=0.7 ms verify[batch]=50.3 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.5 ms utility=18.03 tok/s-cycle (draft 1172 ' only' vs true 1483 ' used')
+ds4: glm mtp utility: width=2 pos=35185 setup=0.8 ms verify[batch]=50.0 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=56.9 ms utility=35.18 tok/s-cycle (draft 1172 ' only' vs true 1172 ' only')
+ds4: glm mtp utility: width=2 pos=35187 setup=0.8 ms verify[batch]=50.2 ms rollback=0.7 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=55.2 ms utility=18.10 tok/s-cycle (draft 279 ' the' vs true 19170 ' Metal')
+ds4: glm mtp utility: width=2 pos=35188 setup=0.8 ms verify[batch]=49.6 ms rollback=0.8 ms draft=2.2 ms other=1.5 ms result=reject committed=1 total=54.8 ms utility=18.25 tok/s-cycle (draft 320 ' (' vs true 7460 ' requires')
+ds4: glm mtp utility: width=2 pos=35189 setup=0.8 ms verify[batch]=49.7 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=56.7 ms utility=35.29 tok/s-cycle (draft 432 ' it' vs true 432 ' it')
+ds4: glm mtp utility: width=2 pos=35191 setup=0.7 ms verify[batch]=49.8 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=56.4 ms utility=35.49 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+ds4: glm mtp utility: width=2 pos=35193 setup=0.7 ms verify[batch]=50.0 ms rollback=0.7 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=55.1 ms utility=18.14 tok/s-cycle (draft 28552 ' (`' vs true 24134 ' isolated')
+ds4: glm mtp utility: width=2 pos=35194 setup=0.7 ms verify[batch]=49.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=56.1 ms utility=35.67 tok/s-cycle (draft 1212 ' under' vs true 1212 ' under')
+0901 00:56:21 ds4-server: chat ctx=35146..35196:50 gen=50 decoding chunk=24.50 t/s avg=24.50 t/s 2.041s
+ds4: glm mtp utility: width=2 pos=35196 setup=0.8 ms verify[batch]=50.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.0 ms utility=35.11 tok/s-cycle (draft 53648 'metal' vs true 53648 'metal')
+ds4: glm mtp utility: width=2 pos=35198 setup=0.8 ms verify[batch]=49.8 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=56.6 ms utility=35.33 tok/s-cycle (draft 28487 '`.' vs true 28487 '`.')
+ds4: glm mtp utility: width=2 pos=35200 setup=0.8 ms verify[batch]=49.5 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=56.2 ms utility=35.56 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35202 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.3 ms utility=34.91 tok/s-cycle (draft 264 ' a' vs true 264 ' a')
+ds4: glm mtp utility: width=2 pos=35204 setup=0.9 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=57.2 ms utility=34.95 tok/s-cycle (draft 56316 ' GG' vs true 56316 ' GG')
+ds4: glm mtp utility: width=2 pos=35206 setup=0.7 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.2 ms utility=34.99 tok/s-cycle (draft 22202 ' runner' vs true 22202 ' runner')
+ds4: glm mtp utility: width=2 pos=35208 setup=0.9 ms verify[batch]=50.0 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=57.2 ms utility=34.99 tok/s-cycle (draft 576 ' The' vs true 576 ' The')
+ds4: glm mtp utility: width=2 pos=35210 setup=0.8 ms verify[batch]=50.4 ms rollback=0.8 ms draft=2.2 ms other=1.5 ms result=reject committed=1 total=55.7 ms utility=17.96 tok/s-cycle (draft 8844 ' goals' vs true 5795 ' goal')
+ds4: glm mtp utility: width=2 pos=35211 setup=0.8 ms verify[batch]=50.5 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=57.3 ms utility=34.89 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35213 setup=0.7 ms verify[batch]=50.2 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=56.9 ms utility=35.18 tok/s-cycle (draft 2613 ' small' vs true 2613 ' small')
+ds4: glm mtp utility: width=2 pos=35215 setup=0.8 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.2 ms utility=34.96 tok/s-cycle (draft 33636 ' readable' vs true 33636 ' readable')
+ds4: glm mtp utility: width=2 pos=35217 setup=0.9 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=57.3 ms utility=34.88 tok/s-cycle (draft 1550 ' high' vs true 1550 ' high')
+ds4: glm mtp utility: width=2 pos=35219 setup=0.7 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.1 ms utility=35.02 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=35221 setup=0.8 ms verify[batch]=50.4 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=55.6 ms utility=17.99 tok/s-cycle (draft 382 '.
+
+' vs true 6693 ' whose')
+ds4: glm mtp utility: width=2 pos=35222 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.2 ms other=1.5 ms result=ACCEPT committed=2 total=57.0 ms utility=35.10 tok/s-cycle (draft 5670 ' production' vs true 5670 ' production')
+ds4: glm mtp utility: width=2 pos=35224 setup=0.7 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.3 ms other=1.6 ms result=ACCEPT committed=2 total=57.0 ms utility=35.06 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35226 setup=0.8 ms verify[batch]=50.8 ms rollback=0.8 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.0 ms utility=17.86 tok/s-cycle (draft 438 ' as' vs true 28147 '-model')
+ds4: glm mtp utility: width=2 pos=35227 setup=0.7 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.5 ms utility=34.76 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+ds4: glm mtp utility: width=2 pos=35229 setup=0.7 ms verify[batch]=51.0 ms rollback=0.8 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=56.4 ms utility=17.73 tok/s-cycle (draft 320 ' (' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35230 setup=1.2 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.9 ms utility=33.94 tok/s-cycle (draft 382 '.
+
+' vs true 382 '.
+
+')
+ds4: glm mtp utility: width=2 pos=35232 setup=0.9 ms verify[batch]=50.8 ms rollback=0.9 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.2 ms utility=17.79 tok/s-cycle (draft 53831 ' Goals' vs true 37647 ' Architecture')
+ds4: glm mtp utility: width=2 pos=35233 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=57.8 ms utility=34.61 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=35235 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.9 ms other=1.7 ms result=ACCEPT committed=2 total=58.3 ms utility=34.30 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=35237 setup=0.8 ms verify[batch]=50.8 ms rollback=0.8 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.1 ms utility=17.82 tok/s-cycle (draft 66475 ':**' vs true 8276 ' loading')
+ds4: glm mtp utility: width=2 pos=35238 setup=0.8 ms verify[batch]=51.3 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.6 ms utility=17.68 tok/s-cycle (draft 66475 ':**' vs true 334 '**')
+ds4: glm mtp utility: width=2 pos=35239 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.75 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35241 setup=0.8 ms verify[batch]=51.3 ms rollback=0.8 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.4 ms utility=17.72 tok/s-cycle (draft 369 ' for' vs true 44762 '-backed')
+ds4: glm mtp utility: width=2 pos=35242 setup=0.7 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=57.7 ms utility=34.69 tok/s-cycle (draft 369 ' for' vs true 369 ' for')
+ds4: glm mtp utility: width=2 pos=35244 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.72 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+0901 00:56:23 ds4-server: chat ctx=35196..35246:50 gen=100 decoding chunk=29.96 t/s avg=26.96 t/s 3.710s
+ds4: glm mtp utility: width=2 pos=35246 setup=0.9 ms verify[batch]=51.1 ms rollback=0.8 ms draft=2.3 ms other=1.6 ms result=reject committed=1 total=56.7 ms utility=17.64 tok/s-cycle (draft 1815 ' path' vs true 1142 ' case')
+ds4: glm mtp utility: width=2 pos=35247 setup=0.7 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.3 ms other=1.8 ms result=ACCEPT committed=2 total=57.7 ms utility=34.69 tok/s-cycle (draft 26 ';' vs true 26 ';')
+ds4: glm mtp utility: width=2 pos=35249 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=58.1 ms utility=34.42 tok/s-cycle (draft 2480 ' full' vs true 2480 ' full')
+ds4: glm mtp utility: width=2 pos=35251 setup=0.9 ms verify[batch]=52.0 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=58.9 ms utility=33.93 tok/s-cycle (draft 20495 'UF' vs true 20495 'UF')
+ds4: glm mtp utility: width=2 pos=35253 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.70 tok/s-cycle (draft 2581 ' never' vs true 2581 ' never')
+ds4: glm mtp utility: width=2 pos=35255 setup=0.9 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=57.9 ms utility=34.56 tok/s-cycle (draft 21722 ' copied' vs true 21722 ' copied')
+ds4: glm mtp utility: width=2 pos=35257 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.3 ms other=1.6 ms result=ACCEPT committed=2 total=57.6 ms utility=34.71 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35259 setup=0.7 ms verify[batch]=51.5 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.8 ms utility=17.61 tok/s-cycle (draft 49 'R' vs true 1220 'SS')
+ds4: glm mtp utility: width=2 pos=35260 setup=0.8 ms verify[batch]=51.8 ms rollback=0.8 ms draft=2.2 ms other=1.8 ms result=reject committed=1 total=57.3 ms utility=17.44 tok/s-cycle (draft 49 'R' vs true 35 'D')
+ds4: glm mtp utility: width=2 pos=35261 setup=0.8 ms verify[batch]=51.4 ms rollback=0.8 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.6 ms utility=17.67 tok/s-cycle (draft 71664 ' routed' vs true 16824 ' streaming')
+ds4: glm mtp utility: width=2 pos=35262 setup=0.8 ms verify[batch]=51.9 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.7 ms utility=34.07 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=35264 setup=0.7 ms verify[batch]=52.9 ms rollback=0.0 ms draft=4.3 ms other=1.9 ms result=ACCEPT committed=2 total=59.9 ms utility=33.41 tok/s-cycle (draft 11641 ' experts' vs true 11641 ' experts')
+ds4: glm mtp utility: width=2 pos=35266 setup=0.9 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.4 ms other=1.8 ms result=ACCEPT committed=2 total=58.4 ms utility=34.22 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35268 setup=0.9 ms verify[batch]=52.0 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=59.1 ms utility=33.86 tok/s-cycle (draft 25 ':' vs true 25 ':')
+ds4: glm mtp utility: width=2 pos=35270 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.32 tok/s-cycle (draft 27298 ' buffers' vs true 27298 ' buffers')
+ds4: glm mtp utility: width=2 pos=35272 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.31 tok/s-cycle (draft 4937 ' fast' vs true 4937 ' fast')
+ds4: glm mtp utility: width=2 pos=35274 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.32 tok/s-cycle (draft 15792 ' reads' vs true 15792 ' reads')
+ds4: glm mtp utility: width=2 pos=35276 setup=0.7 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.8 ms utility=34.62 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=35278 setup=0.7 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=58.3 ms utility=34.32 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=35280 setup=0.8 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.5 ms utility=34.20 tok/s-cycle (draft 71664 ' routed' vs true 71664 ' routed')
+ds4: glm mtp utility: width=2 pos=35282 setup=0.7 ms verify[batch]=51.6 ms rollback=0.8 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.7 ms utility=17.62 tok/s-cycle (draft 1393 ' while' vs true 8176 ' hidden')
+ds4: glm mtp utility: width=2 pos=35283 setup=0.7 ms verify[batch]=51.4 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.6 ms utility=17.66 tok/s-cycle (draft 1393 ' while' vs true 4815 ' behind')
+ds4: glm mtp utility: width=2 pos=35284 setup=0.7 ms verify[batch]=51.3 ms rollback=0.8 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.5 ms utility=17.70 tok/s-cycle (draft 33870 ' concurrent' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35285 setup=0.9 ms verify[batch]=51.3 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.44 tok/s-cycle (draft 315 ' of' vs true 315 ' of')
+ds4: glm mtp utility: width=2 pos=35287 setup=0.7 ms verify[batch]=52.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.9 ms utility=33.95 tok/s-cycle (draft 6094 ' shared' vs true 6094 ' shared')
+ds4: glm mtp utility: width=2 pos=35289 setup=1.3 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.2 ms other=1.5 ms result=ACCEPT committed=2 total=58.7 ms utility=34.08 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=35291 setup=0.7 ms verify[batch]=51.1 ms rollback=0.7 ms draft=2.2 ms other=1.6 ms result=reject committed=1 total=56.4 ms utility=17.74 tok/s-cycle (draft 18347 '-exp' vs true 11583 '-res')
+ds4: glm mtp utility: width=2 pos=35292 setup=0.7 ms verify[batch]=51.8 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.7 ms utility=34.06 tok/s-cycle (draft 1713 'ident' vs true 1713 'ident')
+ds4: glm mtp utility: width=2 pos=35294 setup=1.1 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=58.8 ms utility=34.02 tok/s-cycle (draft 11641 ' experts' vs true 11641 ' experts')
+0901 00:56:24 ds4-server: chat ctx=35246..35296:50 gen=150 decoding chunk=29.10 t/s avg=27.64 t/s 5.428s
+ds4: glm mtp utility: width=2 pos=35296 setup=0.8 ms verify[batch]=51.5 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.41 tok/s-cycle (draft 42344 ' Pref' vs true 42344 ' Pref')
+ds4: glm mtp utility: width=2 pos=35298 setup=1.4 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.30 tok/s-cycle (draft 6193 ' layer' vs true 6193 ' layer')
+ds4: glm mtp utility: width=2 pos=35300 setup=0.8 ms verify[batch]=50.3 ms rollback=0.0 ms draft=4.2 ms other=1.7 ms result=ACCEPT committed=2 total=57.0 ms utility=35.06 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35302 setup=0.7 ms verify[batch]=51.0 ms rollback=0.7 ms draft=2.2 ms other=1.4 ms result=reject committed=1 total=56.1 ms utility=17.83 tok/s-cycle (draft 8176 ' hidden' vs true 28007 ' overl')
+ds4: glm mtp utility: width=2 pos=35303 setup=0.7 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.2 ms other=1.6 ms result=ACCEPT committed=2 total=57.4 ms utility=34.83 tok/s-cycle (draft 5677 'apped' vs true 5677 'apped')
+ds4: glm mtp utility: width=2 pos=35305 setup=0.8 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=57.8 ms utility=34.62 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=35307 setup=0.7 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.74 tok/s-cycle (draft 6193 ' layer' vs true 6193 ' layer')
+ds4: glm mtp utility: width=2 pos=35309 setup=0.7 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=57.7 ms utility=34.65 tok/s-cycle (draft 44120 ' inference' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35311 setup=0.7 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.29 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35313 setup=0.7 ms verify[batch]=51.0 ms rollback=0.8 ms draft=2.2 ms other=1.6 ms result=reject committed=1 total=56.4 ms utility=17.74 tok/s-cycle (draft 1712 'Model' vs true 31482 'CPU')
+ds4: glm mtp utility: width=2 pos=35314 setup=0.7 ms verify[batch]=50.9 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.1 ms utility=17.82 tok/s-cycle (draft 334 '**' vs true 19127 ' backend')
+ds4: glm mtp utility: width=2 pos=35315 setup=0.8 ms verify[batch]=51.8 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=59.2 ms utility=33.81 tok/s-cycle (draft 334 '**' vs true 334 '**')
+ds4: glm mtp utility: width=2 pos=35317 setup=0.9 ms verify[batch]=52.4 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=59.5 ms utility=33.61 tok/s-cycle (draft 13931 ' CPU' vs true 13931 ' CPU')
+ds4: glm mtp utility: width=2 pos=35319 setup=0.8 ms verify[batch]=51.4 ms rollback=0.8 ms draft=2.2 ms other=1.6 ms result=reject committed=1 total=56.8 ms utility=17.60 tok/s-cycle (draft 11 ',' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=35320 setup=0.8 ms verify[batch]=51.5 ms rollback=0.9 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.9 ms utility=17.59 tok/s-cycle (draft 5785 ' reference' vs true 17026 ' serves')
+ds4: glm mtp utility: width=2 pos=35321 setup=0.8 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=58.5 ms utility=34.17 tok/s-cycle (draft 438 ' as' vs true 438 ' as')
+ds4: glm mtp utility: width=2 pos=35323 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.2 ms utility=34.34 tok/s-cycle (draft 66987 '/debug' vs true 66987 '/debug')
+ds4: glm mtp utility: width=2 pos=35325 setup=0.8 ms verify[batch]=51.6 ms rollback=0.8 ms draft=2.2 ms other=1.6 ms result=reject committed=1 total=57.0 ms utility=17.55 tok/s-cycle (draft 26 ';' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35326 setup=1.2 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.4 ms other=1.6 ms result=ACCEPT committed=2 total=58.9 ms utility=33.97 tok/s-cycle (draft 537 ' not' vs true 537 ' not')
+ds4: glm mtp utility: width=2 pos=35328 setup=0.8 ms verify[batch]=51.3 ms rollback=0.8 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=56.6 ms utility=17.66 tok/s-cycle (draft 5670 ' production' vs true 5068 ' performance')
+ds4: glm mtp utility: width=2 pos=35329 setup=0.8 ms verify[batch]=51.6 ms rollback=0.9 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=57.1 ms utility=17.51 tok/s-cycle (draft 1815 ' path' vs true 2169 ' target')
+ds4: glm mtp utility: width=2 pos=35330 setup=0.8 ms verify[batch]=51.9 ms rollback=0.0 ms draft=4.3 ms other=1.5 ms result=ACCEPT committed=2 total=58.5 ms utility=34.19 tok/s-cycle (draft 624 '.
+' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=35332 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.40 tok/s-cycle (draft 3070 ' **' vs true 3070 ' **')
+ds4: glm mtp utility: width=2 pos=35334 setup=0.8 ms verify[batch]=52.4 ms rollback=0.8 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=57.7 ms utility=17.32 tok/s-cycle (draft 334 '**' vs true 8314 ' agent')
+ds4: glm mtp utility: width=2 pos=35335 setup=1.0 ms verify[batch]=52.0 ms rollback=0.0 ms draft=4.9 ms other=1.6 ms result=ACCEPT committed=2 total=59.5 ms utility=33.61 tok/s-cycle (draft 15692 ' sessions' vs true 15692 ' sessions')
+ds4: glm mtp utility: width=2 pos=35337 setup=0.9 ms verify[batch]=53.1 ms rollback=0.0 ms draft=5.1 ms other=1.7 ms result=ACCEPT committed=2 total=60.7 ms utility=32.94 tok/s-cycle (draft 525 ' are' vs true 525 ' are')
+ds4: glm mtp utility: width=2 pos=35339 setup=0.9 ms verify[batch]=53.1 ms rollback=0.0 ms draft=5.1 ms other=1.6 ms result=ACCEPT committed=2 total=60.7 ms utility=32.95 tok/s-cycle (draft 14964 ' practical' vs true 14964 ' practical')
+ds4: glm mtp utility: width=2 pos=35341 setup=1.0 ms verify[batch]=52.6 ms rollback=0.0 ms draft=5.0 ms other=1.7 ms result=ACCEPT committed=2 total=60.3 ms utility=33.16 tok/s-cycle (draft 3887 ' live' vs true 3887 ' live')
+ds4: glm mtp utility: width=2 pos=35343 setup=0.9 ms verify[batch]=53.3 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=60.6 ms utility=32.99 tok/s-cycle (draft 25897 ' reuse' vs true 25897 ' reuse')
+ds4: glm mtp utility: width=2 pos=35345 setup=0.9 ms verify[batch]=52.9 ms rollback=0.0 ms draft=4.9 ms other=1.7 ms result=ACCEPT committed=2 total=60.4 ms utility=33.13 tok/s-cycle (draft 13355 ' disk' vs true 13355 ' disk')
+0901 00:56:26 ds4-server: chat ctx=35296..35346:50 gen=200 decoding chunk=27.85 t/s avg=27.69 t/s 7.223s
+ds4: glm mtp utility: width=2 pos=35347 setup=0.8 ms verify[batch]=54.8 ms rollback=0.0 ms draft=5.2 ms other=2.3 ms result=ACCEPT committed=2 total=63.1 ms utility=31.71 tok/s-cycle (draft 66720 ' checkpoints' vs true 66720 ' checkpoints')
+ds4: glm mtp utility: width=2 pos=35349 setup=1.0 ms verify[batch]=54.7 ms rollback=0.0 ms draft=5.1 ms other=1.8 ms result=ACCEPT committed=2 total=62.5 ms utility=32.02 tok/s-cycle (draft 565 '##' vs true 565 '##')
+ds4: glm mtp utility: width=2 pos=35351 setup=0.9 ms verify[batch]=53.9 ms rollback=0.0 ms draft=5.0 ms other=1.8 ms result=ACCEPT committed=2 total=61.6 ms utility=32.45 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=35353 setup=0.9 ms verify[batch]=53.3 ms rollback=0.9 ms draft=2.7 ms other=1.7 ms result=reject committed=1 total=59.4 ms utility=16.84 tok/s-cycle (draft 13702 ' Module' vs true 2887 ' File')
+ds4: glm mtp utility: width=2 pos=35354 setup=1.1 ms verify[batch]=54.9 ms rollback=0.0 ms draft=5.0 ms other=1.6 ms result=ACCEPT committed=2 total=62.6 ms utility=31.95 tok/s-cycle (draft 760 ' |' vs true 760 ' |')
+ds4: glm mtp utility: width=2 pos=35356 setup=0.9 ms verify[batch]=53.6 ms rollback=0.0 ms draft=5.4 ms other=1.7 ms result=ACCEPT committed=2 total=61.6 ms utility=32.47 tok/s-cycle (draft 9245 ' |
+' vs true 9245 ' |
+')
+ds4: glm mtp utility: width=2 pos=35358 setup=0.9 ms verify[batch]=54.0 ms rollback=0.0 ms draft=5.2 ms other=1.7 ms result=ACCEPT committed=2 total=61.8 ms utility=32.36 tok/s-cycle (draft 4421 '---' vs true 4421 '---')
+ds4: glm mtp utility: width=2 pos=35360 setup=0.9 ms verify[batch]=54.0 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=61.3 ms utility=32.60 tok/s-cycle (draft 4421 '---' vs true 4421 '---')
+ds4: glm mtp utility: width=2 pos=35362 setup=0.8 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=60.1 ms utility=33.25 tok/s-cycle (draft 91 '|' vs true 91 '|')
+ds4: glm mtp utility: width=2 pos=35364 setup=0.8 ms verify[batch]=53.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=60.8 ms utility=32.92 tok/s-cycle (draft 5356 'ds' vs true 5356 'ds')
+ds4: glm mtp utility: width=2 pos=35366 setup=0.8 ms verify[batch]=53.7 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=60.8 ms utility=32.89 tok/s-cycle (draft 520 '.c' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=35368 setup=0.8 ms verify[batch]=53.3 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=60.2 ms utility=33.23 tok/s-cycle (draft 760 ' |' vs true 760 ' |')
+ds4: glm mtp utility: width=2 pos=35370 setup=0.8 ms verify[batch]=53.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=60.4 ms utility=33.11 tok/s-cycle (draft 8276 ' loading' vs true 8276 ' loading')
+ds4: glm mtp utility: width=2 pos=35372 setup=0.8 ms verify[batch]=53.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.7 ms utility=32.96 tok/s-cycle (draft 45681 ' tokenizer' vs true 45681 ' tokenizer')
+ds4: glm mtp utility: width=2 pos=35374 setup=0.7 ms verify[batch]=53.8 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=60.7 ms utility=32.93 tok/s-cycle (draft 13931 ' CPU' vs true 13931 ' CPU')
+ds4: glm mtp utility: width=2 pos=35376 setup=0.8 ms verify[batch]=54.7 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=61.9 ms utility=32.29 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35378 setup=1.2 ms verify[batch]=53.8 ms rollback=0.0 ms draft=4.9 ms other=1.6 ms result=ACCEPT committed=2 total=61.5 ms utility=32.53 tok/s-cycle (draft 4771 ' graph' vs true 4771 ' graph')
+ds4: glm mtp utility: width=2 pos=35380 setup=0.8 ms verify[batch]=53.9 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=60.6 ms utility=33.01 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35382 setup=1.0 ms verify[batch]=54.8 ms rollback=0.0 ms draft=5.1 ms other=1.7 ms result=ACCEPT committed=2 total=62.6 ms utility=31.97 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35384 setup=0.8 ms verify[batch]=54.7 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=60.0 ms utility=16.68 tok/s-cycle (draft 12 '-' vs true 36489 '-cache')
+ds4: glm mtp utility: width=2 pos=35385 setup=0.9 ms verify[batch]=54.3 ms rollback=0.7 ms draft=2.5 ms other=1.4 ms result=reject committed=1 total=59.8 ms utility=16.71 tok/s-cycle (draft 83952 ' KV' vs true 7729 ' payload')
+ds4: glm mtp utility: width=2 pos=35386 setup=0.7 ms verify[batch]=54.6 ms rollback=0.8 ms draft=2.3 ms other=1.7 ms result=reject committed=1 total=60.1 ms utility=16.64 tok/s-cycle (draft 9245 ' |
+' vs true 47151 ' serialization')
+ds4: glm mtp utility: width=2 pos=35387 setup=1.1 ms verify[batch]=54.5 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=61.4 ms utility=32.55 tok/s-cycle (draft 9245 ' |
+' vs true 9245 ' |
+')
+ds4: glm mtp utility: width=2 pos=35389 setup=0.8 ms verify[batch]=54.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=61.2 ms utility=32.69 tok/s-cycle (draft 1565 ' `' vs true 1565 ' `')
+[monitor 2026-09-01 00:56:28] health=ok stats=ok state=busy queue=0 clients=2 live=35364 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=31.0t/s cpu=5.5% mem=0.4% rss=0.5GiB fans=fan0=5338/5349,fan1=5769/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=628.8GiB
+ds4: glm mtp utility: width=2 pos=35391 setup=0.8 ms verify[batch]=54.8 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=61.8 ms utility=32.34 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=35393 setup=0.8 ms verify[batch]=54.6 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=61.6 ms utility=32.48 tok/s-cycle (draft 520 '.c' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=35395 setup=0.8 ms verify[batch]=54.5 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=61.2 ms utility=32.70 tok/s-cycle (draft 760 ' |' vs true 760 ' |')
+0901 00:56:28 ds4-server: chat ctx=35346..35396:50 gen=250 decoding chunk=29.80 t/s avg=28.09 t/s 8.901s
+ds4: glm mtp utility: width=2 pos=35397 setup=0.8 ms verify[batch]=54.3 ms rollback=0.0 ms draft=4.6 ms other=1.4 ms result=ACCEPT committed=2 total=61.1 ms utility=32.74 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35399 setup=0.8 ms verify[batch]=54.6 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=59.9 ms utility=16.70 tok/s-cycle (draft 11 ',' vs true 1064 'ise')
+ds4: glm mtp utility: width=2 pos=35400 setup=0.7 ms verify[batch]=54.3 ms rollback=0.0 ms draft=4.6 ms other=1.8 ms result=ACCEPT committed=2 total=61.4 ms utility=32.57 tok/s-cycle (draft 91801 ' REPL' vs true 91801 ' REPL')
+ds4: glm mtp utility: width=2 pos=35402 setup=0.9 ms verify[batch]=54.6 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=61.7 ms utility=32.39 tok/s-cycle (draft 20708 ' interactive' vs true 20708 ' interactive')
+ds4: glm mtp utility: width=2 pos=35404 setup=0.8 ms verify[batch]=55.1 ms rollback=0.8 ms draft=2.5 ms other=1.5 ms result=reject committed=1 total=60.7 ms utility=16.47 tok/s-cycle (draft 9245 ' |
+' vs true 11584 ' handling')
+ds4: glm mtp utility: width=2 pos=35405 setup=0.8 ms verify[batch]=54.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=61.7 ms utility=32.43 tok/s-cycle (draft 9245 ' |
+' vs true 9245 ' |
+')
+ds4: glm mtp utility: width=2 pos=35407 setup=0.9 ms verify[batch]=54.8 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=61.9 ms utility=32.31 tok/s-cycle (draft 1565 ' `' vs true 1565 ' `')
+ds4: glm mtp utility: width=2 pos=35409 setup=0.8 ms verify[batch]=55.0 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=61.8 ms utility=32.36 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=35411 setup=0.8 ms verify[batch]=54.9 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=62.1 ms utility=32.20 tok/s-cycle (draft 520 '.c' vs true 520 '.c')
+ds4: glm mtp utility: width=2 pos=35413 setup=0.8 ms verify[batch]=54.4 ms rollback=0.0 ms draft=4.9 ms other=1.5 ms result=ACCEPT committed=2 total=61.6 ms utility=32.49 tok/s-cycle (draft 760 ' |' vs true 760 ' |')
+ds4: glm mtp utility: width=2 pos=35415 setup=0.8 ms verify[batch]=54.7 ms rollback=0.8 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=60.1 ms utility=16.64 tok/s-cycle (draft 14 '/' vs true 15457 'AI')
+ds4: glm mtp utility: width=2 pos=35416 setup=0.8 ms verify[batch]=54.4 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=61.3 ms utility=32.63 tok/s-cycle (draft 14 '/' vs true 14 '/')
+ds4: glm mtp utility: width=2 pos=35418 setup=0.8 ms verify[batch]=54.3 ms rollback=0.8 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=59.6 ms utility=16.78 tok/s-cycle (draft 12 '-' vs true 43684 'ropic')
+ds4: glm mtp utility: width=2 pos=35419 setup=0.9 ms verify[batch]=54.5 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=61.5 ms utility=32.50 tok/s-cycle (draft 79569 '-compatible' vs true 79569 '-compatible')
+ds4: glm mtp utility: width=2 pos=35421 setup=0.8 ms verify[batch]=54.8 ms rollback=0.8 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=60.1 ms utility=16.64 tok/s-cycle (draft 11 ',' vs true 5333 ' API')
+ds4: glm mtp utility: width=2 pos=35422 setup=1.3 ms verify[batch]=53.6 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=61.0 ms utility=32.77 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35424 setup=0.7 ms verify[batch]=53.9 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=60.7 ms utility=32.96 tok/s-cycle (draft 7177 ' queue' vs true 7177 ' queue')
+ds4: glm mtp utility: width=2 pos=35426 setup=0.8 ms verify[batch]=53.9 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.8 ms utility=32.90 tok/s-cycle (draft 16824 ' streaming' vs true 16824 ' streaming')
+ds4: glm mtp utility: width=2 pos=35428 setup=0.9 ms verify[batch]=53.5 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=60.7 ms utility=32.97 tok/s-cycle (draft 5392 ' tool' vs true 5392 ' tool')
+ds4: glm mtp utility: width=2 pos=35430 setup=0.8 ms verify[batch]=53.5 ms rollback=0.9 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=59.0 ms utility=16.95 tok/s-cycle (draft 11 ',' vs true 12725 ' mapping')
+ds4: glm mtp utility: width=2 pos=35431 setup=0.8 ms verify[batch]=54.1 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=61.2 ms utility=32.66 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35433 setup=0.9 ms verify[batch]=53.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.1 ms utility=33.29 tok/s-cycle (draft 83952 ' KV' vs true 83952 ' KV')
+ds4: glm mtp utility: width=2 pos=35435 setup=0.8 ms verify[batch]=53.9 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=59.2 ms utility=16.88 tok/s-cycle (draft 9245 ' |
+' vs true 4842 ' policy')
+ds4: glm mtp utility: width=2 pos=35436 setup=0.8 ms verify[batch]=53.9 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=60.7 ms utility=32.95 tok/s-cycle (draft 9245 ' |
+' vs true 9245 ' |
+')
+ds4: glm mtp utility: width=2 pos=35438 setup=0.8 ms verify[batch]=54.0 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.9 ms utility=32.83 tok/s-cycle (draft 1565 ' `' vs true 1565 ' `')
+ds4: glm mtp utility: width=2 pos=35440 setup=0.8 ms verify[batch]=54.0 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=60.9 ms utility=32.83 tok/s-cycle (draft 19 '4' vs true 19 '4')
+ds4: glm mtp utility: width=2 pos=35442 setup=0.8 ms verify[batch]=53.5 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.5 ms utility=33.08 tok/s-cycle (draft 21273 'etal' vs true 21273 'etal')
+ds4: glm mtp utility: width=2 pos=35444 setup=0.8 ms verify[batch]=53.4 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=60.5 ms utility=33.04 tok/s-cycle (draft 63 '`' vs true 63 '`')
+0901 00:56:30 ds4-server: chat ctx=35396..35446:50 gen=300 decoding chunk=28.80 t/s avg=28.20 t/s 10.637s
+ds4: glm mtp utility: width=2 pos=35446 setup=0.8 ms verify[batch]=53.6 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=60.6 ms utility=33.00 tok/s-cycle (draft 53927 ' Objective' vs true 53927 ' Objective')
+ds4: glm mtp utility: width=2 pos=35448 setup=0.8 ms verify[batch]=52.9 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=59.8 ms utility=33.43 tok/s-cycle (draft 19170 ' Metal' vs true 19170 ' Metal')
+ds4: glm mtp utility: width=2 pos=35450 setup=0.8 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=60.0 ms utility=33.34 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=35452 setup=0.8 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=60.2 ms utility=33.23 tok/s-cycle (draft 77467 ' wrappers' vs true 77467 ' wrappers')
+ds4: glm mtp utility: width=2 pos=35454 setup=0.8 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=60.0 ms utility=33.34 tok/s-cycle (draft 91 '|' vs true 91 '|')
+ds4: glm mtp utility: width=2 pos=35456 setup=0.8 ms verify[batch]=53.2 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=60.2 ms utility=33.22 tok/s-cycle (draft 53648 'metal' vs true 53648 'metal')
+ds4: glm mtp utility: width=2 pos=35458 setup=0.8 ms verify[batch]=53.0 ms rollback=0.7 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=58.4 ms utility=17.13 tok/s-cycle (draft 63 '`' vs true 53648 'metal')
+ds4: glm mtp utility: width=2 pos=35459 setup=0.8 ms verify[batch]=52.5 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.4 ms utility=33.69 tok/s-cycle (draft 63 '`' vs true 63 '`')
+ds4: glm mtp utility: width=2 pos=35461 setup=0.8 ms verify[batch]=52.6 ms rollback=0.8 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=58.1 ms utility=17.22 tok/s-cycle (draft 12558 ' compute' vs true 22544 ' Compute')
+ds4: glm mtp utility: width=2 pos=35462 setup=0.8 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=59.8 ms utility=33.43 tok/s-cycle (draft 63062 ' kernels' vs true 63062 ' kernels')
+ds4: glm mtp utility: width=2 pos=35464 setup=0.7 ms verify[batch]=52.2 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.9 ms utility=33.95 tok/s-cycle (draft 91 '|' vs true 91 '|')
+ds4: glm mtp utility: width=2 pos=35466 setup=0.7 ms verify[batch]=53.1 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=60.3 ms utility=33.15 tok/s-cycle (draft 23774 'tests' vs true 23774 'tests')
+ds4: glm mtp utility: width=2 pos=35468 setup=0.7 ms verify[batch]=52.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.5 ms utility=33.59 tok/s-cycle (draft 63 '`' vs true 63 '`')
+ds4: glm mtp utility: width=2 pos=35470 setup=0.8 ms verify[batch]=53.0 ms rollback=0.8 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=58.5 ms utility=17.09 tok/s-cycle (draft 4982 ' unit' vs true 7953 ' Unit')
+ds4: glm mtp utility: width=2 pos=35471 setup=0.8 ms verify[batch]=52.3 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=59.5 ms utility=33.61 tok/s-cycle (draft 323 ' and' vs true 323 ' and')
+ds4: glm mtp utility: width=2 pos=35473 setup=0.8 ms verify[batch]=52.1 ms rollback=0.0 ms draft=4.9 ms other=1.5 ms result=ACCEPT committed=2 total=59.2 ms utility=33.76 tok/s-cycle (draft 17565 ' integration' vs true 17565 ' integration')
+ds4: glm mtp utility: width=2 pos=35475 setup=0.8 ms verify[batch]=52.2 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=59.1 ms utility=33.84 tok/s-cycle (draft 9245 ' |
+' vs true 9245 ' |
+')
+ds4: glm mtp utility: width=2 pos=35477 setup=0.8 ms verify[batch]=52.1 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.0 ms utility=33.90 tok/s-cycle (draft 1565 ' `' vs true 1565 ' `')
+ds4: glm mtp utility: width=2 pos=35479 setup=1.0 ms verify[batch]=52.4 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=59.6 ms utility=33.58 tok/s-cycle (draft 14 '/' vs true 14 '/')
+ds4: glm mtp utility: width=2 pos=35481 setup=0.8 ms verify[batch]=52.0 ms rollback=0.0 ms draft=4.7 ms other=1.7 ms result=ACCEPT committed=2 total=59.3 ms utility=33.74 tok/s-cycle (draft 760 ' |' vs true 760 ' |')
+ds4: glm mtp utility: width=2 pos=35483 setup=1.2 ms verify[batch]=52.3 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.6 ms utility=33.53 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35485 setup=0.8 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.4 ms utility=34.24 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35487 setup=0.7 ms verify[batch]=52.4 ms rollback=0.8 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=57.7 ms utility=17.32 tok/s-cycle (draft 35543 ' |
+
+' vs true 3684 ' material')
+ds4: glm mtp utility: width=2 pos=35488 setup=0.7 ms verify[batch]=52.6 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.4 ms utility=33.66 tok/s-cycle (draft 35543 ' |
+
+' vs true 35543 ' |
+
+')
+ds4: glm mtp utility: width=2 pos=35490 setup=0.8 ms verify[batch]=52.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=59.2 ms utility=33.78 tok/s-cycle (draft 17900 ' Quality' vs true 17900 ' Quality')
+ds4: glm mtp utility: width=2 pos=35492 setup=0.8 ms verify[batch]=52.1 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=59.2 ms utility=33.76 tok/s-cycle (draft 271 '
+
+' vs true 271 '
+
+')
+ds4: glm mtp utility: width=2 pos=35494 setup=0.8 ms verify[batch]=52.6 ms rollback=0.9 ms draft=2.5 ms other=1.7 ms result=reject committed=1 total=58.4 ms utility=17.12 tok/s-cycle (draft 576 ' The' vs true 13646 ' Keep')
+ds4: glm mtp utility: width=2 pos=35495 setup=0.9 ms verify[batch]=52.5 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=59.4 ms utility=33.65 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+0901 00:56:31 ds4-server: chat ctx=35446..35496:50 gen=350 decoding chunk=29.61 t/s avg=28.40 t/s 12.326s
+ds4: glm mtp utility: width=2 pos=35497 setup=0.8 ms verify[batch]=51.8 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=58.9 ms utility=33.97 tok/s-cycle (draft 2613 ' small' vs true 2613 ' small')
+ds4: glm mtp utility: width=2 pos=35499 setup=0.8 ms verify[batch]=52.1 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.1 ms utility=33.83 tok/s-cycle (draft 17212 ' sharp' vs true 17212 ' sharp')
+ds4: glm mtp utility: width=2 pos=35501 setup=1.0 ms verify[batch]=52.1 ms rollback=0.8 ms draft=2.5 ms other=1.4 ms result=reject committed=1 total=57.8 ms utility=17.29 tok/s-cycle (draft 323 ' and' vs true 25697 ' elegant')
+ds4: glm mtp utility: width=2 pos=35502 setup=0.8 ms verify[batch]=52.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.1 ms utility=33.83 tok/s-cycle (draft 26 ';' vs true 26 ';')
+ds4: glm mtp utility: width=2 pos=35504 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=58.4 ms utility=34.26 tok/s-cycle (draft 17355 ' minimal' vs true 17355 ' minimal')
+ds4: glm mtp utility: width=2 pos=35506 setup=0.8 ms verify[batch]=52.0 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=59.1 ms utility=33.84 tok/s-cycle (draft 916 ' over' vs true 916 ' over')
+ds4: glm mtp utility: width=2 pos=35508 setup=0.8 ms verify[batch]=51.8 ms rollback=0.7 ms draft=2.6 ms other=1.4 ms result=reject committed=1 total=57.4 ms utility=17.44 tok/s-cycle (draft 624 '.
+' vs true 6708 ' ideas')
+ds4: glm mtp utility: width=2 pos=35509 setup=0.7 ms verify[batch]=51.8 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=57.3 ms utility=17.46 tok/s-cycle (draft 624 '.
+' vs true 26 ';')
+ds4: glm mtp utility: width=2 pos=35510 setup=0.8 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.42 tok/s-cycle (draft 5648 ' avoid' vs true 5648 ' avoid')
+ds4: glm mtp utility: width=2 pos=35512 setup=0.8 ms verify[batch]=51.3 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.7 ms utility=17.63 tok/s-cycle (draft 11 ',' vs true 10895 ' patch')
+ds4: glm mtp utility: width=2 pos=35513 setup=0.8 ms verify[batch]=51.4 ms rollback=0.9 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.8 ms utility=17.61 tok/s-cycle (draft 11 ',' vs true 1778 'work')
+ds4: glm mtp utility: width=2 pos=35514 setup=0.9 ms verify[batch]=51.3 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=58.2 ms utility=34.38 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35516 setup=0.7 ms verify[batch]=51.3 ms rollback=0.7 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=56.5 ms utility=17.68 tok/s-cycle (draft 11 ',' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=35517 setup=0.8 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.41 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35519 setup=0.8 ms verify[batch]=51.8 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=58.7 ms utility=34.08 tok/s-cycle (draft 916 ' over' vs true 916 ' over')
+ds4: glm mtp utility: width=2 pos=35521 setup=0.8 ms verify[batch]=51.3 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=58.3 ms utility=34.31 tok/s-cycle (draft 1693 'lication' vs true 1693 'lication')
+ds4: glm mtp utility: width=2 pos=35523 setup=0.8 ms verify[batch]=51.9 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=59.0 ms utility=33.92 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35525 setup=0.8 ms verify[batch]=51.6 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.8 ms utility=17.60 tok/s-cycle (draft 2989 ' important' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35526 setup=0.8 ms verify[batch]=51.4 ms rollback=0.7 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.8 ms utility=17.62 tok/s-cycle (draft 1380 ' where' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=35527 setup=0.8 ms verify[batch]=51.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.3 ms utility=34.33 tok/s-cycle (draft 1380 ' where' vs true 1380 ' where')
+ds4: glm mtp utility: width=2 pos=35529 setup=0.8 ms verify[batch]=51.4 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.7 ms utility=17.63 tok/s-cycle (draft 11 ',' vs true 28921 ' mechanics')
+ds4: glm mtp utility: width=2 pos=35530 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=58.0 ms utility=34.49 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35532 setup=0.8 ms verify[batch]=51.2 ms rollback=0.7 ms draft=2.2 ms other=1.5 ms result=reject committed=1 total=56.5 ms utility=17.70 tok/s-cycle (draft 11 ',' vs true 18996 ' lifetime')
+ds4: glm mtp utility: width=2 pos=35533 setup=0.7 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.71 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35535 setup=0.8 ms verify[batch]=51.1 ms rollback=0.8 ms draft=2.3 ms other=1.6 ms result=reject committed=1 total=56.5 ms utility=17.70 tok/s-cycle (draft 11 ',' vs true 4842 ' policy')
+ds4: glm mtp utility: width=2 pos=35536 setup=0.7 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=58.1 ms utility=34.44 tok/s-cycle (draft 11 ',' vs true 11 ',')
+ds4: glm mtp utility: width=2 pos=35538 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.4 ms other=1.7 ms result=ACCEPT committed=2 total=57.8 ms utility=34.60 tok/s-cycle (draft 5333 ' API' vs true 5333 ' API')
+ds4: glm mtp utility: width=2 pos=35540 setup=0.8 ms verify[batch]=51.3 ms rollback=0.0 ms draft=4.5 ms other=1.8 ms result=ACCEPT committed=2 total=58.3 ms utility=34.30 tok/s-cycle (draft 2165 'ration' vs true 2165 'ration')
+ds4: glm mtp utility: width=2 pos=35542 setup=0.8 ms verify[batch]=51.2 ms rollback=0.8 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.4 ms utility=17.72 tok/s-cycle (draft 537 ' not' vs true 2477 ' non')
+ds4: glm mtp utility: width=2 pos=35543 setup=0.8 ms verify[batch]=51.7 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=59.0 ms utility=33.90 tok/s-cycle (draft 91672 '-ob' vs true 91672 '-ob')
+ds4: glm mtp utility: width=2 pos=35545 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=57.6 ms utility=34.69 tok/s-cycle (draft 26 ';' vs true 26 ';')
+0901 00:56:33 ds4-server: chat ctx=35496..35546:50 gen=400 decoding chunk=27.67 t/s avg=28.30 t/s 14.133s
+ds4: glm mtp utility: width=2 pos=35547 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.6 ms other=1.7 ms result=ACCEPT committed=2 total=58.2 ms utility=34.38 tok/s-cycle (draft 6042 ' comments' vs true 6042 ' comments')
+ds4: glm mtp utility: width=2 pos=35549 setup=0.8 ms verify[batch]=51.5 ms rollback=0.8 ms draft=2.3 ms other=1.5 ms result=reject committed=1 total=56.8 ms utility=17.61 tok/s-cycle (draft 279 ' the' vs true 8128 ' implementation')
+ds4: glm mtp utility: width=2 pos=35550 setup=0.8 ms verify[batch]=51.5 ms rollback=0.9 ms draft=2.3 ms other=1.4 ms result=reject committed=1 total=56.8 ms utility=17.59 tok/s-cycle (draft 11 ',' vs true 916 ' over')
+ds4: glm mtp utility: width=2 pos=35551 setup=0.8 ms verify[batch]=51.2 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=58.2 ms utility=34.38 tok/s-cycle (draft 8650 ' separate' vs true 8650 ' separate')
+ds4: glm mtp utility: width=2 pos=35553 setup=0.8 ms verify[batch]=51.5 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=58.5 ms utility=34.16 tok/s-cycle (draft 26257 ' docs' vs true 26257 ' docs')
+ds4: glm mtp utility: width=2 pos=35555 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.73 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35557 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=57.9 ms utility=34.53 tok/s-cycle (draft 584 ' public' vs true 584 ' public')
+ds4: glm mtp utility: width=2 pos=35559 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.8 ms utility=34.60 tok/s-cycle (draft 15014 ' narrow' vs true 15014 ' narrow')
+ds4: glm mtp utility: width=2 pos=35561 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=58.2 ms utility=34.35 tok/s-cycle (draft 39065 ' CLI' vs true 39065 ' CLI')
+ds4: glm mtp utility: width=2 pos=35563 setup=0.8 ms verify[batch]=50.6 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.73 tok/s-cycle (draft 2038 ' code' vs true 2038 ' code')
+ds4: glm mtp utility: width=2 pos=35565 setup=0.8 ms verify[batch]=50.1 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=57.1 ms utility=35.02 tok/s-cycle (draft 537 ' not' vs true 537 ' not')
+ds4: glm mtp utility: width=2 pos=35567 setup=0.8 ms verify[batch]=50.6 ms rollback=0.7 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=56.0 ms utility=17.87 tok/s-cycle (draft 911 ' about' vs true 15614 ' tensor')
+ds4: glm mtp utility: width=2 pos=35568 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.2 ms utility=34.98 tok/s-cycle (draft 90266 ' internals' vs true 90266 ' internals')
+ds4: glm mtp utility: width=2 pos=35570 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.4 ms utility=34.82 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35572 setup=0.8 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.75 tok/s-cycle (draft 15318 ' permanent' vs true 15318 ' permanent')
+ds4: glm mtp utility: width=2 pos=35574 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.1 ms utility=35.00 tok/s-cycle (draft 25931 ' variants' vs true 25931 ' variants')
+ds4: glm mtp utility: width=2 pos=35576 setup=0.7 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=57.3 ms utility=34.88 tok/s-cycle (draft 8041 ' flags' vs true 8041 ' flags')
+ds4: glm mtp utility: width=2 pos=35578 setup=0.9 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.7 ms utility=34.65 tok/s-cycle (draft 15077 ' diagnostic' vs true 15077 ' diagnostic')
+ds4: glm mtp utility: width=2 pos=35580 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.9 ms utility=34.54 tok/s-cycle (draft 525 ' are' vs true 525 ' are')
+ds4: glm mtp utility: width=2 pos=35582 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.8 ms other=1.7 ms result=ACCEPT committed=2 total=57.7 ms utility=34.66 tok/s-cycle (draft 1172 ' only' vs true 1172 ' only')
+ds4: glm mtp utility: width=2 pos=35584 setup=0.9 ms verify[batch]=51.7 ms rollback=0.8 ms draft=2.3 ms other=1.6 ms result=reject committed=1 total=57.3 ms utility=17.45 tok/s-cycle (draft 807 ' they' vs true 68173 ' validating')
+ds4: glm mtp utility: width=2 pos=35585 setup=0.7 ms verify[batch]=50.7 ms rollback=0.8 ms draft=2.4 ms other=1.6 ms result=reject committed=1 total=56.1 ms utility=17.82 tok/s-cycle (draft 825 ' one' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=35586 setup=0.8 ms verify[batch]=50.6 ms rollback=0.7 ms draft=2.3 ms other=1.6 ms result=reject committed=1 total=56.0 ms utility=17.84 tok/s-cycle (draft 3175 ' single' vs true 825 ' one')
+ds4: glm mtp utility: width=2 pos=35587 setup=0.8 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=57.9 ms utility=34.57 tok/s-cycle (draft 4879 ' release' vs true 4879 ' release')
+ds4: glm mtp utility: width=2 pos=35589 setup=0.7 ms verify[batch]=50.5 ms rollback=0.7 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=55.9 ms utility=17.88 tok/s-cycle (draft 13 '.' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=35590 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=57.9 ms utility=34.53 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35592 setup=0.8 ms verify[batch]=51.3 ms rollback=0.0 ms draft=5.2 ms other=1.9 ms result=ACCEPT committed=2 total=59.2 ms utility=33.80 tok/s-cycle (draft 356 ' C' vs true 356 ' C')
+ds4: glm mtp utility: width=2 pos=35594 setup=0.9 ms verify[batch]=52.9 ms rollback=0.0 ms draft=5.1 ms other=1.6 ms result=ACCEPT committed=2 total=60.5 ms utility=33.05 tok/s-cycle (draft 382 '.
+
+' vs true 382 '.
+
+')
+0901 00:56:35 ds4-server: chat ctx=35546..35596:50 gen=450 decoding chunk=30.76 t/s avg=28.56 t/s 15.758s
+ds4: glm mtp utility: width=2 pos=35596 setup=0.9 ms verify[batch]=51.5 ms rollback=0.0 ms draft=4.8 ms other=1.6 ms result=ACCEPT committed=2 total=58.8 ms utility=34.01 tok/s-cycle (draft 18669 ' Safety' vs true 18669 ' Safety')
+ds4: glm mtp utility: width=2 pos=35598 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.5 ms utility=34.77 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35600 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=57.3 ms utility=34.90 tok/s-cycle (draft 3460 ' large' vs true 3460 ' large')
+ds4: glm mtp utility: width=2 pos=35602 setup=0.8 ms verify[batch]=50.2 ms rollback=0.0 ms draft=4.7 ms other=1.6 ms result=ACCEPT committed=2 total=57.3 ms utility=34.90 tok/s-cycle (draft 44120 ' inference' vs true 44120 ' inference')
+ds4: glm mtp utility: width=2 pos=35604 setup=0.8 ms verify[batch]=51.1 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=58.1 ms utility=34.45 tok/s-cycle (draft 389 ' on' vs true 389 ' on')
+ds4: glm mtp utility: width=2 pos=35606 setup=0.8 ms verify[batch]=50.7 ms rollback=0.7 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=56.1 ms utility=17.83 tok/s-cycle (draft 320 ' (' vs true 26 ';')
+ds4: glm mtp utility: width=2 pos=35607 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.70 tok/s-cycle (draft 279 ' the' vs true 279 ' the')
+ds4: glm mtp utility: width=2 pos=35609 setup=0.7 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.2 ms utility=34.97 tok/s-cycle (draft 1815 ' path' vs true 1815 ' path')
+ds4: glm mtp utility: width=2 pos=35611 setup=0.8 ms verify[batch]=50.6 ms rollback=0.8 ms draft=2.4 ms other=1.4 ms result=reject committed=1 total=55.9 ms utility=17.89 tok/s-cycle (draft 34628 ' historically' vs true 8596 ' previously')
+ds4: glm mtp utility: width=2 pos=35612 setup=0.8 ms verify[batch]=50.6 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.5 ms utility=34.80 tok/s-cycle (draft 14888 ' exposed' vs true 14888 ' exposed')
+ds4: glm mtp utility: width=2 pos=35614 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=57.8 ms utility=34.62 tok/s-cycle (draft 17766 ' VM' vs true 17766 ' VM')
+ds4: glm mtp utility: width=2 pos=35616 setup=0.7 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=58.0 ms utility=34.46 tok/s-cycle (draft 448 ' with' vs true 448 ' with')
+ds4: glm mtp utility: width=2 pos=35618 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.9 ms utility=34.56 tok/s-cycle (draft 3460 ' large' vs true 3460 ' large')
+ds4: glm mtp utility: width=2 pos=35620 setup=0.7 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.4 ms other=1.5 ms result=ACCEPT committed=2 total=57.5 ms utility=34.79 tok/s-cycle (draft 624 '.
+' vs true 624 '.
+')
+ds4: glm mtp utility: width=2 pos=35622 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.7 ms utility=34.67 tok/s-cycle (draft 3155 ' Do' vs true 3155 ' Do')
+ds4: glm mtp utility: width=2 pos=35624 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.9 ms other=1.5 ms result=ACCEPT committed=2 total=58.2 ms utility=34.38 tok/s-cycle (draft 1598 ' run' vs true 1598 ' run')
+ds4: glm mtp utility: width=2 pos=35626 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.72 tok/s-cycle (draft 6765 ' huge' vs true 6765 ' huge')
+ds4: glm mtp utility: width=2 pos=35628 setup=0.8 ms verify[batch]=50.5 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.3 ms utility=34.89 tok/s-cycle (draft 11359 ' processes' vs true 11359 ' processes')
+ds4: glm mtp utility: width=2 pos=35630 setup=0.7 ms verify[batch]=50.5 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.4 ms utility=34.87 tok/s-cycle (draft 26 ';' vs true 26 ';')
+ds4: glm mtp utility: width=2 pos=35632 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.4 ms utility=34.83 tok/s-cycle (draft 2867 ' instance' vs true 2867 ' instance')
+ds4: glm mtp utility: width=2 pos=35634 setup=0.7 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.5 ms utility=34.76 tok/s-cycle (draft 374 ' is' vs true 374 ' is')
+ds4: glm mtp utility: width=2 pos=35636 setup=0.8 ms verify[batch]=50.6 ms rollback=0.0 ms draft=4.5 ms other=1.5 ms result=ACCEPT committed=2 total=57.4 ms utility=34.85 tok/s-cycle (draft 382 '.
+
+' vs true 382 '.
+
+')
+ds4: glm mtp utility: width=2 pos=35638 setup=0.8 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.5 ms other=1.7 ms result=ACCEPT committed=2 total=57.6 ms utility=34.74 tok/s-cycle (draft 26682 ' Testing' vs true 26682 ' Testing')
+ds4: glm mtp utility: width=2 pos=35640 setup=0.7 ms verify[batch]=50.5 ms rollback=0.0 ms draft=4.5 ms other=1.6 ms result=ACCEPT committed=2 total=57.4 ms utility=34.87 tok/s-cycle (draft 12 '-' vs true 12 '-')
+ds4: glm mtp utility: width=2 pos=35642 setup=0.8 ms verify[batch]=50.5 ms rollback=0.9 ms draft=2.4 ms other=1.5 ms result=reject committed=1 total=56.0 ms utility=17.86 tok/s-cycle (draft 5834 'build' vs true 6927 'make')
+ds4: glm mtp utility: width=2 pos=35643 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.7 ms other=1.5 ms result=ACCEPT committed=2 total=58.0 ms utility=34.46 tok/s-cycle (draft 63 '`' vs true 63 '`')
+ds4: glm mtp utility: width=2 pos=35645 setup=0.8 ms verify[batch]=50.7 ms rollback=0.9 ms draft=2.6 ms other=1.6 ms result=reject committed=1 total=56.6 ms utility=17.68 tok/s-cycle (draft 22056 ' builds' vs true 279 ' the')
+0901 00:56:36 ds4-server: chat ctx=35596..35646:50 gen=500 decoding chunk=31.97 t/s avg=28.86 t/s 17.322s
+ds4: glm mtp utility: width=2 pos=35646 setup=0.9 ms verify[batch]=52.2 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=59.3 ms utility=33.72 tok/s-cycle (draft 1936 ' build' vs true 1936 ' build')
+ds4: glm mtp utility: width=2 pos=35648 setup=0.9 ms verify[batch]=50.7 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.6 ms utility=34.70 tok/s-cycle (draft 1565 ' `' vs true 1565 ' `')
+ds4: glm mtp utility: width=2 pos=35650 setup=0.8 ms verify[batch]=51.0 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=58.1 ms utility=34.42 tok/s-cycle (draft 1273 ' test' vs true 1273 ' test')
+ds4: glm mtp utility: width=2 pos=35652 setup=0.8 ms verify[batch]=50.8 ms rollback=0.0 ms draft=4.8 ms other=1.5 ms result=ACCEPT committed=2 total=57.9 ms utility=34.52 tok/s-cycle (draft 8472 ' runs' vs true 8472 ' runs')
+ds4: glm mtp utility: width=2 pos=35654 setup=0.8 ms verify[batch]=50.9 ms rollback=0.0 ms draft=4.6 ms other=1.6 ms result=ACCEPT committed=2 total=57.8 ms utility=34.60 tok/s-cycle (draft 86138 '/reg' vs true 86138 '/reg')
+ds4: glm mtp utility: width=2 pos=35656 setup=0.8 ms verify[batch]=50.4 ms rollback=0.0 ms draft=4.6 ms other=1.5 ms result=ACCEPT committed=2 total=57.3 ms utility=34.90 tok/s-cycle (draft 7032 ' tests' vs true 7032 ' tests')
+0901 00:56:37 ds4-server: chat ctx=35646..35658:12 gen=512 decoding chunk=34.18 t/s avg=28.97 t/s 17.673s
+0901 00:56:37 ds4-server: chat ctx=0..35146:35146 gen=512 finish=length 114.914s
+[monitor 2026-09-01 00:56:44] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5342/5349,fan1=5774/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=627.8GiB
+[monitor 2026-09-01 00:56:59] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5349/5349,fan1=5777/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=627.7GiB
+[monitor 2026-09-01 00:57:15] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5352/5349,fan1=5782/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=632.0GiB
+[monitor 2026-09-01 00:57:31] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5355/5349,fan1=5784/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=632.0GiB
+[monitor 2026-09-01 00:57:47] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5351/5349,fan1=5770/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=631.9GiB
+[monitor 2026-09-01 00:58:03] health=ok stats=ok state=idle queue=0 clients=1 live=35658 requests=2 hits=0 cold=2 cached=0 prefill=361.4t/s decode=29.0t/s cpu=0.0% mem=0.4% rss=0.5GiB fans=fan0=5346/5349,fan1=5772/5777RPM kv=1.8/128.0GiB(1.4%) disk_free=632.0GiB

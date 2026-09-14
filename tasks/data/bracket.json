@@ -1,0 +1,92 @@
+[
+ {
+  "label": "2k-pre",
+  "ptok": 2033,
+  "rep": 0,
+  "decode_tps": 33.99,
+  "decode_s": 7.531,
+  "wall_s": 12.3,
+  "free_mb": 1456,
+  "d_pageins": 9579
+ },
+ {
+  "label": "2k-pre",
+  "ptok": 2033,
+  "rep": 1,
+  "decode_tps": 34.24,
+  "decode_s": 7.477,
+  "wall_s": 12.36,
+  "free_mb": 1313,
+  "d_pageins": 8282
+ },
+ {
+  "label": "2k-pre",
+  "ptok": 2033,
+  "rep": 2,
+  "decode_tps": 34.29,
+  "decode_s": 7.465,
+  "wall_s": 12.24,
+  "free_mb": 1400,
+  "d_pageins": 8250
+ },
+ {
+  "label": "60k",
+  "ptok": 59905,
+  "rep": 0,
+  "decode_tps": 30.0,
+  "decode_s": 8.535,
+  "wall_s": 163.33,
+  "free_mb": 1269,
+  "d_pageins": 156963
+ },
+ {
+  "label": "60k",
+  "ptok": 59905,
+  "rep": 1,
+  "decode_tps": 28.51,
+  "decode_s": 8.978,
+  "wall_s": 165.63,
+  "free_mb": 102,
+  "d_pageins": 162956
+ },
+ {
+  "label": "60k",
+  "ptok": 59905,
+  "rep": 2,
+  "decode_tps": 27.83,
+  "decode_s": 9.199,
+  "wall_s": 167.55,
+  "free_mb": 63,
+  "d_pageins": 413787
+ },
+ {
+  "label": "2k-post",
+  "ptok": 2033,
+  "rep": 0,
+  "decode_tps": 31.88,
+  "decode_s": 8.03,
+  "wall_s": 13.09,
+  "free_mb": 128,
+  "d_pageins": 17551
+ },
+ {
+  "label": "2k-post",
+  "ptok": 2033,
+  "rep": 1,
+  "decode_tps": 31.4,
+  "decode_s": 8.154,
+  "wall_s": 13.38,
+  "free_mb": 142,
+  "d_pageins": 26624
+ },
+ {
+  "label": "2k-post",
+  "ptok": 2033,
+  "rep": 2,
+  "decode_tps": 32.43,
+  "decode_s": 7.895,
+  "wall_s": 12.96,
+  "free_mb": 260,
+  "d_pageins": 11837
+ }
+]

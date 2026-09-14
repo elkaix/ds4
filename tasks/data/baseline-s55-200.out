@@ -1,0 +1,25 @@
+  [probe] target=2048 got=2033 chars=6144
+  [0] ctx=  2033 decode= 21.38 t/s gen=512 (23.95s) wall=   33.99s free= 4112MB pagein=55415 swapin=72
+  [probe] target=32768 got=32150 chars=108920
+  [1] ctx= 32150 decode= 26.64 t/s gen=512 (19.22s) wall=   60.22s free=   64MB pagein=290009 swapin=729
+  [probe] target=65536 got=65093 chars=237610
+  [2] ctx= 65093 decode= 24.15 t/s gen=512 (21.20s) wall=  155.95s free= 1001MB pagein=510463 swapin=171916
+  [probe] target=131072 got=130506 chars=488212
+  [3] ctx=130506 decode= 23.67 t/s gen=512 (21.63s) wall=  360.22s free=  694MB pagein=836544 swapin=16982
+  [probe] target=200000 got=197395 chars=769585
+  [4] ctx=197395 decode= 22.75 t/s gen=512 (22.50s) wall=  566.08s free=  776MB pagein=837226 swapin=2255
+  [5] ctx=197395 decode= 22.48 t/s gen=512 (22.78s) wall=  564.75s free=  293MB pagein=704694 swapin=38383
+  [6] ctx=130506 decode= 24.84 t/s gen=512 (20.61s) wall=  337.50s free=  190MB pagein=425873 swapin=543
+  [7] ctx= 65093 decode= 27.19 t/s gen=512 (18.83s) wall=  139.65s free=  840MB pagein=125413 swapin=218
+  [8] ctx= 32150 decode= 32.38 t/s gen=512 (15.81s) wall=   46.82s free=  773MB pagein=27529 swapin=116
+  [9] ctx=  2033 decode= 33.01 t/s gen=512 (15.51s) wall=   20.48s free=  760MB pagein=11202 swapin=170
+
+context      pass1     pass2     mean   ms/token
+   2048     21.38     33.01     27.20     36.77
+  32768     26.64     32.38     29.51     33.89
+  65536     24.15     27.19     25.67     38.96
+ 131072     23.67     24.84     24.26     41.23
+ 200000     22.75     22.48     22.62     44.22
+
+S55-200 = 22.62 t/s   (target 55.00, deficit 32.38)
+context decay across the ladder: -16.8%

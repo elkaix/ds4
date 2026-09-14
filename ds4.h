@@ -244,6 +244,7 @@ void ds4_engine_close(ds4_engine *e);
 void ds4_engine_summary(ds4_engine *e);
 int ds4_engine_vocab_size(ds4_engine *e);
 uint32_t ds4_engine_prefill_chunk(ds4_engine *e);
+uint32_t ds4_engine_prefill_quantum(ds4_engine *e);
 int ds4_engine_power(ds4_engine *e);
 int ds4_engine_set_power(ds4_engine *e, int power_percent);
 const char *ds4_engine_model_name(ds4_engine *e);
@@ -303,6 +304,14 @@ bool ds4_engine_glm_layer_payload_bytes(ds4_engine *e,
  * KV files with the previously-zero reserved byte remain Flash-compatible;
  * Pro and later shapes must use nonzero ids. */
 int ds4_engine_model_id(ds4_engine *e);
+/* 24-bit fingerprint of the weights actually loaded, from samples of the
+ * GGUF tensor data.  model_id only identifies the model *shape*, so two
+ * GGUFs with different weights (a fine-tune, a requant) share it; the
+ * fingerprint is what tells them apart in the disk KV cache header
+ * (issue #805).  Never returns 0: that value is reserved for headers
+ * written before the fingerprint existed. */
+uint32_t ds4_engine_weights_fp24(ds4_engine *e);
+uint32_t ds4_weights_fp24_of_fd(int fd, uint64_t data_start, uint64_t file_size);
 bool ds4_engine_is_glm_dsa(ds4_engine *e);
 bool ds4_engine_is_glm53(ds4_engine *e);
 const char *ds4_backend_name(ds4_backend backend);
@@ -312,6 +321,13 @@ bool ds4_think_mode_parse_level(const char *text, ds4_think_mode *out);
 const char *ds4_think_mode_name(ds4_think_mode mode);
 const char *ds4_think_max_prefix(void);
 const char *ds4_glm_reasoning_effort_text(ds4_think_mode mode);
+
+/* Ablation skip/visit counters for the timed decode path, "routed=42/42 ...",
+ * consumed and reset by the caller.  NULL when no gate was reached. */
+const char *ds4_glm_ablate_counters_str(void);
+void ds4_glm_ablate_refresh(void);
+void ds4_glm_ablate_advance(void);
+const char *ds4_glm_spec_cycle_stats_str(void);
 uint32_t ds4_think_max_min_context(void);
 ds4_think_mode ds4_think_mode_for_context(ds4_think_mode mode, int ctx_size);
 /* Uses the active model shape selected by ds4_engine_open(); call after opening
@@ -358,6 +374,7 @@ int ds4_engine_first_token_test(ds4_engine *e, const ds4_tokens *prompt);
 int ds4_engine_metal_graph_test(ds4_engine *e, const ds4_tokens *prompt);
 int ds4_engine_metal_graph_full_test(ds4_engine *e, const ds4_tokens *prompt);
 int ds4_engine_metal_graph_prompt_test(ds4_engine *e, const ds4_tokens *prompt, int ctx_size);
+int ds4_engine_metal_moe_gt_test(ds4_engine *e);
 
 void ds4_tokens_push(ds4_tokens *tv, int token);
 void ds4_tokens_free(ds4_tokens *tv);
@@ -550,15 +567,37 @@ int ds4_session_tp_spec_cycle(ds4_session *s, const int *drafts, int draft_n,
 int ds4_session_glm_tp_spec_cycle(ds4_session *s, int token, int limit,
                                  char *err, size_t errlen);
 void ds4_session_invalidate(ds4_session *s);
+/* Active Metal matmul route: "auto" (reference kernels) or "tensor-optin". */
+const char *ds4_gpu_tensor_route_name(void);
+uint64_t ds4_gpu_recommended_working_set_size(void);
+uint64_t ds4_gpu_current_allocated_size(void);
+int ds4_gpu_thermal_state(void);
+bool ds4_session_can_rewind(ds4_session *s, int pos);
 /* Keep the token prefix, restoring recurrent state where possible. Otherwise
  * the checkpoint becomes invalid: sync the retained prefix before eval.
  * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
 int ds4_session_pos(ds4_session *s);
+
+/* LOCAL PATCH: GLM MTP configuration plus cumulative per-session cycle
+ * counters (ms totals; divide by cycles for per-cycle means). */
+typedef struct {
+    bool enabled;      /* --mtp given */
+    bool active;       /* enabled and below the context ceiling */
+    uint32_t max_ctx;  /* 0 = no ceiling */
+    int pos;           /* current session position */
+    uint64_t cycles, accepted, committed, rows_cycles, batch_cycles;
+    double setup_ms, verify_ms, rollback_ms, draft_ms, total_ms;
+} ds4_glm_mtp_stats;
+void ds4_session_glm_mtp_stats(ds4_session *s, ds4_glm_mtp_stats *out);
 int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);
 int ds4_engine_routed_quant_bits(ds4_engine *e);
 bool ds4_engine_has_output_head(ds4_engine *e);
+/* Thread-local H25 measurement control. -1 follows environment policy, 0 forces
+ * the scalar indexer score path, and 1 forces the exact width-2 path. Returns
+ * the previous mode, or -2 when unavailable. */
+int ds4_glm53_indexer_score_pair_exact_override(int mode);
 bool ds4_engine_has_mtp(ds4_engine *e);
 int ds4_engine_mtp_draft_tokens(ds4_engine *e);
 bool ds4_engine_mtp_exact_sampling(ds4_engine *e);

@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -49,10 +50,14 @@
  * store. */
 #define KV_CACHE_CONTINUED_PREFIX_MIN_FACTOR 0.05
 #define KV_CACHE_CONTINUED_PREFIX_HIT_FACTOR 0.45
-/* Cold/evict/shutdown checkpoints are intentional anchors, not just automatic
- * waypoints in a single growing conversation. Give them a soft prior so they
- * survive comparable continued entries, while still allowing pressure and poor
- * density to evict them. */
+/* Cold checkpoints are intentional anchors, not just automatic waypoints in a
+ * single growing conversation: they cut at a chat boundary so a whole class of
+ * later prompts can extend them. Give them a soft prior so they survive
+ * comparable continued entries and the live dumps written on eviction or
+ * shutdown, while still allowing pressure and poor density to evict them.
+ * Evict/shutdown dumps are the live tail as it stood, ending in sampled output,
+ * so only a client that replays that exact output can ever extend one; when the
+ * disk is full and nothing has hits, the anchor is the one worth keeping. */
 #define KV_CACHE_ANCHOR_REASON_SCORE_FACTOR 2.0
 
 typedef struct {
@@ -391,7 +396,8 @@ static void kv_cache_push(ds4_kvstore *kc, ds4_kvstore_entry e) {
 }
 
 void ds4_kvstore_fill_header(uint8_t h[DS4_KVSTORE_FIXED_HEADER],
-                             uint8_t model_id, uint8_t quant_bits,
+                             uint8_t model_id, uint32_t weights_fp24,
+                             uint8_t quant_bits,
                              uint8_t reason, uint8_t ext_flags,
                              uint32_t tokens, uint32_t hits, uint32_t ctx_size,
                              uint64_t created_at, uint64_t last_used,
@@ -409,6 +415,9 @@ void ds4_kvstore_fill_header(uint8_t h[DS4_KVSTORE_FIXED_HEADER],
     ds4_kvstore_le_put32(h + 12, hits);
     ds4_kvstore_le_put32(h + 16, ctx_size);
     h[20] = KV_CACHE_PAYLOAD_ABI;
+    h[21] = (uint8_t)(weights_fp24 & 0xff);
+    h[22] = (uint8_t)((weights_fp24 >> 8) & 0xff);
+    h[23] = (uint8_t)((weights_fp24 >> 16) & 0xff);
     kv_le_put64(h + 24, created_at);
     kv_le_put64(h + 32, last_used);
     kv_le_put64(h + 40, payload_bytes);
@@ -426,6 +435,8 @@ bool ds4_kvstore_read_header(FILE *fp, ds4_kvstore_entry *e,
                 DS4_KVSTORE_REASON_UNKNOWN;
     e->ext_flags = h[6];
     e->model_id = h[7];
+    e->weights_fp24 = (uint32_t)h[21] | ((uint32_t)h[22] << 8) |
+                      ((uint32_t)h[23] << 16);
     e->tokens = ds4_kvstore_le_get32(h + 8);
     e->hits = ds4_kvstore_le_get32(h + 12);
     e->ctx_size = ds4_kvstore_le_get32(h + 16);
@@ -491,7 +502,8 @@ bool ds4_kvstore_touch_file(const char *path, uint32_t hits) {
     if (ok) {
         uint8_t h[DS4_KVSTORE_FIXED_HEADER];
         uint64_t now = (uint64_t)time(NULL);
-        ds4_kvstore_fill_header(h, e.model_id, e.quant_bits, e.reason, e.ext_flags,
+        ds4_kvstore_fill_header(h, e.model_id, e.weights_fp24,
+                                e.quant_bits, e.reason, e.ext_flags,
                                 e.tokens, hits, e.ctx_size,
                                 e.created_at, now, e.payload_bytes);
         ok = fseek(fp, 0, SEEK_SET) == 0 &&
@@ -509,6 +521,9 @@ static bool kv_cache_incoming_supersedes_continued(
     if (e->text_bytes == 0 || e->text_bytes > SIZE_MAX) return false;
     if ((size_t)e->text_bytes >= incoming->text_len) return false;
     if (e->model_id != incoming->model_id) return false;
+    if (e->weights_fp24 != 0 && incoming->weights_fp24 != 0 &&
+        e->quant_bits == incoming->quant_bits &&
+        e->weights_fp24 != incoming->weights_fp24) return false;
     if (incoming->reject_different_quant &&
         e->quant_bits != incoming->quant_bits)
         return false;
@@ -524,9 +539,7 @@ static bool kv_cache_incoming_supersedes_continued(
 }
 
 static bool kv_cache_reason_is_anchor(uint8_t reason) {
-    return reason == DS4_KVSTORE_REASON_COLD ||
-           reason == DS4_KVSTORE_REASON_EVICT ||
-           reason == DS4_KVSTORE_REASON_SHUTDOWN;
+    return reason == DS4_KVSTORE_REASON_COLD;
 }
 
 double ds4_kvstore_entry_eviction_score(
@@ -732,8 +745,12 @@ static int kv_cache_continued_step(const ds4_kvstore *kc) {
     int step = kc->opt.continued_interval_tokens;
     const int align = kc->opt.boundary_align_tokens;
     if (align > 0) {
-        step = ((step + align - 1) / align) * align;
-        if (step <= 0) step = align;
+        const int64_t rounded =
+            (((int64_t)step + align - 1) / align) * align;
+        /* live_tokens is an int, so a rounded frontier above INT_MAX can
+         * never be reached.  Avoid signed overflow and disable that schedule. */
+        if (rounded > INT_MAX) return 0;
+        step = (int)rounded;
     }
     return step;
 }
@@ -742,8 +759,20 @@ int ds4_kvstore_continued_store_target(const ds4_kvstore *kc, int live_tokens) {
     const int step = kv_cache_continued_step(kc);
     if (step <= 0) return 0;
     if (live_tokens < kc->opt.min_tokens) return 0;
-    if (live_tokens % step != 0) return 0;
     if (live_tokens <= kc->continued_last_store_tokens) return 0;
+
+    /* A restored cold/text checkpoint is not guaranteed to land on an exact
+     * multiple of step.  Prefill normally advances in fixed-size chunks from
+     * that restored position, so requiring live_tokens % step == 0 can make
+     * the progression miss every absolute frontier forever.  Save the first
+     * real live checkpoint at or beyond the next frontier instead.  Session
+     * payloads already support arbitrary positions (evict/shutdown snapshots
+     * routinely use them), and returning live_tokens keeps the saved graph
+     * state and token vector at the same exact frontier. */
+    int64_t last = kc->continued_last_store_tokens;
+    if (last < 0) last = 0;
+    const int64_t next = (last / step + 1) * (int64_t)step;
+    if ((int64_t)live_tokens < next) return 0;
     return live_tokens;
 }
 
@@ -906,7 +935,8 @@ static void kv_cache_rewrite_trailer(ds4_kvstore *kc, const char *path,
         if (ok && ignored > 0) {
             uint8_t h[DS4_KVSTORE_FIXED_HEADER];
             uint64_t now = (uint64_t)time(NULL);
-            ds4_kvstore_fill_header(h, hdr.model_id, hdr.quant_bits, hdr.reason,
+            ds4_kvstore_fill_header(h, hdr.model_id, hdr.weights_fp24,
+                                    hdr.quant_bits, hdr.reason,
                                     (uint8_t)(hdr.ext_flags | hooks->ext_flag),
                                     hdr.tokens, hdr.hits, hdr.ctx_size,
                                     hdr.created_at, now, hdr.payload_bytes);
@@ -1045,6 +1075,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         .text = text,
         .text_len = text_len,
         .model_id = (uint8_t)model_id,
+        .weights_fp24 = ds4_engine_weights_fp24(engine),
         .quant_bits = (uint8_t)quant_bits,
         .ctx_size = (uint32_t)ds4_session_ctx(session),
         .reject_different_quant = kc->reject_different_quant,
@@ -1073,7 +1104,9 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
     uint8_t h[DS4_KVSTORE_FIXED_HEADER];
     uint8_t ext_flags = trailer_est_bytes > 0 && hooks ? hooks->ext_flag : 0;
     if (text_override) ext_flags |= cache_text_ext;
-    ds4_kvstore_fill_header(h, (uint8_t)model_id, (uint8_t)quant_bits,
+    ds4_kvstore_fill_header(h, (uint8_t)model_id,
+                            ds4_engine_weights_fp24(engine),
+                            (uint8_t)quant_bits,
                             reason_code, ext_flags,
                             (uint32_t)store_tokens.len, 0,
                             (uint32_t)ds4_session_ctx(session),
@@ -1136,6 +1169,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         }
         unlink(tmp);
     } else {
+        kc->last_store_bytes = DS4_KVSTORE_FIXED_HEADER + 4ull + text_len + payload_bytes + trailer_bytes;
         kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
                 "%s: kv cache stored tokens=%d trimmed=%d reason=%s key=%s size=%.2f MiB save=%.1f ms",
                 kv_log_name(kc),
@@ -1188,7 +1222,8 @@ bool ds4_kvstore_maybe_store_continued(ds4_kvstore *kc,
 }
 
 int ds4_kvstore_find_text_prefix(ds4_kvstore *kc, const char *prompt_text,
-                                 int model_id, int quant_bits, int ctx_size) {
+                                 int model_id, uint32_t weights_fp24,
+                                 int quant_bits, int ctx_size) {
     if (!prompt_text) return -1;
     const size_t prompt_bytes = strlen(prompt_text);
     kv_cache_refresh(kc);
@@ -1198,6 +1233,12 @@ int ds4_kvstore_find_text_prefix(ds4_kvstore *kc, const char *prompt_text,
         if (e->text_bytes > prompt_bytes || e->text_bytes > SIZE_MAX) continue;
         if ((int)e->tokens < kc->opt.min_tokens) continue;
         if (e->model_id != (uint8_t)model_id) continue;
+        /* Same quantization, different weights: never reusable.  Across
+         * quantizations the fingerprints differ by construction, so the
+         * existing reject_different_quant policy stays the only gate. */
+        if (weights_fp24 != 0 && e->weights_fp24 != 0 &&
+            e->quant_bits == (uint8_t)quant_bits &&
+            e->weights_fp24 != weights_fp24) continue;
         if ((uint32_t)ctx_size < e->ctx_size) continue;
         if (kc->reject_different_quant && e->quant_bits != (uint8_t)quant_bits) continue;
         if (best >= 0) {
@@ -1227,7 +1268,9 @@ int ds4_kvstore_try_load_text(ds4_kvstore *kc,
     if (quant_bits != 2 && quant_bits != 4) return 0;
     const int model_id = ds4_engine_model_id(engine);
     const size_t prompt_bytes = strlen(prompt_text);
-    int idx = ds4_kvstore_find_text_prefix(kc, prompt_text, model_id, quant_bits,
+    const uint32_t weights_fp24 = ds4_engine_weights_fp24(engine);
+    int idx = ds4_kvstore_find_text_prefix(kc, prompt_text, model_id,
+                                           weights_fp24, quant_bits,
                                            ds4_session_ctx(session));
     if (idx < 0) return 0;
 
@@ -1248,6 +1291,11 @@ int ds4_kvstore_try_load_text(ds4_kvstore *kc,
         if (hdr.model_id != (uint8_t)model_id) {
             header_ok = false;
             fail_reason = "cached checkpoint was written for a different model";
+        } else if (hdr.weights_fp24 != 0 &&
+                   hdr.quant_bits == (uint8_t)quant_bits &&
+                   hdr.weights_fp24 != weights_fp24) {
+            header_ok = false;
+            fail_reason = "cached checkpoint was written for different model weights";
         } else if ((uint64_t)text_bytes > prompt_bytes) {
             header_ok = false;
             fail_reason = "cached text is longer than prompt";

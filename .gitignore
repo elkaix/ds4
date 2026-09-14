@@ -66,6 +66,7 @@ __pycache__/
 /misc/
 .*.swp
 .DS_Store
+dashboard_html.h
 
 /tests/test_glm53_router_shared
 /tests/test_glm53_topk_fast

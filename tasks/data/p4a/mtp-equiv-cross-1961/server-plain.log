@@ -1,0 +1,50 @@
+Starting monitored ds4-server (GLM 5.3 Flash Q2)
+  model:      /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  max tokens: 32768
+  KV cache:   /Users/panda/Projects/open-source/ds4-glm53/tasks/data/p4a/mtp-equiv-cross/kv-plain (131072 MiB budget, min 2048, cold max 65536 tokens, continued every 20480 tokens)
+  build:      glm53-p4a @ 9da9683dc1db
+  repo:       dirty (code: clean)
+  binary:     STALE: older than the newest source commit; rebuild before benchmarking, built 2026-09-14T16:57:23
+  model file: 102621113664 bytes, mtime 2026-09-14T00:07:33
+  MTP:        disabled
+  trace:      off
+  monitor:    every 15s
+  fans:       ThermalForge 'balanced' profile (temperature-driven); Apple auto on stop
+  wired limit: 118000 MiB
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 3.365 ms, residency requested in 626.575 ms, warmup 3.980 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.92 GiB (raw 0.00 + compressed 2.92) + buffers 3.16 GiB + resident model 95.56 GiB = 101.65 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=262144 backend=metal
+0914 17:12:54 ds4-server: context buffers 6232.65 MiB (ctx=262144, backend=metal, prefill_chunk=2048, raw_kv_rows=0, compressed_kv_rows=262144)
+ds4: GLM session ctx=262144 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=262144 logical_ctx=262144 kv_layers=45 indexer_layers=11 f16 2.92 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=1024 score_scratch=256.00 MiB
+0914 17:12:54 ds4-server: KV disk cache /Users/panda/Projects/open-source/ds4-glm53/tasks/data/p4a/mtp-equiv-cross/kv-plain (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=20480, trim=32, align=2048, hit_half_life=21600s)
+0914 17:12:54 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-14 17:12:54] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=0.0% footprint=0.0GiB swap=0.00GiB rss=0.1GiB fans=fan0=3455/5349,fan1=3729/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1275.1GiB
+thermalforge watch --profile balanced exited immediately (attempt 1).
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+0914 17:12:56 ds4-server: completion ctx=0..1961:1961 prompt start
+Fans under ThermalForge 'balanced' profile (watch pid 4792).
+0914 17:13:03 ds4-server: completion ctx=0..1961:1961 prefill chunk 1961/1961 (100.0%) chunk=0.00 t/s avg=261.71 t/s 7.493s
+0914 17:13:03 ds4-server: completion ctx=0..1961:1961 prompt done 7.493s lookup=0.001s cold=0.000s sync=7.493s store=0.000s source=none
+0914 17:13:05 ds4-server: completion ctx=1961..2011:50 gen=50 THINKING decoding chunk=29.38 t/s avg=29.38 t/s 1.702s
+0914 17:13:07 ds4-server: completion ctx=2011..2057:46 gen=96 THINKING decoding chunk=28.52 t/s avg=28.96 t/s 3.315s
+0914 17:13:07 ds4-server: completion ctx=0..1961:1961 gen=96 THINKING finish=length 10.808s
+0914 17:13:07 ds4-server: shutdown requested, draining requests
+0914 17:13:07 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=2057
+0914 17:13:07 ds4-server: kv cache stored tokens=2057 trimmed=0 reason=shutdown key=token-text size=193.17 MiB save=21.8 ms
+[monitor 2026-09-14 17:13:07] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-14 17:13:07] fans=auto reason=server-stopped
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+ds4-server stopped.

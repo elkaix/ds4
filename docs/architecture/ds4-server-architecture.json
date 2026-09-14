@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DS4 Server Architecture",
+    "locale": "en",
+    "output": "ds4-server-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/antirez/ds4",
+      "revision": "6547cc99932eafbd0a0d5c3a2123eda489d389ac"
+    }
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [36, 52],
+    "cols": 5,
+    "gapX": 66,
+    "gapY": 64,
+    "cellW": 184,
+    "cellH": 82
+  },
+  "components": [
+    {
+      "id": "api_clients",
+      "type": "external",
+      "label": "API Clients",
+      "sublabel": "OpenAI / Anthropic",
+      "size": [184, 82],
+      "row": 2,
+      "col": 0,
+      "sources": [
+        { "path": "README.md", "line": 1153, "end_line": 1179, "label": "HTTP API families" }
+      ]
+    },
+    {
+      "id": "api_ingress",
+      "type": "frontend",
+      "label": "HTTP + API Adapters",
+      "sublabel": "TCP + four API families",
+      "tag": "JSON / SSE",
+      "size": [184, 82],
+      "row": 2,
+      "col": 1,
+      "sources": [
+        { "path": "ds4_server.c", "line": 3105, "end_line": 4598, "label": "request parsers" },
+        { "path": "ds4_server.c", "line": 13095, "end_line": 13258, "label": "endpoint routing" }
+      ]
+    },
+    {
+      "id": "request_orchestrator",
+      "type": "messagebus",
+      "label": "Queue + Generation",
+      "sublabel": "queue, prefill, decode, stream",
+      "tag": "request transaction",
+      "size": [184, 82],
+      "row": 2,
+      "col": 2,
+      "sources": [
+        { "path": "ds4_server.c", "line": 12543, "end_line": 13094, "label": "dispatch and cancellation" },
+        { "path": "ds4_server.c", "line": 11345, "end_line": 12542, "label": "generation transaction" }
+      ]
+    },
+    {
+      "id": "resident_sessions",
+      "type": "backend",
+      "label": "Resident Sessions",
+      "sublabel": "live KV + batched decode",
+      "tag": "ds4_session",
+      "size": [184, 82],
+      "row": 2,
+      "col": 3,
+      "sources": [
+        { "path": "ds4_server.c", "line": 8569, "end_line": 8644, "label": "server slots and jobs" },
+        { "path": "ds4_server.c", "line": 10560, "end_line": 11344, "label": "prefill and decode coordination" }
+      ]
+    },
+    {
+      "id": "engine_runtime",
+      "type": "backend",
+      "label": "Engine + Graph Runtime",
+      "sublabel": "tokenizer + GPU graphs",
+      "tag": "ds4.c / ds4.h",
+      "size": [184, 82],
+      "row": 2,
+      "col": 4,
+      "sources": [
+        { "path": "ds4.h", "line": 8, "end_line": 15, "label": "public engine boundary" },
+        { "path": "ds4.c", "line": 37369, "end_line": 37435, "label": "engine state" },
+        { "path": "ds4.c", "line": 66753, "end_line": 66930, "label": "backend batch dispatch" }
+      ]
+    },
+    {
+      "id": "distributed_execution",
+      "type": "external",
+      "label": "Distributed / TP",
+      "sublabel": "layer route or TP rank",
+      "tag": "TCP or RDMA",
+      "size": [184, 82],
+      "row": 0,
+      "col": 4,
+      "sources": [
+        { "path": "ds4_distributed.h", "line": 8, "end_line": 93, "label": "distributed session backend" },
+        { "path": "ds4_tp.h", "line": 8, "end_line": 114, "label": "tensor-parallel protocol" }
+      ]
+    },
+    {
+      "id": "kv_tool_store",
+      "type": "database",
+      "label": "KV + Tool Store",
+      "sublabel": "tool RAM + DSV4 snapshots",
+      "size": [184, 82],
+      "row": 4,
+      "col": 2,
+      "sources": [
+        { "path": "ds4_kvstore.h", "line": 30, "end_line": 103, "label": "disk KV format and policy" },
+        { "path": "ds4_server.c", "line": 8480, "end_line": 8568, "label": "tool and live state" },
+        { "path": "ds4_server.c", "line": 9233, "end_line": 9860, "label": "server cache policy" }
+      ]
+    },
+    {
+      "id": "gguf_storage",
+      "type": "database",
+      "label": "GGUF + SSD Weights",
+      "sublabel": "mmap + expert streaming",
+      "size": [184, 82],
+      "row": 4,
+      "col": 4,
+      "sources": [
+        { "path": "AGENT.md", "line": 8, "end_line": 21, "label": "model loading policy" },
+        { "path": "ds4.c", "line": 60459, "end_line": 61160, "label": "engine open and model setup" }
+      ]
+    },
+    {
+      "id": "compute_targets",
+      "type": "external",
+      "label": "Compute + Local SSD",
+      "sublabel": "GPU / CPU / NVMe",
+      "size": [184, 82],
+      "row": 4,
+      "col": 3,
+      "sources": [
+        { "path": "README.md", "line": 14, "end_line": 30, "label": "supported targets" },
+        { "path": "ds4_gpu.h", "line": 8, "end_line": 44, "label": "GPU executor boundary" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ds4-server process",
+      "wraps": [
+        "api_ingress",
+        "request_orchestrator",
+        "resident_sessions",
+        "engine_runtime"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "id": "client_http",
+      "from": "api_clients",
+      "to": "api_ingress",
+      "label": "HTTP",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ingress_orchestration",
+      "from": "api_ingress",
+      "to": "request_orchestrator",
+      "label": "request"
+    },
+    {
+      "id": "orchestration_session",
+      "from": "request_orchestrator",
+      "to": "resident_sessions",
+      "label": "slot",
+      "variant": "emphasis"
+    },
+    {
+      "id": "session_engine",
+      "from": "resident_sessions",
+      "to": "engine_runtime",
+      "label": "sync / eval"
+    },
+    {
+      "id": "session_persistence",
+      "from": "resident_sessions",
+      "to": "kv_tool_store",
+      "label": "DSV4 cache"
+    },
+    {
+      "id": "engine_model",
+      "from": "engine_runtime",
+      "to": "gguf_storage",
+      "label": "mmap + tokenize",
+      "labelAt": [1200, 440]
+    },
+    {
+      "id": "backend_compute",
+      "from": "engine_runtime",
+      "to": "compute_targets",
+      "label": "graph + streaming"
+    },
+    {
+      "id": "engine_distributed",
+      "from": "engine_runtime",
+      "to": "distributed_execution",
+      "label": "mirror / layer slices",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingress and Compatibility",
+      "items": [
+        "Detached client thread per one-request TCP connection.",
+        "OpenAI Chat, Responses, Completions, and Anthropic Messages normalize to one request.",
+        "The same runtime serves models, health, stats, and dashboard routes."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Stateful Serving",
+      "items": [
+        "Best-prefix or live-tool match selects a resident slot.",
+        "Fair prefill and coalesced decode share model execution.",
+        "Live KV, hidden thinking, tool RAM, and disk snapshots avoid full replay."
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Inference and Scale Modes",
+      "items": [
+        "ds4_engine / ds4_session isolates HTTP from tensor internals.",
+        "Metal, CUDA/ROCm, and CPU share exact session semantics.",
+        "Scale with SSD experts, layer routes, or two-rank tensor parallelism."
+      ]
+    }
+  ]
+}

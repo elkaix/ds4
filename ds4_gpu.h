@@ -273,6 +273,13 @@ int ds4_gpu_tensor_read_after_selected_event(const ds4_gpu_tensor *tensor,
 int ds4_gpu_end_commands(void);
 int ds4_gpu_synchronize(void);
 
+/* Diagnostic GPU stage-counter profiler: timestamp samples taken at decode
+ * stage boundaries without ending the batch command buffer. */
+int ds4_gpu_stage_counters_enabled(void);
+int ds4_gpu_stage_counter_sample(const char *label);
+void ds4_gpu_stage_counter_reset(void);
+void ds4_gpu_stage_counter_report(uint32_t pos);
+
 int ds4_gpu_set_model_map(const void *model_map, uint64_t model_size);
 int ds4_gpu_set_model_fd(int fd);
 int ds4_gpu_set_model_fd_for_map(int fd, const void *model_map);
@@ -379,6 +386,8 @@ static inline int ds4_gpu_device_is_m5_apple_silicon(void) { return 0; }
 void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts);
 void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes);
 uint64_t ds4_gpu_recommended_working_set_size(void);
+uint64_t ds4_gpu_current_allocated_size(void);
+int ds4_gpu_thermal_state(void); /* 0 nominal 1 fair 2 serious 3 critical, -1 n/a */
 uint32_t ds4_gpu_stream_expert_cache_configured_count(void);
 uint32_t ds4_gpu_stream_expert_cache_current_count(void);
 typedef struct ds4_gpu_stream_expert_table {
@@ -395,6 +404,7 @@ typedef struct ds4_gpu_stream_expert_table {
 /* Reset only the prompt-local eviction heuristic.  The resident SSD expert
  * cache itself is intentionally kept warm across sessions. */
 void ds4_gpu_stream_expert_cache_reset_route_hotness(void);
+const char *ds4_gpu_tensor_route_name(void);
 void ds4_gpu_stream_expert_cache_release_resident(void);
 uint32_t ds4_gpu_stream_expert_cache_budget_for_expert_size(
         uint64_t gate_expert_bytes,
@@ -1160,6 +1170,19 @@ int ds4_gpu_matmul_f32_tensor(
         const ds4_gpu_tensor *x,
         uint64_t                n_tok);
 
+/* Batched (matrix-matrix) fp32 variant for prompt batches; falls back to
+ * ds4_gpu_matmul_f32_tensor for small n_tok or when
+ * DS4_METAL_DISABLE_ROUTER_MM is set. */
+int ds4_gpu_matmul_f32_mm_tensor(
+        ds4_gpu_tensor       *out,
+        const void             *model_map,
+        uint64_t                model_size,
+        uint64_t                weight_offset,
+        uint64_t                in_dim,
+        uint64_t                out_dim,
+        const ds4_gpu_tensor *x,
+        uint64_t                n_tok);
+
 int ds4_gpu_repeat_hc_tensor(
         ds4_gpu_tensor       *out,
         const ds4_gpu_tensor *row,
@@ -1618,6 +1641,12 @@ int ds4_gpu_glm53_indexer_scores_batch_tensor(
         uint32_t              head_dim,
         float                 scale,
         bool                  cache_f16);
+
+/* Thread-local diagnostic/measurement control for the exact width-2 GLM-5.3
+ * indexer score kernel: -1 follows environment policy, 0 forces the scalar
+ * kernel, 1 forces the pair kernel. Returns the prior mode, or -2 when the
+ * backend cannot honour it. */
+int ds4_gpu_glm53_indexer_score_pair_exact_override(int mode);
 
 int ds4_gpu_glm_qk_lowrank_q8_0_tensor(
         ds4_gpu_tensor       *qk_low,
@@ -3499,6 +3528,34 @@ int ds4_gpu_glm53_kda_prefill(
         uint32_t              n_tokens,
         float                 gate_lower_bound,
         float                 norm_eps);
+
+#if defined(__APPLE__)
+/* Two-row KDA verify that writes the conv+recurrent state after row 0 into
+ * prefix_state at prefix_offset while leaving the live state after row 1. */
+int ds4_gpu_glm53_kda_verify2_snapshot(
+        ds4_gpu_tensor       *out,
+        ds4_gpu_tensor       *conv_state,
+        ds4_gpu_tensor       *recurrent_state,
+        ds4_gpu_tensor       *prefix_state,
+        uint64_t              prefix_offset,
+        ds4_gpu_tensor       *q,
+        ds4_gpu_tensor       *k,
+        ds4_gpu_tensor       *v,
+        ds4_gpu_tensor       *raw_gate,
+        const ds4_gpu_tensor *raw_beta,
+        const ds4_gpu_tensor *output_gate,
+        const void           *model_map,
+        uint64_t              model_size,
+        uint64_t              q_conv_offset,
+        uint64_t              k_conv_offset,
+        uint64_t              v_conv_offset,
+        uint64_t              a_log_offset,
+        uint64_t              dt_bias_offset,
+        uint64_t              output_norm_offset,
+        uint32_t              n_heads,
+        float                 gate_lower_bound,
+        float                 norm_eps);
+#endif
 
 /* Decode-island CUDA graph capture (CUDA backend; Metal/ROCm/CPU stub it
  * out and stay eager).  Design ported from the Entrpi/ds4 batched-serving

@@ -1,0 +1,30 @@
+session-snapshot:
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.282 ms, residency requested in 588.359 ms, warmup 3.899 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=1024 logical_ctx=1024 kv_layers=45 indexer_layers=11 f16 0.01 GiB
+ds4: GLM compact indexed prefill chunk=1024 score_rows=1024 score_scratch=1.00 MiB
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=1024 logical_ctx=1024 kv_layers=45 indexer_layers=11 f16 0.01 GiB
+ds4: GLM compact indexed prefill chunk=1024 score_rows=1024 score_scratch=1.00 MiB
+session-snapshot: OK
+glm53-continued-prefill:
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: continued prefill +1: 30.63 ms, 32.6 t/s, chunk=1 display=0 intermediate=0
+ds4-test: continued prefill +3: 54.23 ms, 55.3 t/s, chunk=1 display=3 intermediate=1
+ds4-test: continued prefill +256: 1552.95 ms, 164.8 t/s, chunk=1 display=5 intermediate=3
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=4096 logical_ctx=4096 kv_layers=45 indexer_layers=11 f16 0.05 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=8.00 MiB
+ds4-test: continued/cold final top token 39058/39058, same-rank top8=5, max same-rank logit delta=0.539544
+glm53-continued-prefill: OK
+server:
+server: OK
+ds4 tests: ok

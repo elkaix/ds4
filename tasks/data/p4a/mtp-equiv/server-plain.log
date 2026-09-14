@@ -1,0 +1,60 @@
+Starting monitored ds4-server (GLM 5.3 Flash Q2)
+  model:      /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  max tokens: 32768
+  KV cache:   /Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-d21b-l17-18-19q4k (131072 MiB budget, min 2048, cold max 65536 tokens, continued every 20480 tokens)
+  build:      glm53-p4a @ 9da9683dc1db
+  repo:       dirty (code: clean)
+  binary:     STALE: older than the newest source commit; rebuild before benchmarking, built 2026-09-14T16:57:23
+  model file: 102621113664 bytes, mtime 2026-09-14T00:07:33
+  MTP:        disabled
+  trace:      off
+  monitor:    every 15s
+  fans:       ThermalForge 'balanced' profile (temperature-driven); Apple auto on stop
+  wired limit: 118000 MiB
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.276 ms, residency requested in 629.635 ms, warmup 4.313 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.92 GiB (raw 0.00 + compressed 2.92) + buffers 3.16 GiB + resident model 95.56 GiB = 101.65 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=262144 backend=metal
+0914 17:11:11 ds4-server: context buffers 6232.65 MiB (ctx=262144, backend=metal, prefill_chunk=2048, raw_kv_rows=0, compressed_kv_rows=262144)
+ds4: GLM session ctx=262144 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=262144 logical_ctx=262144 kv_layers=45 indexer_layers=11 f16 2.92 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=1024 score_scratch=256.00 MiB
+0914 17:11:11 ds4-server: KV disk cache /Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-d21b-l17-18-19q4k (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=20480, trim=32, align=2048, hit_half_life=21600s)
+0914 17:11:11 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-14 17:11:11] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=6.8% footprint=0.0GiB swap=0.00GiB rss=0.0GiB fans=fan0=3460/5349,fan1=3733/5777RPM kv=37.6/128.0GiB(29.3%) disk_free=1275.9GiB
+thermalforge watch --profile balanced exited immediately (attempt 1).
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+0914 17:11:13 ds4-server: kv cache hit text tokens=2048 text=8947 quant=2 key=token-text load=22.5 ms file=/Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-d21b-l17-18-19q4k/3276556fb3cfb43c1b2702c7517dcf8a4467e6e8.kv
+0914 17:11:13 ds4-server: completion ctx=2048..2822:774 prompt start
+Fans under ThermalForge 'balanced' profile (watch pid 2650).
+0914 17:11:17 ds4-server: completion ctx=2048..2822:774 prefill chunk 774/774 (100.0%) chunk=0.00 t/s avg=176.14 t/s 4.394s
+0914 17:11:17 ds4-server: completion ctx=2048..2822:774 prompt done 4.394s lookup=0.024s cold=0.000s sync=4.394s store=0.000s source=disk-text
+0914 17:11:19 ds4-server: completion ctx=2822..2872:50 gen=50 THINKING decoding chunk=29.92 t/s avg=29.92 t/s 1.671s
+0914 17:11:21 ds4-server: completion ctx=2872..2918:46 gen=96 decoding chunk=29.96 t/s avg=29.94 t/s 3.206s
+0914 17:11:21 ds4-server: completion ctx=2048..2822:774 gen=96 finish=length 7.601s
+0914 17:11:21 ds4-server: live kv cache miss live=2918 prompt=145998 common=2806 vision=match reason=token-mismatch
+0914 17:11:21 ds4-server: kv cache hit text tokens=143360 text=605368 quant=2 key=token-text load=525.6 ms file=/Users/panda/.ds4/server-kv/glm-5.3-flash-uncen-d21b-l17-18-19q4k/c79aca172568a832904642d869990d6336025138.kv
+0914 17:11:21 ds4-server: completion ctx=143360..145998:2638 prompt start
+[monitor 2026-09-14 17:11:27] health=ok stats=ok state=busy queue=0 clients=2 live=143360 requests=2 hits=2 cold=0 cached=145408 prefill=176.1t/s decode=29.9t/s cpu=0.0% footprint=6.9GiB swap=1.45GiB rss=1.8GiB fans=fan0=3458/5349,fan1=3724/5777RPM kv=37.6/128.0GiB(29.3%) disk_free=1275.9GiB
+0914 17:11:32 ds4-server: completion ctx=143360..145998:2638 prefill chunk 2048/2638 (77.6%) chunk=0.00 t/s avg=187.43 t/s 10.927s
+0914 17:11:36 ds4-server: completion ctx=143360..145998:2638 prefill chunk 2638/2638 (100.0%) chunk=158.21 t/s avg=180.00 t/s 14.656s
+0914 17:11:36 ds4-server: completion ctx=143360..145998:2638 prompt done 14.656s lookup=0.535s cold=0.000s sync=14.656s store=0.000s source=disk-text
+0914 17:11:38 ds4-server: completion ctx=145998..146048:50 gen=50 decoding chunk=26.31 t/s avg=26.31 t/s 1.900s
+0914 17:11:40 ds4-server: completion ctx=146048..146094:46 gen=96 decoding chunk=25.60 t/s avg=25.96 t/s 3.697s
+0914 17:11:40 ds4-server: completion ctx=143360..145998:2638 gen=96 finish=length 18.353s
+0914 17:11:40 ds4-server: shutdown requested, draining requests
+0914 17:11:40 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=146094
+[monitor 2026-09-14 17:11:40] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-14 17:11:40] fans=auto reason=server-stopped
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+ds4-server stopped.
