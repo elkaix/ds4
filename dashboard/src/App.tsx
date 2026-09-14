@@ -1,13 +1,39 @@
 import { useMemo, useState } from "react";
 import { Sparkline } from "./Sparkline";
 import {
-  DASH, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
+  DASH, compact, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
   percentile, rate, ratioStr, safeDiv, sec, signedPct, tps,
 } from "./format";
 import type { Mtp, MtpCounters, RecentRequest, Stats, Totals } from "./types";
 import { RECENT_SPAN, WINDOW, useStats } from "./useStats";
 
 type Range = "session" | "all";
+type Tone = "ok" | "warn" | "bad" | undefined;
+
+/** Below this many completed requests, percentiles are noise — show min/med/max. */
+const DISTRIBUTION_MIN_N = 20;
+/** Below this many, a session average is not worth its own tile. */
+const AVERAGE_MIN_N = 10;
+
+/* ----------------------------------------------------------- persisted state */
+
+const readBool = (key: string, fallback: boolean): boolean => {
+  try {
+    const v = localStorage.getItem(key);
+    return v === "1" ? true : v === "0" ? false : fallback;
+  } catch { return fallback; } // private mode / blocked storage
+};
+
+/** A boolean that survives reloads. Reads lazily so the first paint already has
+ *  the saved value, and never throws where localStorage is unavailable. */
+function usePersisted(key: string, fallback: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => readBool(key, fallback));
+  const set = (next: boolean) => {
+    setV(next);
+    try { localStorage.setItem(key, next ? "1" : "0"); } catch { /* ignore */ }
+  };
+  return [v, set];
+}
 
 /* ------------------------------------------------------------------ baseline */
 
@@ -75,6 +101,19 @@ function ema(values: number[]): number | null {
 const decodeTps = (r: RecentRequest) => rate(r.decode_tokens, r.decode_ns);
 const computeTps = (r: RecentRequest) => rate(r.fresh_tokens, r.prefill_ns);
 
+const SOURCE_SHORT: Record<string, string> = {
+  "memory-text": "mem", "memory-token": "mem-tok", "disk-text": "disk", "disk-token": "disk-tok", none: "cold",
+};
+const shortSource = (s: string): string => SOURCE_SHORT[s] ?? s;
+
+const worst = (...tones: Tone[]): Tone =>
+  tones.includes("bad") ? "bad" : tones.includes("warn") ? "warn" : tones.includes("ok") ? "ok" : undefined;
+
+const pressureKind = (p: string | undefined): Tone =>
+  p === "normal" ? "ok" : p === "warn" ? "warn" : p === "critical" ? "bad" : undefined;
+const thermalKind = (t: string | undefined): Tone =>
+  t === "nominal" ? "ok" : t === "fair" || t === "serious" ? "warn" : t === "critical" ? "bad" : undefined;
+
 /** prompt_ns minus the legs we account for; first_token_ns and decode_ns sit outside it. */
 const bookkeepingNs = (r: RecentRequest) =>
   Math.max(0, r.prompt_ns - (r.lookup_ns + r.restore_ns + r.cold_ns + r.prefill_ns + r.store_ns));
@@ -99,6 +138,12 @@ export function App() {
   // "Session" counts from the moment the page loaded (or Clear was pressed);
   // "All-Time" shows the server's counters since it started.
   const [baseline, setBaseline] = useState<Baseline | null>(null);
+  const [ckptOpen, setCkptOpen] = usePersisted("ds4.dash.panel.checkpoint", false);
+  // null = follow mtp.active; a click pins an explicit choice until reload, so a
+  // poll that flips `active` can never fight the user.
+  const [mtpOverride, setMtpOverride] = useState<boolean | null>(null);
+  const [openRow, setOpenRow] = useState<number | null>(null);
+
   if (stats && baseline === null) setBaseline(snapshot(stats));
   // Backfill the pieces the very first poll may not have carried.
   if (stats && baseline) {
@@ -128,13 +173,19 @@ export function App() {
 
   const recent = useMemo<RecentRequest[]>(() => (stats?.recent ?? []).slice(0, 64), [stats?.recent]);
   const last = recent[0];
+  const n = recent.length;
 
-  const footprintSeries = useMemo(() => samples.map((s) => s.footprint), [samples]);
   const decodeSeries = useMemo(() => recent.map(decodeTps).filter((v): v is number => v !== null).reverse(), [recent]);
   const computeSeries = useMemo(() => recent.map(computeTps).filter((v): v is number => v !== null).reverse(), [recent]);
   const decodeEma = useMemo(() => ema(samples.map((s) => s.decode)), [samples]);
-  const decodeP50 = useMemo(() => percentile(decodeSeries, 50), [decodeSeries]);
-  const decodeP95Low = useMemo(() => percentile(decodeSeries, 5), [decodeSeries]);
+  const decodeMedian = useMemo(() => percentile(decodeSeries, 50), [decodeSeries]);
+  // The slow tail of the tok/s distribution is its 5th percentile; inverted, that
+  // is the *high* per-token latency — always ≥ 1000 / median tok/s.
+  const p95LatencyMs = useMemo(() => {
+    const slow = percentile(decodeSeries, 5);
+    const r = safeDiv(1, slow);
+    return r === null ? null : r * 1000;
+  }, [decodeSeries]);
 
   /** Latest request that ran without speculation — the plain-decode reference. */
   const plainStepNs = useMemo(() => {
@@ -148,46 +199,82 @@ export function App() {
   );
   const segTotal = segments.reduce((a, s) => a + s.ns, 0);
 
-  const segStats = useMemo(
-    () => SEGMENT_DEFS.map((d) => {
+  // Under DISTRIBUTION_MIN_N samples, percentiles are noise: show the plain range.
+  // Headers and accessors move together so they can never disagree.
+  const dist = useMemo(() => {
+    const wide = n >= DISTRIBUTION_MIN_N;
+    const ps: [number, number, number] = wide ? [50, 95, 95] : [0, 50, 100];
+    const headers = wide ? ["p50", "p95"] : ["min", "median", "max"];
+    const rows = SEGMENT_DEFS.map((d) => {
       const vals = recent.map(d.pick).filter((v) => Number.isFinite(v));
-      return { key: d.key, label: d.label, p50: percentile(vals, 50), p95: percentile(vals, 95) };
-    }),
-    [recent],
-  );
+      return {
+        key: d.key,
+        label: d.label,
+        cells: wide
+          ? [percentile(vals, ps[0]), percentile(vals, ps[1])]
+          : [percentile(vals, 0), percentile(vals, 50), percentile(vals, 100)],
+      };
+    });
+    return { headers, rows };
+  }, [recent, n]);
 
-  const health: "ok" | "warn" | "bad" = error ? (failures > 3 ? "bad" : "warn") : stats ? "ok" : "warn";
+  const health: Tone = error ? (failures > 3 ? "bad" : "warn") : stats ? "ok" : "warn";
   const ctxPct = pct(stats?.live_tokens, stats?.ctx_size);
   const kvPct = pct(kv?.used_mb, kv?.budget_mb);
   const metalPct = pct(mem?.metal_allocated_mb, mem?.metal_working_set_mb);
+  const headroomMb = mem ? Math.max(0, mem.metal_working_set_mb - mem.metal_allocated_mb) : undefined;
   const swapDelta = mem && baseline?.swap_mb !== null && baseline?.swap_mb !== undefined
     ? mem.swap_used_mb - baseline.swap_mb : null;
+  const dotTone = worst(health, pressureKind(mem?.pressure), thermalKind(mem?.thermal));
 
-  const mtpState = !mtp ? DASH : !mtp.enabled ? "OFF" : mtp.active ? "ON" : "gated off past max_ctx";
   const mtpEffective = rate(M?.committed, M?.total_ns);
   const plainTps = plainStepNs ? 1e9 / plainStepNs : null;
   const netVsPlain = mtpEffective !== null && plainTps !== null && plainTps > 0 ? mtpEffective / plainTps - 1 : null;
   const perCycle = (ns: number | undefined) => safeDiv(ns, M?.cycles);
   const otherNs = M ? Math.max(0, M.total_ns - (M.setup_ns + M.verify_ns + M.rollback_ns + M.draft_ns)) : undefined;
+  const mtpActive = !!(mtp?.enabled && mtp.active);
+  const mtpOpen = mtpOverride ?? mtpActive;
+  const mtpGated = !!(mtp?.enabled && !mtp.active);
 
   const storeAlarm = !!last && last.store_ns > 1e9;
+
+  // Prefill: the effective rate only earns a tile when it diverges from the raw
+  // GPU compute rate — otherwise the two numbers just repeat each other.
+  const lastCompute = last ? computeTps(last) : null;
+  const lastEffective = rate(last?.fresh_tokens, last?.prompt_ns);
+  const showEffective = lastCompute !== null && lastEffective !== null
+    && Math.abs(lastEffective - lastCompute) / lastCompute > 0.05;
+
+  const showKind = n > 0 && !recent.every((r) => r.kind === "chat");
+  const columns = [
+    "Time", ...(showKind ? ["Kind"] : []), "Context", "Fresh", "Reuse %",
+    "Prompt s", "TTFT ms", "Output", "Decode tok/s", "Finish",
+  ];
 
   return (
     <>
       <nav className="topbar">
         <div className="brand">
-          <span className={`dot ${health}`} />
           <span className="brand-name">ds4-server</span>
           <span className="brand-sub">{stats?.model ?? "connecting…"}</span>
         </div>
-        <div className="topbar-meta">
-          <span>up <b>{duration(stats?.uptime_s)}</b></span>
-          <span>footprint <b>{gib(mem?.footprint_mb ?? stats?.footprint_mb)}</b></span>
-          <span>Metal <b>{gib(mem?.metal_allocated_mb)}</b></span>
-          <span>swap <b>{gib(mem?.swap_used_mb ?? stats?.swap_used_mb)}</b> <i className="delta">({gibDelta(swapDelta)})</i></span>
-          <Badge kind={pressureKind(mem?.pressure)} text={mem ? `pressure ${mem.pressure}` : "pressure —"} />
-          <Badge kind={thermalKind(mem?.thermal)} text={mem ? `thermal ${mem.thermal}` : "thermal —"} />
-          <span className={`pill ${stats?.busy ? "busy" : "idle"}`}>{error ? "unreachable" : stats?.busy ? "busy" : "idle"}</span>
+        <div className="health-strip">
+          <span className={`dot ${dotTone ?? ""}`} />
+          <b>{error ? "Unreachable" : !stats ? "Connecting" : stats.busy ? "Busy" : "Healthy"}</b>
+          <Sep />
+          <span>up {duration(stats?.uptime_s)}</span>
+          <Sep />
+          <span>{tps(last ? decodeTps(last) : stats?.last_decode_tps)}</span>
+          <Sep />
+          <span>{compact(stats?.live_tokens)}/{compact(stats?.ctx_size)} ctx</span>
+          <Sep />
+          <span>Metal {mem ? `${fixed(metalPct, 0)}%` : DASH}</span>
+          <Sep />
+          <span>{gibDelta(swapDelta)} swap</span>
+          <Sep />
+          <span className={`tone-${pressureKind(mem?.pressure) ?? "none"}`}>pressure {mem?.pressure ?? DASH}</span>
+          <Sep />
+          <span className={`tone-${thermalKind(mem?.thermal) ?? "none"}`}>thermal {mem?.thermal ?? DASH}</span>
         </div>
       </nav>
 
@@ -215,202 +302,245 @@ export function App() {
           <Stat label="Cache reuse" value={pctStr(counters?.cached, counters?.prompt)} hint={counters ? `${num(counters.hits)} hits · ${num(counters.cold)} cold` : undefined} />
         </section>
 
-        {/* ------------------------------------------------------------ memory */}
-        <Panel title="Memory" icon="▦" aside={mem ? <Meter value={metalPct} label={`Metal ${gib(mem.metal_allocated_mb)} / ${gib(mem.metal_working_set_mb)} · ${fixed(metalPct, 0)}%`} hot={metalPct > 90} /> : <span className="muted">no mem telemetry</span>}>
-          <div className="metrics">
-            <Metric label="Footprint" value={gib(mem?.footprint_mb ?? stats?.footprint_mb)} />
-            <Metric label="Peak footprint" value={gib(mem?.peak_footprint_mb)} />
-            <Metric label="Metal allocated" value={gib(mem?.metal_allocated_mb)} hint={`limit ${gib(mem?.metal_working_set_mb)}`} />
-            <Metric label="Swap used" value={gib(mem?.swap_used_mb ?? stats?.swap_used_mb)} hint={`${gibDelta(swapDelta)} since page open`} />
-            <Metric label="Pressure" value={mem?.pressure ?? DASH} tone={pressureKind(mem?.pressure)} />
-            <Metric label="Thermal" value={mem?.thermal ?? DASH} tone={thermalKind(mem?.thermal)} />
-          </div>
-          <div className="sub">RSS {gib(mem?.rss_mb ?? stats?.rss_mb)}</div>
-          <Sparkline data={footprintSeries} color="#22c55e" />
-          <div className="hint">process footprint · 5-minute window</div>
-        </Panel>
+        {/* ================================================== performance */}
+        <Section id="performance" title="Performance">
+          <Panel title="Prefill" icon="⇥" tone="secondary" aside={<span className="muted">last request</span>}>
+            <div className="metrics">
+              <Metric label="Prompt" value={num(last?.prompt_tokens)} />
+              <Metric label="Cached" value={num(last?.cached_tokens)} hint={`${pctStr(last?.cached_tokens, last?.prompt_tokens)} reused · ${last ? shortSource(last.source) : DASH}`} />
+              <Metric label="Fresh" value={num(last?.fresh_tokens)} />
+              <Metric label="Compute" value={ms(last?.prefill_ns)} />
+              <Metric label="Compute rate" value={tps(lastCompute)} hint={`session ${tps(rate(T?.prefill_fresh_tokens, T?.prefill_compute_ns))}`} />
+              <Metric label="Prompt wall" value={sec(last?.prompt_ns)} />
+              {showEffective && (
+                <Metric label="Effective prompt tok/s" value={tps(lastEffective)} hint="incl. lookup, restore and save" />
+              )}
+            </div>
+            <Chart label="GPU prefill compute tok/s per request" data={computeSeries} color="#7c5cff" unit="tok/s" />
+          </Panel>
 
-        {/* ----------------------------------------------------------- prefill */}
-        <Panel title="Prefill" icon="⇥" aside={<span className="muted">last request · session</span>}>
-          <div className="metrics">
-            <Metric label="Prompt tokens (logical)" value={num(last?.prompt_tokens)} />
-            <Metric label="Cached tokens" value={num(last?.cached_tokens)} hint={last ? `source ${last.source}` : undefined} />
-            <Metric label="Fresh tokens computed" value={num(last?.fresh_tokens)} />
-            <Metric label="GPU prefill compute tok/s" value={tps(last ? computeTps(last) : null)} hint={ms(last?.prefill_ns)} />
-            <Metric label="Prompt processing wall" value={sec(last?.prompt_ns)} />
-            <Metric label="Effective prompt tok/s" value={tps(rate(last?.fresh_tokens, last?.prompt_ns))} />
-            <Metric label="Cache reuse" value={pctStr(last?.cached_tokens, last?.prompt_tokens)} />
-            <Metric label="Session compute tok/s" value={tps(rate(T?.prefill_fresh_tokens, T?.prefill_compute_ns))} hint={`wall ${tps(rate(T?.prefill_fresh_tokens, T?.prompt_total_ns))}`} />
-          </div>
-          <Sparkline data={computeSeries} color="#7c5cff" span={RECENT_SPAN} />
-          <div className="hint">GPU prefill compute tok/s per request · oldest → newest</div>
-        </Panel>
+          <Panel title="Decode" icon="⇢" tone="primary" aside={<span className="muted">{n} recent requests</span>}>
+            <div className="metrics">
+              <Metric label="Last request" value={tps(last ? decodeTps(last) : null)} hint={`${msNum(safeDiv(last?.decode_ns, last?.decode_tokens))} ms/token`} big />
+              <Metric label="5-min EMA" value={tps(decodeEma)} big />
+              <Metric label="Median" value={tps(decodeMedian)} big />
+              <Metric label="P95 token latency" value={p95LatencyMs === null ? DASH : `${fixed(p95LatencyMs, 1)} ms/token`} big
+                tone={p95LatencyMs !== null && decodeMedian !== null && p95LatencyMs > (1000 / decodeMedian) * 1.6 ? "warn" : undefined} />
+              {n >= AVERAGE_MIN_N && (
+                <Metric label="Session average" value={tps(rate(T?.decode_tokens, T?.decode_ns))} big />
+              )}
+            </div>
+            <Chart label="decode tok/s per request" data={decodeSeries} color="#0a84ff" unit="tok/s" />
+          </Panel>
 
-        {/* ------------------------------------------------------------ decode */}
-        <Panel title="Decode" icon="⇢" aside={<span className="muted">{recent.length} recent requests</span>}>
-          <div className="metrics">
-            <Metric label="Last request" value={tps(last ? decodeTps(last) : null)} hint={`${msNum(safeDiv(last?.decode_ns, last?.decode_tokens))} ms/token`} />
-            <Metric label="5-min EMA" value={tps(decodeEma)} />
-            <Metric label="Session p50" value={tps(decodeP50)} />
-            <Metric label="Session p95-low (slow tail)" value={tps(decodeP95Low)} tone={decodeP95Low !== null && decodeP50 !== null && decodeP95Low < decodeP50 * 0.6 ? "warn" : undefined} />
-            <Metric label="Session average" value={tps(rate(T?.decode_tokens, T?.decode_ns))} />
-            <Metric label="Session ms/token" value={msNum(safeDiv(T?.decode_ns, T?.decode_tokens))} />
-          </div>
-          <Sparkline data={decodeSeries} color="#0a84ff" span={RECENT_SPAN} />
-          <div className="hint">decode tok/s per request · oldest → newest</div>
-        </Panel>
+          <Panel title="Latency" icon="⟼" tone="primary" aside={<span className="muted">{last ? `last request #${num(last.seq)}` : "no completed request"}</span>}>
+            {!last ? (
+              <div className="empty">No completed requests reported yet</div>
+            ) : (
+              <>
+                <div className="block-head">Last request only · {ms(segTotal)} end-to-end</div>
+                <div className="wf-bar">
+                  {segments.map((s) => (
+                    s.ns > 0 && segTotal > 0 ? (
+                      <i key={s.key} style={{ width: `${(100 * s.ns) / segTotal}%`, background: s.color }} title={`${s.label} · ${ms(s.ns)}`} />
+                    ) : null
+                  ))}
+                </div>
+                <div className="wf-legend">
+                  {segments.map((s) => (
+                    <div key={s.key} className="wf-item">
+                      <span className="swatch" style={{ background: s.color }} />
+                      <span className="wf-label">{s.label}</span>
+                      <span className="wf-val">{ms(s.ns)}</span>
+                      <span className="wf-pct">{segTotal > 0 ? `${((100 * s.ns) / segTotal).toFixed(1)}%` : DASH}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="block-head">session distribution (n={n})</div>
+                <div className="table-wrap">
+                  <table className="log">
+                    <thead><tr><th>component</th>{dist.headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {dist.rows.map((r) => (
+                        <tr key={r.key}>
+                          <td>{r.label}</td>
+                          {r.cells.map((c, i) => <td key={i}>{ms(c)}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </Panel>
+        </Section>
 
-        {/* ------------------------------------------------------------- cache */}
-        <Panel title="Cache" icon="⛁" aside={kv?.enabled ? <Meter value={kvPct} label={`SSD ${gib(kv.used_mb)} / ${gib(kv.budget_mb)} · ${num(kv.files)} files`} hot={kvPct > 90} /> : <span className="muted">disk cache off</span>}>
-          <div className="metrics">
-            <Metric label="Hit rate" value={pctStr(counters?.hits, (counters ? counters.hits + counters.cold : undefined))} hint={counters ? `${num(counters.hits)} hits · ${num(counters.cold)} cold` : undefined} />
-            <Metric label="Fresh tokens computed" value={num(T?.prefill_fresh_tokens)} hint="session, cache misses only" />
-            <Metric label="KV live tokens" value={`${num(stats?.live_tokens)} / ${num(stats?.ctx_size)}`} />
-            <Metric label="KV disk bytes" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : DASH} hint={kv?.enabled ? `${num(kv.files)} files` : undefined} />
-          </div>
-          <Meter value={ctxPct} label={`${fixed(ctxPct, 1)}% of context window live`} hot={ctxPct > 85} wide />
-          <div className="sub"><code className="path">{kv?.enabled ? kv.dir : "disk cache off"}</code></div>
-        </Panel>
+        {/* ================================================== memory & kv */}
+        <Section id="memory" title="Memory & KV">
+          <Panel
+            title="Memory"
+            icon="▦"
+            tone="primary"
+            aside={mem
+              ? <Meter value={metalPct} label={`Metal ${fixed(metalPct, 0)}% · headroom ${gib(headroomMb)}`} hot={metalPct > 90} />
+              : <span className="muted">no mem telemetry</span>}
+          >
+            <div className="metrics">
+              <Metric label="Footprint" value={gib(mem?.footprint_mb ?? stats?.footprint_mb)} big />
+              <Metric label="Peak footprint" value={gib(mem?.peak_footprint_mb)} big />
+              <Metric label="Metal allocated" value={gib(mem?.metal_allocated_mb)} hint={`of ${gib(mem?.metal_working_set_mb)}`} big />
+              <Metric label="Headroom" value={gib(headroomMb)} hint="working set − allocated" big />
+              <Metric label="Swap used" value={gib(mem?.swap_used_mb ?? stats?.swap_used_mb)} hint={`${gibDelta(swapDelta)} since page open`} big />
+              <Metric label="Pressure" value={mem?.pressure ?? DASH} tone={pressureKind(mem?.pressure)} big />
+              <Metric label="Thermal" value={mem?.thermal ?? DASH} tone={thermalKind(mem?.thermal)} big />
+            </div>
+            <details className="advanced">
+              <summary>Advanced process metrics</summary>
+              <div className="metrics">
+                <Metric label="RSS" value={gib(mem?.rss_mb ?? stats?.rss_mb)} />
+                <Metric label="Metal working set" value={gib(mem?.metal_working_set_mb)} />
+              </div>
+            </details>
+          </Panel>
 
-        {/* -------------------------------------------------------- checkpoint */}
-        <Panel title="Checkpoint" icon="⤓" aside={storeAlarm ? <span className="badge bad">last save &gt; 1 s</span> : <span className="muted">KV persistence</span>}>
-          <div className="metrics">
-            <Metric label="Last save" value={ms(last?.store_ns)} tone={storeAlarm ? "bad" : undefined} />
-            <Metric label="Session avg save" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
-            <Metric label="Saves" value={num(T?.checkpoint_saves)} />
-            <Metric label="Bytes written" value={mb(T?.checkpoint_save_bytes)} />
-            <Metric label="Avg restore" value={ms(safeDiv(T?.checkpoint_restore_ns, T?.checkpoint_restores))} />
-            <Metric label="Restores" value={num(T?.checkpoint_restores)} />
-          </div>
-        </Panel>
+          <Panel
+            title="Cache"
+            icon="⛁"
+            tone="secondary"
+            aside={kv?.enabled
+              ? <Meter value={kvPct} label={`SSD ${gib(kv.used_mb)} / ${gib(kv.budget_mb)} · ${num(kv.files)} files`} hot={kvPct > 90} />
+              : <span className="muted">disk cache off</span>}
+          >
+            <div className="metrics">
+              <Metric label="Hit rate" value={pctStr(counters?.hits, (counters ? counters.hits + counters.cold : undefined))} />
+              <Metric label="Hits / cold" value={counters ? `${num(counters.hits)} / ${num(counters.cold)}` : DASH} />
+              <Metric label="Last source" value={last ? shortSource(last.source) : DASH} />
+              <Metric label="KV disk" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : DASH} hint={kv?.enabled ? `${num(kv.files)} files` : undefined} />
+            </div>
+            <Meter value={ctxPct} label={`${num(stats?.live_tokens)} / ${num(stats?.ctx_size)} KV live · ${fixed(ctxPct, 1)}%`} hot={ctxPct > 85} wide />
+            <div className="sub"><code className="path">{kv?.enabled ? kv.dir : "disk cache off"}</code></div>
+          </Panel>
 
-        {/* --------------------------------------------------------------- mtp */}
-        <Panel
-          title="Speculative decode (MTP)"
-          icon="⚡"
-          aside={<span className={`badge ${!mtp ? "" : !mtp.enabled ? "" : mtp.active ? "ok" : "warn"}`}>{mtpState}</span>}
-        >
-          <div className="metrics">
-            <Metric label="Position" value={num(mtp?.pos)} hint={mtp ? (mtp.max_ctx > 0 ? `max_ctx ${num(mtp.max_ctx)}` : "no ceiling") : undefined} />
-            <Metric label="Acceptance" value={ratioStr(safeDiv(M?.accepted, M?.cycles))} hint={M ? `${num(M.accepted)} / ${num(M.cycles)} cycles` : undefined} />
-            <Metric label="Tokens / cycle" value={fixed(safeDiv(M?.committed, M?.cycles), 2)} hint={M ? `${num(M.committed)} committed` : undefined} />
-            <Metric label="Effective decode" value={tps(mtpEffective)} />
-            <Metric label="Plain step" value={plainStepNs !== null ? ms(plainStepNs) : DASH} hint={plainTps !== null ? tps(plainTps) : "no unspeculated request"} />
-            <Metric label="Net vs plain" value={signedPct(netVsPlain)} tone={netVsPlain === null ? undefined : netVsPlain >= 0 ? "ok" : "bad"} />
-            <Metric label="Cycle" value={ms(safeDiv(M?.total_ns, M?.cycles))} />
-            <Metric label="Draft" value={ms(perCycle(M?.draft_ns))} />
-            <Metric label="Verify" value={ms(perCycle(M?.verify_ns))} />
-            <Metric label="Rollback" value={ms(perCycle(M?.rollback_ns))} />
-            <Metric label="Setup" value={ms(perCycle(M?.setup_ns))} />
-            <Metric label="Other" value={ms(perCycle(otherNs))} />
-            <Metric label="Verify path: rows" value={num(M?.rows_cycles)} hint={M ? pctStr(M.rows_cycles, M.cycles, 0) : undefined} />
-            <Metric label="Verify path: batch" value={num(M?.batch_cycles)} hint={M ? pctStr(M.batch_cycles, M.cycles, 0) : undefined} />
-          </div>
-          <div className="hint">counters are {sessionMode ? "deltas since the page opened" : "since server start"}; per-cycle times</div>
-        </Panel>
-
-        {/* --------------------------------------------------------- waterfall */}
-        <Panel title="Latency waterfall" icon="⟼" aside={<span className="muted">{last ? `request #${num(last.seq)} · ${ms(segTotal)} end-to-end` : "no completed request"}</span>}>
-          {!last ? (
-            <div className="empty">No completed requests reported yet</div>
+          {ckptOpen ? (
+            <Panel
+              title="Checkpoint"
+              icon="⤓"
+              tone="secondary"
+              onToggle={() => setCkptOpen(false)}
+              open
+              aside={storeAlarm ? <span className="badge bad">last save &gt; 1 s</span> : <span className="muted">KV persistence</span>}
+            >
+              <div className="metrics">
+                <Metric label="Last save" value={ms(last?.store_ns)} tone={storeAlarm ? "bad" : undefined} />
+                <Metric label="Session avg save" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
+                <Metric label="Saves" value={num(T?.checkpoint_saves)} />
+                <Metric label="Bytes written" value={mb(T?.checkpoint_save_bytes)} />
+                <Metric label="Avg restore" value={ms(safeDiv(T?.checkpoint_restore_ns, T?.checkpoint_restores))} />
+                <Metric label="Restores" value={num(T?.checkpoint_restores)} />
+              </div>
+            </Panel>
           ) : (
-            <>
-              <div className="wf-bar">
-                {segments.map((s) => (
-                  s.ns > 0 && segTotal > 0 ? (
-                    <i key={s.key} style={{ width: `${(100 * s.ns) / segTotal}%`, background: s.color }} title={`${s.label} · ${ms(s.ns)}`} />
-                  ) : null
-                ))}
+            <CollapsedPanel
+              icon="⤓"
+              onClick={() => setCkptOpen(true)}
+              badge={storeAlarm ? <span className="badge bad">last save &gt; 1 s</span> : undefined}
+              text={T
+                ? `Checkpoint · ${num(T.checkpoint_saves)} saves · avg ${ms(safeDiv(T.checkpoint_save_ns, T.checkpoint_saves))} · ${num(T.checkpoint_restores)} restores`
+                : "Checkpoint · no data"}
+            />
+          )}
+        </Section>
+
+        {/* ==================================================== speculation */}
+        <Section id="speculation" title="Speculation">
+          {mtpOpen ? (
+            <Panel
+              title="Speculative decode (MTP)"
+              icon="⚡"
+              tone="secondary"
+              open
+              onToggle={() => setMtpOverride(false)}
+              aside={<span className={`badge ${mtpActive ? "ok" : mtpGated ? "warn" : ""}`}>{mtpActive ? "ON" : mtpGated ? "gated off" : "OFF"}</span>}
+            >
+              <div className="metrics">
+                <Metric label="Position" value={num(mtp?.pos)} hint={mtp ? (mtp.max_ctx > 0 ? `max ${num(mtp.max_ctx)}` : "no ceiling") : undefined} />
+                <Metric label="Acceptance" value={ratioStr(safeDiv(M?.accepted, M?.cycles))} hint={M ? `${num(M.accepted)} / ${num(M.cycles)} cycles` : undefined} />
+                <Metric label="Tokens / cycle" value={fixed(safeDiv(M?.committed, M?.cycles), 2)} hint={M ? `${num(M.committed)} committed` : undefined} />
+                <Metric label="Effective decode" value={tps(mtpEffective)} />
+                <Metric label="Plain step" value={plainStepNs !== null ? ms(plainStepNs) : DASH} hint={plainTps !== null ? tps(plainTps) : "no unspeculated request"} />
+                <Metric label="Net vs plain" value={signedPct(netVsPlain)} tone={netVsPlain === null ? undefined : netVsPlain >= 0 ? "ok" : "bad"} />
+                <Metric label="Cycle" value={ms(safeDiv(M?.total_ns, M?.cycles))} />
+                <Metric label="Draft" value={ms(perCycle(M?.draft_ns))} />
+                <Metric label="Verify" value={ms(perCycle(M?.verify_ns))} />
+                <Metric label="Rollback" value={ms(perCycle(M?.rollback_ns))} />
+                <Metric label="Setup" value={ms(perCycle(M?.setup_ns))} />
+                <Metric label="Other" value={ms(perCycle(otherNs))} />
+                <Metric label="Verify path: rows" value={num(M?.rows_cycles)} hint={M ? pctStr(M.rows_cycles, M.cycles, 0) : undefined} />
+                <Metric label="Verify path: batch" value={num(M?.batch_cycles)} hint={M ? pctStr(M.batch_cycles, M.cycles, 0) : undefined} />
               </div>
-              <div className="wf-legend">
-                {segments.map((s) => (
-                  <div key={s.key} className="wf-item">
-                    <span className="swatch" style={{ background: s.color }} />
-                    <span className="wf-label">{s.label}</span>
-                    <span className="wf-val">{ms(s.ns)}</span>
-                    <span className="wf-pct">{segTotal > 0 ? `${((100 * s.ns) / segTotal).toFixed(1)}%` : DASH}</span>
+              <div className="hint">counters are {sessionMode ? "deltas since the page opened" : "since server start"}; per-cycle times</div>
+            </Panel>
+          ) : (
+            <CollapsedPanel icon="⚡" onClick={() => setMtpOverride(true)} text={mtpSummary(mtp, plainTps)} />
+          )}
+        </Section>
+
+        {/* ========================================================= system */}
+        <Section id="system" title="System">
+          <Panel title="System" icon="◈" tone="secondary" aside={<span className="muted">{stats?.tensor_route ?? "route —"}</span>}>
+            <div className="metrics">
+              <Metric label="CPU (of one core)" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
+              <Metric label="Disk read" value={mbps(rates?.diskReadBps)} />
+              <Metric label="Disk write" value={mbps(rates?.diskWriteBps)} />
+              <Metric label="Page-ins" value={rates ? `${fixed(rates.pageinsPerSec, 1)} /s` : DASH} />
+              <Metric label="Tensor route" value={stats?.tensor_route ?? DASH} />
+              <Metric label="Clients" value={num(stats?.clients)} />
+              <Metric label="Queue depth" value={num(stats?.queue_depth)} />
+              <Metric label="Slots busy" value={stats ? `${stats.slots?.filter((s) => s.busy).length ?? 0} / ${stats.slot_count}` : DASH} />
+            </div>
+            <div className="slots">
+              {(stats?.slots ?? []).map((s) => {
+                const p = pct(s.live_tokens, s.ctx);
+                return (
+                  <div key={s.id} className={`slot ${s.busy ? "busy" : "idle"}`}>
+                    <div className="slot-head"><span>slot {s.id}</span><span className="state">{s.busy ? "busy" : "idle"}</span></div>
+                    <div className="slot-tokens">{num(s.live_tokens)} / {num(s.ctx)}</div>
+                    <div className={`bar ${p > 85 ? "hot" : ""}`}><i style={{ width: `${Math.min(100, p)}%` }} /></div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
+            <div className="sub"><code className="path">{stats?.model_path || DASH}</code></div>
+          </Panel>
+        </Section>
+
+        {/* ======================================================= requests */}
+        <Section id="requests" title="Requests">
+          <Panel title="Recent requests" icon="≡" tone="secondary" aside={<span className="muted">newest first · click a row for detail</span>}>
+            {n === 0 ? (
+              <div className="empty">{stats?.recent ? "No completed requests yet" : "This server does not report per-request history"}</div>
+            ) : (
               <div className="table-wrap">
-                <table className="log">
-                  <thead><tr><th>component</th><th>p50</th><th>p95</th></tr></thead>
+                <table className="log rows">
+                  <thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
                   <tbody>
-                    {segStats.map((s) => (
-                      <tr key={s.key}><td>{s.label}</td><td>{ms(s.p50)}</td><td>{ms(s.p95)}</td></tr>
+                    {recent.map((r) => (
+                      <RowGroup
+                        key={r.seq}
+                        r={r}
+                        stats={stats}
+                        showKind={showKind}
+                        colSpan={columns.length}
+                        open={openRow === r.seq}
+                        onClick={() => setOpenRow(openRow === r.seq ? null : r.seq)}
+                      />
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="hint">percentiles over the last {recent.length} requests</div>
-            </>
-          )}
-        </Panel>
-
-        {/* ------------------------------------------------------------ system */}
-        <Panel title="System" icon="◈" aside={<span className="muted">{stats?.tensor_route ?? "route —"}</span>}>
-          <div className="metrics">
-            <Metric label="CPU (of one core)" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
-            <Metric label="Disk read" value={mbps(rates?.diskReadBps)} />
-            <Metric label="Disk write" value={mbps(rates?.diskWriteBps)} />
-            <Metric label="Page-ins" value={rates ? `${fixed(rates.pageinsPerSec, 1)} /s` : DASH} />
-            <Metric label="Tensor route" value={stats?.tensor_route ?? DASH} />
-            <Metric label="Clients" value={num(stats?.clients)} />
-            <Metric label="Queue depth" value={num(stats?.queue_depth)} />
-            <Metric label="Slots busy" value={stats ? `${stats.slots?.filter((s) => s.busy).length ?? 0} / ${stats.slot_count}` : DASH} />
-          </div>
-          <div className="slots">
-            {(stats?.slots ?? []).map((s) => {
-              const p = pct(s.live_tokens, s.ctx);
-              return (
-                <div key={s.id} className={`slot ${s.busy ? "busy" : "idle"}`}>
-                  <div className="slot-head"><span>slot {s.id}</span><span className="state">{s.busy ? "busy" : "idle"}</span></div>
-                  <div className="slot-tokens">{num(s.live_tokens)} / {num(s.ctx)}</div>
-                  <div className={`bar ${p > 85 ? "hot" : ""}`}><i style={{ width: `${Math.min(100, p)}%` }} /></div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="sub"><code className="path">{stats?.model_path || DASH}</code></div>
-        </Panel>
-
-        {/* ------------------------------------------------------------ recent */}
-        <Panel title="Recent requests" icon="≡" aside={<span className="muted">reported by the server · newest first</span>}>
-          {recent.length === 0 ? (
-            <div className="empty">{stats?.recent ? "No completed requests yet" : "This server does not report per-request history"}</div>
-          ) : (
-            <div className="table-wrap">
-              <table className="log">
-                <thead>
-                  <tr>
-                    <th>time</th><th>kind</th><th>pos</th><th>fresh</th><th>cached</th><th>prompt s</th>
-                    <th>compute tok/s</th><th>TTFT ms</th><th>gen</th><th>decode tok/s</th><th>mtp</th>
-                    <th>source</th><th>finish</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((r) => (
-                    <tr key={r.seq}>
-                      <td>{clockOf(stats, r)}</td>
-                      <td>{r.kind}</td>
-                      <td>{num(r.pos)}</td>
-                      <td>{num(r.fresh_tokens)}</td>
-                      <td>{num(r.cached_tokens)}</td>
-                      <td>{fixed(r.prompt_ns / 1e9, 2)}</td>
-                      <td>{fixed(computeTps(r), 0)}</td>
-                      <td>{msNum(r.first_token_ns)}</td>
-                      <td>{num(r.decode_tokens)}</td>
-                      <td>{fixed(decodeTps(r), 1)}</td>
-                      <td>{num(r.mtp_cycles)}</td>
-                      <td>{r.source}</td>
-                      <td>{r.finish}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+            )}
+          </Panel>
+        </Section>
 
         <footer>
           <span>polling /stats every 1 s</span>
@@ -423,12 +553,19 @@ export function App() {
 
 /* -------------------------------------------------------------- components */
 
-type Tone = "ok" | "warn" | "bad" | undefined;
+const Sep = () => <span className="sep">·</span>;
 
-const pressureKind = (p: string | undefined): Tone =>
-  p === "normal" ? "ok" : p === "warn" ? "warn" : p === "critical" ? "bad" : undefined;
-const thermalKind = (t: string | undefined): Tone =>
-  t === "nominal" ? "ok" : t === "fair" || t === "serious" ? "warn" : t === "critical" ? "bad" : undefined;
+/** The one-line form of the MTP panel, per state. */
+function mtpSummary(mtp: Mtp | undefined, plainTps: number | null): string {
+  if (!mtp) return `MTP ${DASH}`;
+  if (!mtp.enabled) return "MTP off";
+  if (!mtp.active) {
+    const ceiling = mtp.max_ctx > 0 ? ` · ctx ${num(mtp.pos)} > max ${num(mtp.max_ctx)}` : "";
+    const plain = plainTps !== null ? ` · plain ${tps(plainTps)}` : "";
+    return `MTP gated off${ceiling}${plain}`;
+  }
+  return "MTP on";
+}
 
 /** Wall-clock time of a completed request, from the server uptime it carries. */
 function clockOf(stats: Stats | null, r: RecentRequest): string {
@@ -437,8 +574,53 @@ function clockOf(stats: Stats | null, r: RecentRequest): string {
   return new Date(t).toLocaleTimeString();
 }
 
-function Badge({ kind, text }: { kind: Tone; text: string }) {
-  return <span className={`badge ${kind ?? ""}`}>{text}</span>;
+function RowGroup({ r, stats, showKind, colSpan, open, onClick }: {
+  r: RecentRequest; stats: Stats | null; showKind: boolean; colSpan: number; open: boolean; onClick: () => void;
+}) {
+  return (
+    <>
+      <tr className={`row ${open ? "open" : ""}`} onClick={onClick}>
+        <td>{clockOf(stats, r)}</td>
+        {showKind && <td>{r.kind}</td>}
+        <td>{num(r.pos)}</td>
+        <td>{num(r.fresh_tokens)}</td>
+        <td>{pctStr(r.cached_tokens, r.prompt_tokens, 0)}</td>
+        <td>{fixed(r.prompt_ns / 1e9, 2)}</td>
+        <td>{msNum(r.first_token_ns)}</td>
+        <td>{num(r.decode_tokens)}</td>
+        <td>{fixed(decodeTps(r), 1)}</td>
+        <td>{r.finish}</td>
+      </tr>
+      {open && (
+        <tr className="row-detail">
+          <td colSpan={colSpan}>
+            <dl className="detail">
+              <dt>seq</dt><dd>{num(r.seq)}</dd>
+              <dt>prompt</dt><dd>{num(r.prompt_tokens)}</dd>
+              <dt>cached</dt><dd>{num(r.cached_tokens)}</dd>
+              <dt>compute tok/s</dt><dd>{fixed(computeTps(r), 0)}</dd>
+              <dt>mtp cycles</dt><dd>{num(r.mtp_cycles)}</dd>
+              <dt>mtp committed</dt><dd>{num(r.mtp_committed)}</dd>
+              <dt>source</dt><dd>{shortSource(r.source)}</dd>
+            </dl>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  const [open, setOpen] = usePersisted(`ds4.dash.section.${id}`, true);
+  return (
+    <section className="group">
+      <button className="group-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={`chev ${open ? "open" : ""}`}>▸</span>
+        <span className="group-title">{title}</span>
+      </button>
+      {open && <div className="group-body">{children}</div>}
+    </section>
+  );
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -451,25 +633,49 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function Metric({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: Tone }) {
+function Metric({ label, value, hint, tone, big }: { label: string; value: string; hint?: string; tone?: Tone; big?: boolean }) {
   return (
     <div className="metric">
       <div className="label">{label}</div>
-      <div className={`metric-value ${tone ?? ""}`}>{value}</div>
+      <div className={`metric-value ${big ? "big" : ""} ${tone ?? ""}`}>{value}</div>
       {hint && <div className="hint">{hint}</div>}
     </div>
   );
 }
 
-function Panel({ title, icon, aside, children }: { title: string; icon: string; aside?: React.ReactNode; children: React.ReactNode }) {
+function Panel({ title, icon, aside, tone, open, onToggle, children }: {
+  title: string; icon: string; aside?: React.ReactNode; tone?: "primary" | "secondary";
+  open?: boolean; onToggle?: () => void; children: React.ReactNode;
+}) {
+  const head = (
+    <>
+      <span className="panel-title">
+        {onToggle && <span className={`chev ${open ? "open" : ""}`}>▸</span>}
+        <span className="icon">{icon}</span>{title}
+      </span>
+      <span className="panel-aside">{aside}</span>
+    </>
+  );
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="panel-title"><span className="icon">{icon}</span>{title}</span>
-        <span className="panel-aside">{aside}</span>
-      </div>
+    <section className={`panel ${tone ?? "secondary"}`}>
+      {onToggle
+        ? <button type="button" className="panel-head as-button" onClick={onToggle} aria-expanded={open}>{head}</button>
+        : <div className="panel-head">{head}</div>}
       <div className="panel-body">{children}</div>
     </section>
+  );
+}
+
+/** Tertiary, one-line form of a panel. The muted styling lives here, not on the
+ *  panel body, so expanding it yields a normal-weight panel. */
+function CollapsedPanel({ icon, text, badge, onClick }: { icon: string; text: string; badge?: React.ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" className="panel collapsed" onClick={onClick} aria-expanded={false}>
+      <span className="chev">▸</span>
+      <span className="icon">{icon}</span>
+      <span className="collapsed-text">{text}</span>
+      {badge}
+    </button>
   );
 }
 
@@ -479,5 +685,21 @@ function Meter({ value, label, hot, wide }: { value: number; label: string; hot?
       <span className={`bar ${hot ? "hot" : ""}`}><i style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></span>
       <span>{label}</span>
     </span>
+  );
+}
+
+/** A full-width sparkline with its own caption and min/max scale. */
+function Chart({ label, data, color, unit }: { label: string; data: number[]; color: string; unit: string }) {
+  const lo = data.length ? Math.min(...data) : null;
+  const hi = data.length ? Math.max(...data) : null;
+  return (
+    <div className="chart">
+      <div className="chart-head">
+        <span className="label">{label}</span>
+        <span className="hint">{lo === null ? "no data yet" : `min ${fixed(lo, 1)} · max ${fixed(hi, 1)} ${unit}`}</span>
+      </div>
+      <Sparkline data={data} color={color} span={RECENT_SPAN} height={90} />
+      <div className="chart-foot"><span>oldest</span><span>newest</span></div>
+    </div>
   );
 }
