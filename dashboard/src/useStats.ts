@@ -11,8 +11,6 @@ export interface Sample {
   /** last_prefill_tps / last_decode_tps as reported at this poll */
   prefill: number;
   decode: number;
-  /** process footprint in MB, for the memory sparkline */
-  footprint: number;
 }
 
 /** Instantaneous rates derived from the cumulative `proc` counters. Null until the
@@ -32,10 +30,8 @@ export interface StatsState {
   rates: Rates | null;
 }
 
-const footprintOf = (s: Stats): number => s.mem?.footprint_mb ?? s.footprint_mb ?? s.rss_mb ?? 0;
-
-/** Polls /stats once a second; keeps a rolling 5-minute window of throughput and
- *  memory samples plus per-second rates derived from the cumulative counters. */
+/** Polls /stats once a second; keeps a rolling 5-minute window of throughput
+ *  samples plus per-second rates derived from the cumulative counters. */
 export function useStats(): StatsState {
   const [state, setState] = useState<StatsState>({ stats: null, error: null, failures: 0, samples: [], rates: null });
   // Deltas are computed *outside* the setState updater: StrictMode double-invokes
@@ -75,7 +71,6 @@ export function useStats(): StatsState {
           t: now,
           prefill: s.last_prefill_tps ?? 0,
           decode: s.last_decode_tps ?? 0,
-          footprint: footprintOf(s),
         };
         prev.current = { stats: s, t: now };
 

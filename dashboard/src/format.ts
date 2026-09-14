@@ -19,6 +19,15 @@ export const rate = (tokens: Maybe, ns: Maybe): number | null => {
   return r === null ? null : r * 1e9;
 };
 
+/** 63938 → "63.9K"; used by the health strip where space is tight. */
+export const compact = (n: Maybe): string => {
+  if (!ok(n)) return DASH;
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (a >= 1000) return `${(n / 1000).toFixed(a >= 100_000 ? 0 : 1)}K`;
+  return `${Math.round(n)}`;
+};
+
 export const num = (n: Maybe): string => (ok(n) ? Math.round(n).toLocaleString("en-US") : DASH);
 
 export const tps = (n: Maybe): string => (ok(n) ? `${n.toFixed(n < 100 ? 1 : 0)} tok/s` : DASH);
