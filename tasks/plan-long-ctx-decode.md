@@ -1,8 +1,15 @@
-# Plan v2 — faster decode, MTP and turn latency for long-running coding sessions
+# Plan v3 — faster decode, MTP and turn latency for long-running coding sessions
 
-Date: 2026-09-14 (v2 after review). Branch `glm53-pr920` (HEAD 0a77fb0 + uncommitted
+Date: 2026-09-14 (v3 after second review). Branch `glm53-pr920` (HEAD 0a77fb0 + uncommitted
 Metal-4/indexer edits). Model: GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2
 (95.6 GiB resident), M5 Max 128 GB.
+
+v3 changes vs v2: PR #964 split into engine-only perf A/B (P4b1) and full
+integration (P4b2); Protocol B arms use cloned KV directories, never a shared one;
+A0.4 replays exact recorded request payloads (server-side recorder), not log
+reconstructions; CIs use paired block bootstrap over turns; P2.5 ROI gate before
+P3; correctness required at 100K and 200K before adopting #964; checkpoint policy
+has both a cost bound and a durability bound; explicit rollback points.
 
 v2 changes vs v1: tree freeze first; correctness cherry-picks before any tuning;
 upstream PR #964 evaluated before custom MTP work; MTP go/no-go derived from
@@ -74,8 +81,14 @@ All measured on the replay harness (A0.4) at 100K context unless stated.
   Verify: emitted at pos 100K.
 - A0.3 Launcher monitor: `phys_footprint` and `ps -o %cpu` instead of rss/cpu that
   read 0.7 GiB / 0% on a busy 96 GB model. Verify: within 5% of Activity Monitor.
-- A0.4 Replay harness from today's `server.log`: same 75 prompts, same order, warm
-  cache; reports T1-T5 with p50/p95. Verify: two back-to-back runs agree within 3%.
+- A0.4 Exact replay harness. `server.log` has timing only, no bodies, so add a
+  server-side recorder (`DS4_SERVER_RECORD_DIR`): per request it writes the raw
+  JSON payload, api kind, rendered-prompt SHA-256, prompt/cached token counts,
+  generation settings, and the ctx span. `tasks/replay.py` replays those payloads
+  in order against a warm cache and reports T1-T5 with p50/p95 per turn. The
+  2026-09-14 session cannot be replayed exactly; the baseline is captured on the
+  next recorded pi session. Verify: two back-to-back replays agree within 3%;
+  rendered-prompt hashes match the recording.
 - A0.5 Capture the v2 baseline on the frozen tree. Verify: numbers in `tasks/data/`.
 
 ## Phase 4a — correctness foundation (1-2 days)
@@ -94,27 +107,45 @@ Deferred, not in this branch: the tool-call server set (`5b3cc8b d077fa6 fc6414c
 the performance work. Take them afterwards on top of `2215830`, unless the pi
 replay exposes a tool-call bug that one of them fixes.
 
-## Phase 4b — PR #964 isolated A/B on this hybrid quant (1-2 days)
+## Phase 4b1 — PR #964 engine-only performance A/B (1-2 days)
 
-- A4b.1 Build #964 head `0a908192` rebased onto the P4a baseline in its own worktree.
-  Two frozen binaries.
-- A4b.2 Protocol B (cross-binary): interleaved ABBABAAB, >= 4 runs per arm, same
-  warm KV, MTP OFF, at 2K / 32K / 100K / 200K. Report decode t/s, prefill t/s,
-  first-token latency, phys_footprint, swap.
-- A4b.3 Correctness: tensor-equivalence, greedy-stream identity, O1 quality gates.
-- Adopt iff decode wins with CI > 0 at 100K and no correctness regression. If adopted,
-  it becomes the production baseline and the T1 comparator.
-  Expected: plain 100K decode 22 -> 25-27 t/s is a bigger, lower-risk win than P3.
+#964's current head also carries server/checkpoint/recovery changes (tool-block
+checkpoint replay, checkpoint scanning, recovery). Those are exactly what P4a
+deferred, so the PR is not one performance arm.
+- A4b1.1 Split the PR: cherry-pick only its Metal/engine commits (ds4.c, ds4_metal.m,
+  metal/*.metal, ds4_gpu*) onto the P4a baseline in its own worktree. Two frozen
+  binaries. Record the commit list.
+- A4b1.2 Protocol B with `ds4-bench`, MTP OFF, at 2K / 32K / 100K / 200K:
+  interleaved ABBABAAB, >= 4 runs per arm. Each arm run gets its own APFS clone of
+  one immutable seed KV directory (`seed-kv/` -> `A-run-1/`, `B-run-1/`, ...);
+  the seed's metadata is hashed before the run and never written. Report decode
+  t/s, prefill t/s, first-token latency, phys_footprint, swap.
+- A4b1.3 Correctness at every point, not just performance: 2K kernel/reference
+  sanity; 32K coding regime; 100K primary; 200K stress. Full-logit equivalence
+  where practical, otherwise greedy/state equivalence plus the official NLL
+  fixture. The PR's own traces are not proof for this hybrid quant.
+- Adopt iff 100K decode wins with block-bootstrap CI > 0 and no correctness
+  regression. Expected: plain 100K decode 22 -> 25-27 t/s; upstream saw +17.6%
+  decode / -1.9% prefill on an M5 Max Q2, +27% / +18% on M3 Ultra, so it is
+  architecture-dependent.
+
+## Phase 4b2 — PR #964 full integration (1 day)
+
+- A4b2.1 Only if P4b1 adopted: bring in the PR's server/session commits on a branch
+  off P4b1 and run the replay harness, session-state tests, disk-KV and tool-loop
+  suites separately. Adopt or reject on correctness, not performance.
+  Rollback: the P4b1 engine-only binary.
 
 ## Phase 1 — config tuning on the production baseline (same day)
 
 - A1.1 MTP ceiling sweep 0 / 32768 / 65536 using A0.2 break-even data (Protocol A).
   Pick the crossover from `C/S < 1+a`; update the launcher default with the data.
-- A1.2 Checkpoint policy: replace the fixed 20480 interval with an adaptive
-  write-duty rule: checkpoint writes <= 1-2% of server wall time, bounded replay
-  after crash (<= N tokens). Snapshots grow with context (1.56 -> 2.49 GB), so a
-  constant token interval makes write cost grow anyway.
-  Verify: duty cycle logged; cold restart restores within N tokens.
+- A1.2 Checkpoint policy: replace the fixed 20480 interval with two simultaneous
+  bounds: cost (write duty <= 1-2% of server wall time) and durability
+  (uncheckpointed progress <= N tokens OR <= T minutes, whichever first) so an idle
+  interactive session still checkpoints. Snapshots grow with context (1.56 -> 2.49
+  GB), so a constant token interval makes write cost grow anyway.
+  Verify: duty cycle and staleness logged; cold restart restores within N tokens.
 
 ## Phase 2 — turn latency (2-3 days)
 
@@ -135,6 +166,14 @@ replay exposes a tool-call bug that one of them fixes.
 - A2.3 First-chunk penalty: only if A0.2 shows it recurring (>= 3 of 20 prefills).
   Candidates: decode graph re-plan after a differently shaped prefill, indexer pool
   re-expand, KDA state copy. May vanish with #964, which reports first-token gains.
+
+## Phase 2.5 — ROI gate before any P3 work
+
+Re-measure the 75-turn session on the P2 baseline. Proceed to P3 only if
+projected agent-session wall-clock improvement >= 3-5% **or** projected MTP decode
+gain >= 15% over the final plain baseline, using S, C', a from A0.2/A3.1. If
+ordinary decode is already high-20s and server time is a small share of the
+session, STOP and ship the P2 baseline.
 
 ## Phase 3 — MTP above the dense window (1-2 weeks)
 
@@ -163,7 +202,12 @@ replay exposes a tool-call bug that one of them fixes.
   interleaved controls; check tokens, logits and accept/reject schedule identity
   where the switch should not change them. Used for P1, A2.x, A3.x.
 - **Protocol B (code revision):** frozen worktrees and binaries, interleaved
-  multi-run ABBA/ABBABAAB, same warm KV, thermal gap logged. Used for P4a, P4b, A3.3.
+  multi-run ABBA/ABBABAAB, one immutable seed KV cloned per arm run, thermal gap
+  logged. Used for P4a, P4b1/2, A3.3.
+- **Statistics:** segments at long context are serially correlated (shared model,
+  thermal, cache state). Report median paired gain, mean paired gain, and a 95%
+  paired block-bootstrap CI with the turn (or a contiguous multi-segment block) as
+  the resampling unit. Never an IID CI over 64-token segments.
 Cross-restart single-run comparisons remain inadmissible.
 
 ## Correctness gates (A3.3 and any verifier change)
@@ -174,16 +218,22 @@ rollback, checkpoint restore mid-speculation, cancel/interrupt, repeated tool ca
 Plus the release list: GLM MTP comparison, long-context smoke, session correctness,
 disk KV, server tool-loop.
 
-## Execution order
+## Execution order and rollback points
 
 ```
-P-1 freeze        -> gate: git clean, baseline-v2.json written
-P0  instrument    -> gate: harness repeatable within 3%; baseline captured
-P4a correctness   -> gate: all gates green; harness re-baselined
-P4b PR #964 A/B   -> gate: Protocol B, CI > 0 at 100K, no regression -> adopt
-P1  config        -> gate: ceiling + checkpoint policy chosen from data
-P2  latency       -> gate: T2, T4 met; T3 only if it recurs
-P3  MTP           -> gate: C'/S < 1+a with 10% margin; T1 met
+P-1  freeze          -> gate: git clean, baseline-v2.json written
+P0   instrument      -> gate: recorder + replay repeatable within 3%; baseline captured
+P4a  correctness     -> gate: all gates green; harness re-baselined
+                        rollback: frozen pre-P4a commit b69fd2c
+P4b1 #964 engine A/B -> gate: Protocol B, block-bootstrap CI > 0 at 100K, correctness
+                        at 2K/32K/100K/200K -> adopt   rollback: P4a binary
+P4b2 #964 integrate  -> gate: replay/session/tool suites green   rollback: P4b1 binary
+P1   config          -> gate: ceiling + checkpoint policy chosen from data
+P2   latency         -> gate: T2, T4 met; T3 only if it recurs
+                        rollback: sync checkpoint + old prefix path stay feature-flagged
+P2.5 ROI             -> insufficient -> STOP and ship P2 baseline
+P3   MTP             -> gate: C'/S < 1+a with 10% margin; T1 met
+                        fallback: batch verifier remains the hard fallback
 ```
 
 ## Risks
