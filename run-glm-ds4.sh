@@ -12,7 +12,7 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 GLM_DIR=$(cd -- "${GLM_DS4_DIR:-$ROOT_DIR}" && pwd -P)
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="$HOME/models/gguf/GLM-5.3-Flash-UNCEN-Q2.gguf"
+MODEL="$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-Q2.gguf"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
