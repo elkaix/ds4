@@ -741,6 +741,7 @@ typedef struct {
      * happens to be named "tool_search". */
     bool responses_tool_search;
     char **prop;
+    char **prop_schema;
     int len;
     int cap;
 } tool_schema_order;
@@ -917,8 +918,12 @@ static void tool_schema_order_free(tool_schema_order *o) {
     free(o->name);
     free(o->wire_name);
     free(o->namespace);
-    for (int i = 0; i < o->len; i++) free(o->prop[i]);
+    for (int i = 0; i < o->len; i++) {
+        free(o->prop[i]);
+        free(o->prop_schema[i]);
+    }
     free(o->prop);
+    free(o->prop_schema);
     memset(o, 0, sizeof(*o));
 }
 
@@ -928,11 +933,13 @@ static void tool_schema_orders_free(tool_schema_orders *orders) {
     memset(orders, 0, sizeof(*orders));
 }
 
-static void tool_schema_order_prop_push(tool_schema_order *o, char *prop) {
+static void tool_schema_order_prop_push(tool_schema_order *o, char *prop, char *schema) {
     if (o->len == o->cap) {
         o->cap = o->cap ? o->cap * 2 : 8;
         o->prop = xrealloc(o->prop, (size_t)o->cap * sizeof(o->prop[0]));
+        o->prop_schema = xrealloc(o->prop_schema, (size_t)o->cap * sizeof(o->prop_schema[0]));
     }
+    o->prop_schema[o->len] = schema;
     o->prop[o->len++] = prop;
 }
 
@@ -1705,8 +1712,12 @@ static bool parse_schema_properties(const char *json, tool_schema_order *order) 
                     return false;
                 }
                 p++;
-                tool_schema_order_prop_push(order, prop);
-                if (!json_skip_value(&p)) return false;
+                char *schema = NULL;
+                if (!json_raw_value(&p, &schema)) {
+                    free(prop);
+                    return false;
+                }
+                tool_schema_order_prop_push(order, prop, schema);
                 json_ws(&p);
                 if (*p == ',') p++;
                 json_ws(&p);
@@ -5806,12 +5817,18 @@ static bool dsml_parse_nested_params_object(const char **p_in,
     return true;
 }
 
+static const char *find_tool_structural_text(const char *s, const char *needle,
+                                             bool last);
+
+/* Reasoning may quote "</think>" (for example when repeating a user request),
+ * so the answer starts after the last structural close, matching the streaming
+ * paths' second-reasoning guard. */
 static void split_reasoning_content(const char *text, size_t n, char **content_out, char **reasoning_out) {
     char *s = xstrndup(text ? text : "", n);
     char *body = s;
     if (!strncmp(body, "<think>", 7)) body += 7;
 
-    char *think_end = strstr(body, "</think>");
+    char *think_end = (char *)find_tool_structural_text(body, "</think>", true);
     if (think_end) {
         *think_end = '\0';
         *reasoning_out = xstrdup(body);
@@ -6241,11 +6258,33 @@ static void qwen_trim_split(char **content_out, char **reasoning_out) {
     }
 }
 
+static bool qwen_param_declared_string(const tool_schema_orders *orders,
+                                       const char *name, const char *key) {
+    const tool_schema_order *order = tool_schema_orders_find(orders, name);
+    if (!order) return false;
+    for (int i = 0; i < order->len; i++) {
+        if (strcmp(order->prop[i], key)) continue;
+        json_args schema = {0};
+        bool is_string = false;
+        if (json_args_parse(order->prop_schema[i], &schema)) {
+            for (int j = 0; j < schema.len; j++) {
+                const json_arg *arg = &schema.v[j];
+                if (!strcmp(arg->key, "type") && arg->is_string && !strcmp(arg->value, "string"))
+                    is_string = true;
+            }
+        }
+        json_args_free(&schema);
+        return is_string;
+    }
+    return false;
+}
+
 static bool parse_qwen_generated_message_ex(const char *text,
                                             bool require_thinking_closed,
                                             char **content_out,
                                             char **reasoning_out,
-                                            tool_calls *calls) {
+                                            tool_calls *calls,
+                                            const tool_schema_orders *orders) {
     static const char tool_start[] = "<tool_call>";
     static const char tool_end[] = "</tool_call>";
     static const char fn_start[] = "<function=";
@@ -6336,8 +6375,10 @@ static bool parse_qwen_generated_message_ex(const char *text,
                 return false;
             }
             char *value = qwen_strip_value_newlines(value_start, value_end);
-            if (!qwen_param_value_is_json(value)) ds4_tool_text_unescape(value, param_end);
-            tool_call_json_args_add(&args, key, value, qwen_param_value_is_json(value) ? "false" : "true");
+            const bool is_string = qwen_param_declared_string(orders, name, key) ||
+                                   !qwen_param_value_is_json(value);
+            if (is_string) ds4_tool_text_unescape(value, param_end);
+            tool_call_json_args_add(&args, key, value, is_string ? "true" : "false");
             free(key);
             free(value);
             p = value_end + strlen(param_end);
@@ -6393,7 +6434,7 @@ static bool parse_generated_message_ex_for_syntax(server_model_syntax syntax,
     }
     if (syntax == SERVER_MODEL_SYNTAX_QWEN) {
         return parse_qwen_generated_message_ex(text, require_thinking_closed,
-                                               content_out, reasoning_out, calls);
+                                               content_out, reasoning_out, calls, NULL);
     }
     return parse_deepseek_generated_message_ex(text, require_thinking_closed,
                                                content_out, reasoning_out,
@@ -6498,10 +6539,14 @@ static bool parse_generated_message_for_response_for_syntax(server_model_syntax 
                                                             char **content_out,
                                                             char **reasoning_out,
                                                             tool_calls *calls,
-                                                            bool *recovered_out) {
+                                                            bool *recovered_out,
+                                                            const tool_schema_orders *orders) {
     if (recovered_out) *recovered_out = false;
 
-    bool parsed_ok = parse_generated_message_ex_for_syntax(syntax,
+    bool parsed_ok = syntax == SERVER_MODEL_SYNTAX_QWEN ?
+        parse_qwen_generated_message_ex(text, require_thinking_closed,
+                                         content_out, reasoning_out, calls, orders) :
+        parse_generated_message_ex_for_syntax(syntax,
                                                            text ? text : "",
                                                            require_thinking_closed,
                                                            content_out,
@@ -6544,7 +6589,7 @@ static DS4_SERVER_MAYBE_UNUSED bool parse_generated_message_for_response(
     return parse_generated_message_for_response_for_syntax(
         SERVER_MODEL_SYNTAX_DEEPSEEK, text, has_tools, saw_tool_start,
         require_thinking_closed, finish_io, err, errlen, content_out,
-        reasoning_out, calls, recovered_out);
+        reasoning_out, calls, recovered_out, NULL);
 }
 
 static void append_json_object_string(buf *b, const char *json) {
@@ -6886,6 +6931,7 @@ typedef struct {
     bool guard_second_reasoning;
     bool sent_reasoning;
     bool sent_content;
+    bool skip_answer_newlines;
     openai_tool_stream tool;
 } openai_stream;
 
@@ -7696,6 +7742,21 @@ static bool openai_tool_stream_update(int fd, server *s, const request *r, const
     return true;
 }
 
+
+/* The Qwen template separates reasoning from the answer with "\n</think>\n\n".
+ * The non-streaming path drops those blank lines (qwen_trim_split); the
+ * streaming paths must do the same or the first content delta is "\n\n".
+ * Returns false when more bytes are needed before content can start. */
+static bool stream_skip_answer_newlines(const request *r, bool *pending,
+                                        size_t *emit_pos, const char *raw,
+                                        size_t raw_len, bool final) {
+    if (!*pending) return true;
+    if (r->model_syntax != SERVER_MODEL_SYNTAX_QWEN) { *pending = false; return true; }
+    while (*emit_pos < raw_len && raw[*emit_pos] == '\n') (*emit_pos)++;
+    if (*emit_pos >= raw_len && !final) return false;
+    *pending = false;
+    return true;
+}
 static bool openai_sse_stream_update(int fd, server *s, const request *r, const char *id,
                                      openai_stream *st,
                                      const char *raw, size_t raw_len,
@@ -7754,6 +7815,7 @@ static bool openai_sse_stream_update(int fd, server *s, const request *r, const 
         if (close) {
             st->emit_pos = (size_t)(close - raw) + strlen("</think>");
             st->mode = OPENAI_STREAM_TEXT;
+            st->skip_answer_newlines = true;
         } else if (final) {
             st->mode = OPENAI_STREAM_SUPPRESS;
             return true;
@@ -7776,6 +7838,7 @@ static bool openai_sse_stream_update(int fd, server *s, const request *r, const 
                 if (limit > st->emit_pos) st->sent_reasoning = true;
                 st->emit_pos = limit + strlen("</think>");
                 st->guard_second_reasoning = false;
+                st->skip_answer_newlines = true;
             } else if (!tool && !final) {
                 return true;
             } else {
@@ -7783,6 +7846,9 @@ static bool openai_sse_stream_update(int fd, server *s, const request *r, const 
             }
         }
 
+        if (!stream_skip_answer_newlines(r, &st->skip_answer_newlines,
+                                         &st->emit_pos, raw, raw_len, final))
+            return true;
         const char *tool = r->has_tools ? find_any_tool_start(raw + st->emit_pos) : NULL;
         size_t limit = text_stream_safe_limit(raw, st->emit_pos, raw_len,
                                               r->has_tools, final);
@@ -7889,6 +7955,7 @@ typedef struct {
     size_t emit_pos;
     bool active;
     bool checked_think_prefix;
+    bool skip_answer_newlines;
     bool reasoning_item_opened;
     bool reasoning_item_closed;
     bool reasoning_summary_started;
@@ -8499,6 +8566,7 @@ static bool responses_sse_stream_update(int fd, const request *r,
         if (close) {
             st->emit_pos = (size_t)(close - raw) + strlen("</think>");
             st->mode = RESP_STREAM_TEXT;
+            st->skip_answer_newlines = true;
             st->reasoning_closed_naturally = true;
         } else if (final) {
             st->mode = RESP_STREAM_SUPPRESS;
@@ -8509,6 +8577,9 @@ static bool responses_sse_stream_update(int fd, const request *r,
     }
 
     if (st->mode == RESP_STREAM_TEXT) {
+        if (!stream_skip_answer_newlines(r, &st->skip_answer_newlines,
+                                         &st->emit_pos, raw, raw_len, final))
+            return true;
         const char *tool = r->has_tools ? find_any_tool_start(raw + st->emit_pos) : NULL;
         size_t limit = text_stream_safe_limit(raw, st->emit_pos, raw_len,
                                               r->has_tools, final);
@@ -8867,6 +8938,7 @@ typedef struct {
     bool guard_second_reasoning;
     bool sent_thinking;
     bool sent_text;
+    bool skip_answer_newlines;
     anthropic_tool_stream tool;
 } anthropic_stream;
 
@@ -9386,6 +9458,7 @@ static bool anthropic_sse_stream_update(int fd, server *s, const request *r, con
             if (close) {
                 st->emit_pos = (size_t)(close - raw) + strlen("</think>");
                 st->mode = ANTH_STREAM_TEXT;
+                st->skip_answer_newlines = true;
             } else {
                 st->mode = ANTH_STREAM_SUPPRESS;
                 return true;
@@ -9412,6 +9485,7 @@ static bool anthropic_sse_stream_update(int fd, server *s, const request *r, con
                 if (!anthropic_sse_close_block_live(fd, id, st)) return false;
                 st->emit_pos = limit + strlen("</think>");
                 st->guard_second_reasoning = false;
+                st->skip_answer_newlines = true;
             } else if (!tool && !final) {
                 return true;
             } else {
@@ -9419,6 +9493,9 @@ static bool anthropic_sse_stream_update(int fd, server *s, const request *r, con
             }
         }
 
+        if (!stream_skip_answer_newlines(r, &st->skip_answer_newlines,
+                                         &st->emit_pos, raw, raw_len, final))
+            return true;
         const char *tool = r->has_tools ? find_any_tool_start(raw + st->emit_pos) : NULL;
         size_t limit = text_stream_safe_limit(raw, st->emit_pos, raw_len,
                                               r->has_tools, final);
@@ -13917,7 +13994,8 @@ decode_again:
             &parsed_content,
             &parsed_reasoning,
             &parsed_calls,
-            &recovered_tool_parse_failure);
+            &recovered_tool_parse_failure,
+            &j->req.tool_orders);
         if (!parsed_ok && recovered_tool_parse_failure && j->req.has_tools && saw_tool_start) {
             /* parse_generated_message failed even though DSML was present.
              * Semantic repair is intentionally avoided: if the parser cannot
@@ -17566,7 +17644,7 @@ static void test_qwen_literal_tool_end_in_argument(void) {
         bool recovered = false;
         TEST_ASSERT(parse_generated_message_for_response_for_syntax(
             SERVER_MODEL_SYNTAX_QWEN, generated.ptr, true, true, thinking,
-            &finish, err, sizeof(err), &content, &reasoning, &calls, &recovered));
+            &finish, err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
         TEST_ASSERT(!recovered && !err[0]);
         TEST_ASSERT(calls.len == 2);
         if (calls.len != 2) {
@@ -17606,6 +17684,43 @@ static void test_qwen_literal_tool_end_in_argument(void) {
         free(reasoning);
         tool_calls_free(&calls);
     }
+}
+
+static void test_qwen_string_arguments_follow_schema(void) {
+    tool_schema_orders orders = {0};
+    tool_schema_orders_add_json(&orders,
+        "{\"name\":\"write\",\"parameters\":{\"type\":\"object\",\"properties\":{"
+        "\"content\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"}}}}");
+    const char *values[] = {"42", "false", "null", "{\n  \"value\": 42\n}", "[1,  2]"};
+    for (size_t i = 0; i < sizeof(values) / sizeof(*values); i++) {
+        buf raw = {0};
+        buf_printf(&raw, "<tool_call><function=write><parameter=content>\n%s\n"
+                        "</parameter><parameter=count>\n42\n</parameter></function></tool_call>", values[i]);
+        const char *finish = "stop";
+        char err[128] = {0};
+        char *content = NULL, *reasoning = NULL;
+        tool_calls calls = {0};
+        bool recovered = false;
+        TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+            SERVER_MODEL_SYNTAX_QWEN, raw.ptr, true, true, false, &finish,
+            err, sizeof(err), &content, &reasoning, &calls, &recovered, &orders));
+        TEST_ASSERT(!recovered && calls.len == 1);
+        if (calls.len == 1) {
+            json_args args = {0};
+            TEST_ASSERT(json_args_parse(calls.v[0].arguments, &args));
+            TEST_ASSERT(args.len == 2);
+            if (args.len == 2) {
+                TEST_ASSERT(args.v[0].is_string && !strcmp(args.v[0].value, values[i]));
+                TEST_ASSERT(!args.v[1].is_string && !strcmp(args.v[1].value, "42"));
+            }
+            json_args_free(&args);
+        }
+        tool_calls_free(&calls);
+        free(content);
+        free(reasoning);
+        buf_free(&raw);
+    }
+    tool_schema_orders_free(&orders);
 }
 
 /* Qwen: the thinking-mode live checkpoint key must be exactly what the next
@@ -18442,7 +18557,7 @@ static void test_incomplete_tool_call_keeps_stop_reason(void) {
             TEST_ASSERT(!parse_generated_message_for_response_for_syntax(
                 glm ? SERVER_MODEL_SYNTAX_GLM : SERVER_MODEL_SYNTAX_DEEPSEEK,
                 raw[glm], true, true, false, &finish, err, sizeof(err),
-                &content, &reasoning, &calls, &recovered));
+                &content, &reasoning, &calls, &recovered, NULL));
             TEST_ASSERT(!strcmp(finish, reasons[i]));
             TEST_ASSERT(recovered && calls.len == 0);
             TEST_ASSERT(content && !strcmp(content, raw[glm]));
@@ -21571,6 +21686,7 @@ static void ds4_server_unit_tests_run(void) {
     test_qwen_decode_tracker_markers();
     test_parse_qwen_tool_call_message();
     test_qwen_literal_tool_end_in_argument();
+    test_qwen_string_arguments_follow_schema();
     test_qwen_tool_checkpoint_round_trip();
     test_qwen_sampled_tool_text_after_think_renders_exactly();
     test_qwen_parallel_tool_calls_parse_and_replay();

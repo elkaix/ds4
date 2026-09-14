@@ -73019,6 +73019,7 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
         if (!s->glm_spec_inside) s->glm_mtp_have = 0;
         if (!qwen4_graph_forward_token(&s->qwen4_graph, &e->model, &e->weights, token, s->logits)) {
             if (errlen) snprintf(err, errlen, "Qwen3.8 decode failed");
+            s->checkpoint_valid = false;
             return 1;
         }
         token_vec_push(&s->checkpoint, token);
