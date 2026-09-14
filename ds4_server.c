@@ -12718,6 +12718,10 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     if (cached > 0) s->stats.cache_hits++; else s->stats.cache_cold++;
     s->stats.prompt_tokens += (uint64_t)prompt_tokens;
     s->stats.cached_tokens += (uint64_t)(cached > 0 ? cached : 0);
+    /* Counted here, with prompt/cached, so fresh == prompt - cached holds in
+     * any window; the compute time lands at prompt done. */
+    if (prompt_tokens > cached)
+        s->stats.prefill_fresh_tokens += (uint64_t)(prompt_tokens - cached);
     pthread_mutex_unlock(&s->mu);
     /* OpenAI usage details: the reusable prefix is a cache read, while the
      * effective prompt suffix evaluated by ds4_session_sync() is written into
@@ -12917,10 +12921,8 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         pthread_mutex_lock(&s->mu);
         if (prompt_tokens > cached && prefill_sec > 0.0)
             s->stats.last_prefill_tps = (double)(prompt_tokens - cached) / prefill_sec;
-        if (prompt_tokens > cached) {
-            s->stats.prefill_fresh_tokens += (uint64_t)(prompt_tokens - cached);
+        if (prompt_tokens > cached)
             s->stats.prefill_compute_ns += (uint64_t)(t_sync_sec * 1e9);
-        }
         s->stats.prompt_total_ns += (uint64_t)((t_prompt_done - t_enter) * 1e9);
         pthread_mutex_unlock(&s->mu);
     }
