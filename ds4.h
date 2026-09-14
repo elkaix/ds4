@@ -547,6 +547,9 @@ int ds4_session_tp_spec_cycle(ds4_session *s, const int *drafts, int draft_n,
                               char *err, size_t errlen);
 void ds4_session_invalidate(ds4_session *s);
 bool ds4_session_can_rewind(ds4_session *s, int pos);
+/* Keep the token prefix, restoring recurrent state where possible. Otherwise
+ * the checkpoint becomes invalid: sync the retained prefix before eval.
+ * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
 int ds4_session_pos(ds4_session *s);
 int ds4_session_ctx(ds4_session *s);

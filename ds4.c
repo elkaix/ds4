@@ -38480,7 +38480,22 @@ struct ds4_engine {
      * caller that doesn't set the option observe the prior behavior). */
     int            placement_ctx_hint;
     int            placement_session_count_hint;
+    uint32_t       glm_session_count;
+    uint64_t       glm_session_graph_bytes;
 };
+
+static DS4_MAYBE_UNUSED uint64_t ds4_engine_glm_graph_budget(
+        const ds4_engine *e, uint64_t next_graph_bytes) {
+    /* Metal guards against host capacity, so include live sessions as well as
+     * the uncreated slots. Other backends keep their available-memory policy. */
+    if (!e || e->backend != DS4_BACKEND_METAL) return next_graph_bytes;
+    uint64_t uncreated = e->placement_session_count_hint > 0 &&
+                         (uint32_t)e->placement_session_count_hint > e->glm_session_count ?
+        (uint32_t)e->placement_session_count_hint - e->glm_session_count : 1u;
+    if (next_graph_bytes > (UINT64_MAX - e->glm_session_graph_bytes) / uncreated)
+        return UINT64_MAX;
+    return e->glm_session_graph_bytes + uncreated * next_graph_bytes;
+}
 
 static uint64_t ds4_engine_dynamic_expert_cache_bytes(
         const ds4_engine *e) {
@@ -54713,6 +54728,7 @@ struct ds4_session {
     ds4_engine *engine;
     ds4_dist_session *distributed;
     uint64_t tp_session_id;
+    uint64_t glm_reserved_graph_bytes;
 #ifndef DS4_NO_GPU
     ds4_gpu_graph graph;
     ds4_glm_gpu_graph glm_graph;
@@ -61856,7 +61872,7 @@ static void ds4_engine_fit_glm_streaming_budget(
         return;
     }
     const uint64_t fixed_bytes = glm_graph_saturating_add_u64(
-            model_bytes, graph_mem.total_bytes);
+            model_bytes, ds4_engine_glm_graph_budget(e, graph_mem.total_bytes));
     const uint64_t available = budget > fixed_bytes ?
         budget - fixed_bytes : 0;
 
@@ -65515,6 +65531,22 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
             free(s);
             return 1;
         }
+        uint32_t guard_ctx;
+        if (!glm_graph_context_request(ctx_size, &guard_ctx)) {
+            free(s);
+            return 1;
+        }
+        const uint32_t work_ctx = glm_graph_full_attention_cap(guard_ctx,
+                                                               e->ssd_streaming);
+        const uint32_t compact_cap = glm_graph_compact_cache_initial_cap(
+            guard_ctx, work_ctx);
+        const ds4_context_memory session_mem =
+            glm_graph_context_memory_estimate_for_compact_cap_slice(
+                guard_ctx, work_ctx, compact_cap, e->ssd_streaming,
+                layer_start, layer_end);
+        const uint64_t all_graph_bytes =
+            ds4_engine_glm_graph_budget(e, session_mem.total_bytes);
+        const uint64_t other_graph_bytes = all_graph_bytes - session_mem.total_bytes;
         if (e->ssd_streaming && !e->ssd_streaming_budget_finalized) {
             ds4_engine_fit_glm_streaming_budget(e,
                                                 true,
@@ -65533,7 +65565,9 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
                                    ctx_size,
                                    e->ssd_streaming,
                                    e->ssd_streaming_cold,
-                                   ds4_engine_streaming_transient_guard_bytes(e),
+                                   glm_graph_saturating_add_u64(
+                                       ds4_engine_streaming_transient_guard_bytes(e),
+                                       other_graph_bytes),
                                    layer_start,
                                    layer_end,
                                    require_token_embd,
@@ -65607,6 +65641,10 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
                 return 1;
             }
         }
+        s->glm_reserved_graph_bytes = session_mem.total_bytes;
+        e->glm_session_graph_bytes = glm_graph_saturating_add_u64(
+            e->glm_session_graph_bytes, s->glm_reserved_graph_bytes);
+        e->glm_session_count++;
         if (!ds4_session_tp_register(s)) {
             ds4_session_free(s);
             return 1;
@@ -65784,6 +65822,10 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
 
 void ds4_session_free(ds4_session *s) {
     if (!s) return;
+    if (s->glm_reserved_graph_bytes && s->engine) {
+        s->engine->glm_session_graph_bytes -= s->glm_reserved_graph_bytes;
+        s->engine->glm_session_count--;
+    }
     if (ds4_session_tp_leader(s) && s->tp_session_id != 0 &&
         !ds4_tp_failed(s->engine->tp.ctx)) {
         char err[256] = "";
@@ -68861,11 +68903,12 @@ int ds4_session_common_prefix(ds4_session *s, const ds4_tokens *prompt) {
 }
 
 int ds4_session_argmax(ds4_session *s) {
+    if (!s || !s->checkpoint_valid || !s->logits) return -1;
     return sample_argmax(s->logits, DS4_N_VOCAB);
 }
 
 int ds4_session_argmax_excluding(ds4_session *s, int excluded_id) {
-    if (!s || !s->logits) return -1;
+    if (!s || !s->checkpoint_valid || !s->logits) return -1;
     if (getenv("DS4_CPU_DISABLE_UNROLLED_ARGMAX") == NULL) {
         return argmax_f32_excluding_unrolled8(
                 s->logits, DS4_N_VOCAB, excluded_id);
@@ -68885,7 +68928,7 @@ int ds4_session_argmax_excluding(ds4_session *s, int excluded_id) {
 
 int ds4_session_argmax_ignoring_eos(ds4_session *s,
                                     ds4_think_mode think_mode) {
-    if (!s || !s->logits) return -1;
+    if (!s || !s->checkpoint_valid || !s->logits) return -1;
     int best = -1;
     float best_logit = DS4_NEG_INF;
     for (uint32_t i = 0; i < DS4_N_VOCAB; i++) {
@@ -68914,6 +68957,7 @@ int ds4_sample_logits(const float *logits, int n_vocab, float temperature,
 }
 
 int ds4_session_sample(ds4_session *s, float temperature, int top_k, float top_p, float min_p, uint64_t *rng) {
+    if (!s || !s->checkpoint_valid || !s->logits) return -1;
     return sample_top_p_min_p(s->logits, DS4_N_VOCAB, temperature, top_k,
                               top_p, min_p, rng, s->sample_probs);
 }
@@ -69748,7 +69792,10 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
                                  s->glm_graph.ctx_size);
             return 1;
         }
-        if (!s->glm_spec_inside) s->glm_mtp_rollback_valid = false;
+        if (!s->glm_spec_inside) {
+            s->glm_mtp_rollback_valid = false;
+            s->glm_mtp_have = 0;
+        }
         const uint32_t pos = (uint32_t)s->checkpoint.len;
         const bool updates_dense =
             glm_graph_decode_updates_dense_cache(&s->glm_graph, pos, s->logits);
@@ -69853,6 +69900,10 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
  * the leader/worker lockstep survives every eval entry point. */
 static int ds4_session_eval_probe_tp(ds4_session *s, int token, bool probe_mtp,
                                      char *err, size_t errlen) {
+    if (!s || !s->checkpoint_valid) {
+        payload_set_err(err, errlen, "decode requires a synchronized checkpoint");
+        return 1;
+    }
     if (ds4_session_tp_leader(s)) {
         ds4_engine *e = s->engine;
         if (!ds4_tp_send_eval(e->tp.ctx, s->tp_session_id,
@@ -75254,6 +75305,11 @@ static int ds4_session_eval_speculative_argmax_impl(
         int *accepted, int accepted_cap,
         char *err, size_t errlen) {
     if (!s || max_tokens <= 0 || accepted_cap <= 0) return 0;
+    if (!s->checkpoint_valid) {
+        payload_set_err(err, errlen, "speculative decode requires a synchronized checkpoint");
+        return -1;
+    }
+    if (accepted_cap > max_tokens) accepted_cap = max_tokens;
     if (s->distributed) {
         if (!accepted) return 0;
         if (ds4_session_eval(s, first_token, err, errlen) != 0) return -1;
@@ -76074,6 +76130,11 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
     if (!s || !accepted || !rng || max_tokens <= 0 || accepted_cap <= 0) {
         return 0;
     }
+    if (!s->checkpoint_valid) {
+        payload_set_err(err, errlen, "speculative decode requires a synchronized checkpoint");
+        return -1;
+    }
+    if (accepted_cap > max_tokens) accepted_cap = max_tokens;
     if (s->distributed || ds4_session_is_cpu(s)) {
         if (ds4_session_eval(s, first_token, err, errlen) != 0) return -1;
         accepted[0] = first_token;
@@ -76218,26 +76279,29 @@ bool ds4_session_can_rewind(ds4_session *s, int pos) {
 }
 
 void ds4_session_rewind(ds4_session *s, int pos) {
+    if (!s) return;
+    if (pos < 0) pos = 0;
+    if (pos >= s->checkpoint.len) return;
     if (ds4_session_tp_leader(s) &&
         !ds4_tp_failed(s->engine->tp.ctx)) {
-        (void)ds4_tp_send_rewind(s->engine->tp.ctx, s->tp_session_id, pos);
+        if (!ds4_tp_send_rewind(s->engine->tp.ctx, s->tp_session_id, pos))
+            s->checkpoint_valid = false;
     }
-    if (pos < 0) pos = 0;
-    if (pos > s->checkpoint.len) pos = s->checkpoint.len;
+    bool state_ok = false;
 #ifndef DS4_NO_GPU
-    bool glm53_state_ok = true;
-    if (ds4_session_is_glm(s) && s->glm_graph.glm53 &&
-        pos < s->checkpoint.len) {
-        glm53_state_ok = ds4_session_glm_mtp_rewind(s, pos);
+    if (s->checkpoint_valid && ds4_session_is_glm(s)) {
+        state_ok = !s->glm_graph.glm53 || ds4_session_glm_mtp_rewind(s, pos);
     }
 #endif
     s->checkpoint.len = pos;
+    /* DeepSeek compressors cannot be rolled back by truncating their row
+     * counts. Without a saved frontier the caller must rebuild this prefix. */
+    if (!state_ok) s->checkpoint_valid = false;
     s->mtp_draft_valid = false;
     ds4_session_dspark_capture_invalidate(s);
 #ifndef DS4_NO_GPU
     s->glm_mtp_have = 0;
     s->glm_mtp_rollback_valid = false;
-    if (!glm53_state_ok) s->checkpoint_valid = false;
     ds4_session_glm_cap_dense_cache(s);
 #endif
 }
