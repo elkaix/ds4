@@ -613,6 +613,8 @@ while server_alive():
         )
 
     cpu_percent, memory_percent, rss_kib = process_stats()
+    footprint_gib = float(stats.get("footprint_mb", 0.0)) / 1024 if isinstance(stats, dict) else 0.0
+    swap_gib = float(stats.get("swap_used_mb", 0.0)) / 1024 if isinstance(stats, dict) else 0.0
     fan_status = fan_snapshot()
     used_bytes = cache_size()
     used_gib = used_bytes / (1024 ** 3)
@@ -627,7 +629,7 @@ while server_alive():
 
     emit(
         f"[monitor {timestamp}] health={health_status} stats={stats_status} {summary} "
-        f"cpu={cpu_percent}% mem={memory_percent}% rss={rss_kib / 1048576:.1f}GiB "
+        f"cpu={cpu_percent}% footprint={footprint_gib:.1f}GiB swap={swap_gib:.2f}GiB rss={rss_kib / 1048576:.1f}GiB "
         f"fans={fan_status} "
         f"kv={used_gib:.1f}/{budget_gib:.1f}GiB({cache_percent:.1f}%) "
         f"disk_free={free_gib:.1f}GiB{warning}"

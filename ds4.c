@@ -1271,6 +1271,31 @@ static void *xmalloc_zeroed(size_t n, size_t size) {
     return p;
 }
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+/* LOCAL PATCH: process footprint and system swap for the timing emits. */
+static void ds4_timing_memory(double *footprint_gib, double *swap_used_gib) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    *footprint_gib = 0.0;
+    *swap_used_gib = 0.0;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) {
+        *footprint_gib = (double)info.phys_footprint / (1024.0 * 1024.0 * 1024.0);
+    }
+    struct xsw_usage sw;
+    size_t len = sizeof(sw);
+    if (sysctlbyname("vm.swapusage", &sw, &len, NULL, 0) == 0) {
+        *swap_used_gib = (double)sw.xsu_used / (1024.0 * 1024.0 * 1024.0);
+    }
+}
+#else
+static void ds4_timing_memory(double *footprint_gib, double *swap_used_gib) {
+    *footprint_gib = 0.0;
+    *swap_used_gib = 0.0;
+}
+#endif
+
 static double now_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -66856,10 +66881,13 @@ static int ds4_session_glm_spec_cycle_inner(
         const double t2 = now_sec();
         char *dt = ds4_token_text(e, d, NULL);
         char *nt = ds4_token_text(e, n1, NULL);
+        double footprint_gib = 0.0, swap_gib = 0.0;
+        ds4_timing_memory(&footprint_gib, &swap_gib);
         fprintf(stderr,
                 "ds4: glm mtp utility: width=2 pos=%u setup=%.1f ms verify[%s]=%.1f ms "
                 "rollback=%.1f ms draft=%.1f ms other=%.1f ms result=%s "
                 "committed=%d total=%.1f ms utility=%.2f tok/s-cycle "
+                "footprint=%.2f GiB swap=%.2f GiB "
                 "(draft %d '%s' vs true %d '%s')\n",
                 pos,
                 (verify_t0 - t0) * 1000.0,
@@ -66873,6 +66901,7 @@ static int ds4_session_glm_spec_cycle_inner(
                 n_committed,
                 (t2 - t0) * 1000.0,
                 (t2 > t0) ? n_committed / (t2 - t0) : 0.0,
+                footprint_gib, swap_gib,
                 d, dt ? dt : "?", n1, nt ? nt : "?");
         free(dt);
         free(nt);

@@ -13,6 +13,7 @@
 #include "rax.h"
 #ifdef __APPLE__
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #endif
 
 /* OpenAI/Anthropic compatible local server.
@@ -12389,10 +12390,76 @@ static void *decode_worker_main(void *arg) {
  * shorter than the full prompt, we prefill to that boundary, store it, and
  * immediately continue to the real prompt.  The live graph therefore always
  * moves forward. */
+/* LOCAL PATCH: exact request recorder for the replay harness.  With
+ * DS4_SERVER_RECORD_DIR set, every accepted request writes <seq>.json (metadata)
+ * and <seq>.body (the raw HTTP body byte-for-byte).  tasks/replay.py resends
+ * the bodies in order and compares the rendered-prompt fingerprint. */
+static uint64_t fnv1a64(const char *p, size_t n) {
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (unsigned char)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static void record_request(server *s, const job *j, int cached,
+                           int prompt_tokens, const char *cache_source) {
+    const char *dir = getenv("DS4_SERVER_RECORD_DIR");
+    if (!dir || !dir[0] || !j->req.raw_body) return;
+    uint64_t seq;
+    pthread_mutex_lock(&s->mu);
+    seq = s->stats.requests;
+    pthread_mutex_unlock(&s->mu);
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%06llu.body", dir, (unsigned long long)seq);
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        server_log(DS4_LOG_WARNING, "ds4-server: record: cannot write %s", path);
+        return;
+    }
+    const size_t body_len = strlen(j->req.raw_body);
+    fwrite(j->req.raw_body, 1, body_len, f);
+    fclose(f);
+    snprintf(path, sizeof(path), "%s/%06llu.json", dir, (unsigned long long)seq);
+    f = fopen(path, "w");
+    if (!f) return;
+    const char *api =
+        j->req.api == API_ANTHROPIC ? "anthropic" :
+        j->req.api == API_RESPONSES ? "responses" :
+        j->req.kind == REQ_CHAT ? "chat" : "completion";
+    const char *ptxt = j->req.prompt_text ? j->req.prompt_text : "";
+    fprintf(f,
+            "{\"seq\":%llu,\"time\":%.3f,\"api\":\"%s\",\"stream\":%s,"
+            "\"body_bytes\":%zu,\"body_fnv1a64\":\"%016llx\","
+            "\"prompt_text_bytes\":%zu,\"prompt_text_fnv1a64\":\"%016llx\","
+            "\"prompt_tokens\":%d,\"cached_tokens\":%d,\"cache_source\":\"%s\","
+            "\"max_tokens\":%d,\"temperature\":%.4f,\"top_p\":%.4f,\"top_k\":%d,"
+            "\"min_p\":%.4f,\"seed\":%llu,\"has_tools\":%s,\"images\":%zu}\n",
+            (unsigned long long)seq, now_sec(), api,
+            j->req.stream ? "true" : "false",
+            body_len, (unsigned long long)fnv1a64(j->req.raw_body, body_len),
+            strlen(ptxt), (unsigned long long)fnv1a64(ptxt, strlen(ptxt)),
+            prompt_tokens, cached, cache_source,
+            j->req.max_tokens, (double)j->req.temperature, (double)j->req.top_p,
+            j->req.top_k, (double)j->req.min_p,
+            (unsigned long long)j->req.seed,
+            j->req.has_tools ? "true" : "false", j->req.image_count);
+    fclose(f);
+}
+
 static void generate_job_inner(server *s, server_slot *slot, job *j) {
     ds4_glm_ablate_refresh();
     char err[160];
     err[0] = '\0';
+    /* LOCAL PATCH: per-request timing breakdown for the "prompt done" line.
+     * lookup = live/disk cache resolution before the prefill clock starts,
+     * cold  = prefill to a cold checkpoint boundary plus its store,
+     * sync  = the effective prompt prefill, store = the continued checkpoint
+     * written after it.  Together with the prefill clock these expose where a
+     * small append spends its wall time. */
+    const double t_enter = now_sec();
+    double t_cold_sec = 0.0, t_sync_sec = 0.0, t_store_sec = 0.0;
     const bool multimodal = j->req.image_count != 0;
     pthread_mutex_lock(&s->inference_mu);
     const int old_pos = ds4_session_pos(slot->session);
@@ -12596,6 +12663,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
      * the live KV cache and can be reused by the next request. */
     j->req.cache_read_tokens = cached;
     j->req.cache_write_tokens = prompt_tokens > cached ? prompt_tokens - cached : 0;
+    record_request(s, j, cached, prompt_tokens, cache_source);
 
     const double t0 = now_sec();
     uint64_t trace_id = trace_begin(s, j, cached, prompt_tokens, &cache_diag,
@@ -12696,6 +12764,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     {
         ds4_tokens prefix = {0};
         tokens_copy_prefix(&prefix, prompt_for_sync, cold_store_len);
+        const double t_cold0 = now_sec();
         if (server_session_sync(s, slot, &prefix, err, sizeof(err)) != 0) {
             ds4_tokens_free(&prefix);
             ds4_tokens_free(&effective_prompt);
@@ -12728,13 +12797,16 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             suppressed_continued_last = -1;
         }
         ds4_tokens_free(&prefix);
+        t_cold_sec = now_sec() - t_cold0;
     }
 
+    const double t_sync0 = now_sec();
     int prompt_sync_rc = multimodal ?
         server_session_sync_multimodal(s, slot, prompt_for_sync,
                                        j->req.images, j->req.image_count,
                                        err, sizeof(err)) :
         server_session_sync(s, slot, prompt_for_sync, err, sizeof(err));
+    t_sync_sec = now_sec() - t_sync0;
     if (prompt_sync_rc != 0) {
         ds4_tokens_free(&effective_prompt);
         ds4_session_set_progress(slot->session, NULL, NULL);
@@ -12773,7 +12845,11 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     if (!thinking_live_continuation) thinking_live_clear(s, slot);
     ds4_session_set_progress(slot->session, NULL, NULL);
     ds4_session_set_display_progress(slot->session, NULL, NULL);
-    if (!multimodal) kv_cache_maybe_store_continued(s, slot);
+    if (!multimodal) {
+        const double t_store0 = now_sec();
+        kv_cache_maybe_store_continued(s, slot);
+        t_store_sec = now_sec() - t_store0;
+    }
     /* LOCAL PATCH */
     {
         const double prefill_sec = now_sec() - t0;
@@ -12784,12 +12860,17 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         }
     }
     server_log(DS4_LOG_PREFILL,
-               "ds4-server: %s ctx=%s%s%s prompt done %.3fs",
+               "ds4-server: %s ctx=%s%s%s prompt done %.3fs lookup=%.3fs cold=%.3fs sync=%.3fs store=%.3fs source=%s",
                j->req.kind == REQ_CHAT ? "chat" : "completion",
                ctx_span,
                req_flags[0] ? " " : "",
                req_flags,
-               now_sec() - t0);
+               now_sec() - t0,
+               t0 - t_enter,
+               t_cold_sec,
+               t_sync_sec,
+               t_store_sec,
+               cache_source);
     if (cold_store_len == prompt_for_sync->len) {
         if (!multimodal && kv_cache_store_live_prefix(s, slot, prompt_for_sync,
                                        cold_store_len, "cold")) {
@@ -13803,6 +13884,30 @@ static double process_rss_mb(void) {
     return 0.0;
 }
 
+/* LOCAL PATCH: phys_footprint counts the wired/mapped model pages that
+ * resident_size omits, and vm.swapusage tells whether the machine has started
+ * paging.  Both feed /stats so the launcher monitor reads real numbers. */
+static double process_footprint_mb(void) {
+#ifdef __APPLE__
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS)
+        return (double)info.phys_footprint / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
+static double system_swap_used_mb(void) {
+#ifdef __APPLE__
+    struct xsw_usage sw;
+    size_t len = sizeof(sw);
+    if (sysctlbyname("vm.swapusage", &sw, &len, NULL, 0) == 0)
+        return (double)sw.xsu_used / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
 static bool send_health(server *s, int fd) {
     buf b = {0};
     buf_puts(&b, "{\"status\":\"ok\",\"model\":");
@@ -13871,6 +13976,8 @@ static bool send_stats(server *s, int fd) {
         "\"ctx_size\":%d,"
         "\"slot_count\":%d,"
         "\"rss_mb\":%.1f,"
+        "\"footprint_mb\":%.1f,"
+        "\"swap_used_mb\":%.1f,"
         "\"requests\":%llu,"
         "\"queue_rejected\":0,"
         "\"queue_dropped_disconnected\":0,"
@@ -13890,6 +13997,8 @@ static bool send_stats(server *s, int fd) {
         ctx_size,
         s->slot_count,
         process_rss_mb(),
+        process_footprint_mb(),
+        system_swap_used_mb(),
         (unsigned long long)st.requests,
         (unsigned long long)st.prefill_cancelled,
         (unsigned long long)st.prompt_tokens,
