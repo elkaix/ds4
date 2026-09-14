@@ -60,3 +60,27 @@ Both scorers were built from their own commit (baseline in a throwaway worktree,
 deleted afterwards) with the Metal 4 tensor route off, so the comparison is
 binary-vs-binary on the same model file. Logs: `base-score.log`, `p4a-score.log`,
 `tensor-equiv.log`, `engine-tests.log`.
+
+### Completion gate (2026-09-14 16:57-17:15, head `9da9683`)
+
+| gate | result |
+|---|---|
+| `tests/test_glm53_kda` | PASS (link fixed: `ds4_image.o`) |
+| `ds4_test --mtp-verify-depth` (GLM MTP) | OK, nspec=256, worst_argmax_gap=0.056 |
+| tensor-route assertion | `/stats.tensor_route`; `tasks/replay.py` refuses != `auto`; launcher refuses `DS4_METAL_ENABLE_TENSOR` unless `GLM_DS4_ALLOW_TENSOR_ROUTE=1` |
+| live equivalence, prompt 2822 tok (`tasks/mtp_equiv.sh`) | IDENTICAL; 18 rejections, all above 2051 |
+| live equivalence, prompt 146K tok (same run) | IDENTICAL; 23 rejections above 90000 (prefill 802 s cold) |
+| live equivalence crossing, prompt 1961 tok (`tasks/mtp_equiv_cross.sh`) | IDENTICAL; verifier rows→batch switch at 2049→2050; rejection at 2049 (rows path) |
+| live equivalence crossing, prompt 2023 tok (`TARGET=2040`) | IDENTICAL; rejections at 2048 (rows), 2051 (batch), 2056 (batch); 6 at/below, 9 above 2051 |
+
+MTP arm: `GLM_DS4_MTP=1 GLM_DS4_MTP_MAX_CTX=0 GLM_DS4_MTP_TIMING=1`; plain arm `GLM_DS4_MTP=0`;
+greedy, 96 tokens. Crossing runs use a private empty KV dir per arm (both cold);
+in the first chain the plain arm consumed the disk checkpoints written by the MTP arm
+(`source=disk-text`) and still matched. Artifacts: `mtp-equiv/`, `mtp-equiv-cross-1961/`,
+`mtp-equiv-cross/`.
+
+0.4518 vs 0.4525 official NLL: the sweep log was scored with the Metal 4 tensor route on
+(`tensor_matmul=on`); today's series is route=auto. Different series, same model file.
+
+**P4a PASS.** Rollback tag `p4a-rollback` = `a8e8a21` (engine content); tooling on top
+(`e545cd2`, `9da9683`, this commit) is test/instrumentation only.
