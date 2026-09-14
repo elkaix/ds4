@@ -175,7 +175,45 @@ gain >= 15% over the final plain baseline, using S, C', a from A0.2/A3.1. If
 ordinary decode is already high-20s and server time is a small share of the
 session, STOP and ship the P2 baseline.
 
+## Hard constraint — GPU-resident only (set 2026-09-14)
+
+Target machine is M5 Max 128 GB with GLM-5.3 Flash fully resident in unified
+memory. Therefore, for this branch:
+
+- No SSD-streamed experts, no expert offloading, no SSD decode path.
+- No optimization whose benefit depends on expert `pread`/disk traffic.
+- PR #1047 (Qwen3.8 Metal SSD expert streaming, +72.7% MTP decode on M1 Max
+  from -75% `pread` bytes) is **not** an implementation candidate. Its only
+  borrowable idea is selective-expert staging, and only if applied entirely in
+  unified memory/Metal.
+- PR #1049 (V4.1 gathered-KV reuse, +0.79%) below the 1% bar; ignore.
+
+Roadmap order under this constraint:
+
+```
+#964 resident Metal path -> plain decode profiling -> routed-MoE/dispatch
+optimization -> KDA/indexer optimization -> turn latency -> MTP verifier
+profiling -> resident selective-expert staging ONLY if profiling proves
+unnecessary in-memory copies
+```
+
+MTP verifier profiling (A3.0, before A3.1) must attribute per verify step:
+
+```
+selected experts -> resident bytes touched/copied -> staging/gather time
+-> routed-MoE time -> verify time
+```
+
+If the verifier copies or gathers materially more expert data than the
+selected set, optimize those RAM/Metal copies. If not, #1047 is irrelevant
+and A3 proceeds to verifier arithmetic as planned. Note MTP is currently gated
+off above ctx 32,768, so this branch pays nothing for the >32K pi workload
+until the gate question is settled.
+
 ## Phase 3 — MTP above the dense window (1-2 weeks)
+
+- A3.0 Expert data-movement attribution for one verify step at <=32K (see hard
+  constraint above). Go/no-go for resident selective-expert staging.
 
 - A3.1 Protocol A in-process ABBA at 100K, MTP on/off per 64-token segment via the
   mask-program stepping (`attribseg.py`). Yields S, C, a, `verify[batch]` ms.
