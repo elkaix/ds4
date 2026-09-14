@@ -376,7 +376,7 @@ tests/test_deepseek4_vision_image: tests/test_deepseek4_vision_image.o ds4_image
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 ifeq ($(UNAME_S),Darwin)
-$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o
+$(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_metal.o ds4_image.o
 	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
 else
 $(GLM53_KDA_TEST): tests/test_glm53_kda.o ds4_cuda.o $(MMQ_OBJS)

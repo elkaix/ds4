@@ -2418,6 +2418,14 @@ static int ds4_gpu_use_mpp_attn_out_low_matmul(void) {
     return ds4_gpu_mpp_available();
 }
 
+/* LOCAL PATCH: name of the active Metal matmul route for /stats and the
+ * benchmark harness.  "auto" is the reference-kernel route every measurement
+ * in tasks/ assumes; "tensor-optin" means DS4_METAL_ENABLE_TENSOR=1 turned on
+ * the M5 matmul2d path whose accumulate drifts from the reference kernels. */
+const char *ds4_gpu_tensor_route_name(void) {
+    return ds4_gpu_mpp_available() ? "tensor-optin" : "auto";
+}
+
 enum {
     DS4_METAL_ATTN_OUT_MPP_TILE_N = 64,
 };

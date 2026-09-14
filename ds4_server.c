@@ -13978,6 +13978,7 @@ static bool send_stats(server *s, int fd) {
         "\"rss_mb\":%.1f,"
         "\"footprint_mb\":%.1f,"
         "\"swap_used_mb\":%.1f,"
+        "\"tensor_route\":\"%s\","
         "\"requests\":%llu,"
         "\"queue_rejected\":0,"
         "\"queue_dropped_disconnected\":0,"
@@ -13999,6 +14000,7 @@ static bool send_stats(server *s, int fd) {
         process_rss_mb(),
         process_footprint_mb(),
         system_swap_used_mb(),
+        ds4_gpu_tensor_route_name(),
         (unsigned long long)st.requests,
         (unsigned long long)st.prefill_cancelled,
         (unsigned long long)st.prompt_tokens,

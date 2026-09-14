@@ -219,6 +219,7 @@ typedef struct ds4_gpu_stream_expert_table {
 /* Reset only the prompt-local eviction heuristic.  The resident SSD expert
  * cache itself is intentionally kept warm across sessions. */
 void ds4_gpu_stream_expert_cache_reset_route_hotness(void);
+const char *ds4_gpu_tensor_route_name(void);
 void ds4_gpu_stream_expert_cache_release_resident(void);
 uint32_t ds4_gpu_stream_expert_cache_budget_for_expert_size(
         uint64_t gate_expert_bytes,

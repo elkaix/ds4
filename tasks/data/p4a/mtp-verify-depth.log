@@ -1,0 +1,19 @@
+mtp-verify-depth:
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API available but not enabled (numerics); set DS4_METAL_ENABLE_TENSOR=1 to override
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 3.027 ms, residency requested in 630.970 ms, warmup 4.291 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: GLM session ctx=32768 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=32768 logical_ctx=32768 kv_layers=45 indexer_layers=11 f16 0.37 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=64.00 MiB
+ds4: GLM decode ablation step 0 mask 0x0 (control)
+ds4: GLM session ctx=32768 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=32768 logical_ctx=32768 kv_layers=45 indexer_layers=11 f16 0.37 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=64.00 MiB
+ds4-test: mtp-verify-depth nspec=256 max_chunk=2 worst_argmax_gap=0.056 at=247
+mtp-verify-depth: OK
+ds4 tests: ok

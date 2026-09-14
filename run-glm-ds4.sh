@@ -98,6 +98,14 @@ if [[ ! $MTP_MAX_CTX =~ ^(0|[1-9][0-9]*)$ ]]; then
     exit 2
 fi
 export DS4_GLM_MTP_MAX_CTX="$MTP_MAX_CTX"
+# The M5 Metal 4 tensor route (DS4_METAL_ENABLE_TENSOR=1) fails the tensor-equivalence
+# gate; every number in tasks/ assumes route=auto.  Refuse it unless explicitly
+# acknowledged so a stray environment cannot contaminate an A/B.
+if [[ "${DS4_METAL_ENABLE_TENSOR:-0}" != 0 && "${GLM_DS4_ALLOW_TENSOR_ROUTE:-0}" != 1 ]]; then
+    echo "DS4_METAL_ENABLE_TENSOR is set: the tensor route is not equivalence-clean on M5." >&2
+    echo "Unset it, or set GLM_DS4_ALLOW_TENSOR_ROUTE=1 to run it deliberately." >&2
+    exit 2
+fi
 
 if [[ ! $KV_CONTINUED_INTERVAL =~ ^(0|[1-9][0-9]*)$ ]]; then
     echo "GLM_DS4_KV_CONTINUED_INTERVAL must be a non-negative integer; got: $KV_CONTINUED_INTERVAL" >&2

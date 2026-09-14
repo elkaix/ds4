@@ -128,6 +128,10 @@ def main():
     if not turns:
         sys.exit("no turns found in " + args.record_dir)
     health = get_json(args.host, "/health")
+    route = get_json(args.host, "/stats").get("tensor_route")
+    if route != "auto":
+        sys.exit(f"refusing to benchmark: server tensor_route={route!r}, expected 'auto' "
+                 "(DS4_METAL_ENABLE_TENSOR must be unset for comparable numbers)")
     print(f"server: {health.get('model')} uptime={health.get('uptime_s')}s turns={len(turns)}")
 
     rows = []

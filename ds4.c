@@ -1296,6 +1296,10 @@ static void ds4_timing_memory(double *footprint_gib, double *swap_used_gib) {
 }
 #endif
 
+#ifdef DS4_NO_GPU
+const char *ds4_gpu_tensor_route_name(void) { return "cpu"; }
+#endif
+
 static double now_sec(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
