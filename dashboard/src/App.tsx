@@ -612,8 +612,8 @@ function RowGroup({ r, stats, showKind, colSpan, open, onClick }: {
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   const [open, setOpen] = usePersisted(`ds4.dash.section.${id}`, true);
   return (
-    <section className="group">
-      <button className="group-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+    <section className="group" id={id}>
+      <button type="button" className="group-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className={`chev ${open ? "open" : ""}`}>▸</span>
         <span className="group-title">{title}</span>
       </button>
