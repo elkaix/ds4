@@ -528,7 +528,7 @@ kernel void kernel_dsv4_kv_rope_fp8_store_f32(
     /* The RoPE helper writes device-memory pairs that different lanes read
      * below. A threadgroup-only fence does not make those cross-lane device
      * writes visible. */
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
     {
 
     const int head_dim = args.head_dim;

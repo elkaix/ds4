@@ -4894,7 +4894,9 @@ static const char *ds4_gpu_source =
 "#define FC_MUL_MM 700\n"
 "#define FC_BIN 1300\n"
 "#define FOR_UNROLL(x) _Pragma(\"clang loop unroll(full)\") for (x)\n"
+"#ifndef M_PI_F\n"
 "#define M_PI_F 3.14159265358979323846f\n"
+"#endif\n"
 "\n"
 "// Reads one byte per stride to warm model-backed pages without copying the\n"
 "// model. This is outside inference and exists only to reduce first-use stalls.\n"
@@ -22154,7 +22156,7 @@ int ds4_gpu_matmul_f32_tensor(
         if (router_batch && n_tok >= 256u && !getenv("DS4_METAL_DISABLE_V41_ROUTER_MM")) {
             const bool bc_out = (n_tok % 32u) != 0;
             id<MTLComputePipelineState> pipeline =
-                ds4_gpu_get_mul_mm_pipeline("kernel_mul_mm_f32_f32_full", false, bc_out);
+                ds4_gpu_get_mul_mm_pipeline("kernel_mul_mm_f32_f32", false, bc_out);
             if (!pipeline) return 0;
             ds4_gpu_mul_mm_args args = ds4_gpu_make_mm_args(in_dim, out_dim, n_tok, row_bytes);
             id<MTLComputeCommandEncoder> enc = ds4_gpu_compute_encoder(cb);

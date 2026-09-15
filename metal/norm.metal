@@ -319,7 +319,7 @@ kernel void kernel_dsv4_qkv_rms_norm_kv_rope_fp8_store_f32(
     }
 
     // KV RoPE tail in place, then the FP8/raw finalizer (verbatim bodies).
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
 
     device char *kv_row = (device char *)(kv_dst + row * row_stride4);
     const int rope_n_nope = rope.head_dim - rope.n_dims;
@@ -334,7 +334,7 @@ kernel void kernel_dsv4_qkv_rms_norm_kv_rope_fp8_store_f32(
                                   tpitg.x,
                                   ntg.x);
 
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
 
     const int head_dim = store.head_dim;
     const int n_rot = store.n_rot;

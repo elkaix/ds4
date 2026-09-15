@@ -1497,7 +1497,7 @@ static inline void ds4_hc_rms_norm_mix_cluster2_pre_norm_body(
     // reloading those values, fold the established 1024-thread HC collapse
     // and RMS reduction over this group's 512 physical threads as two
     // independent virtual slices.  This retains the original 32-partial tree.
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
     const uint tid = (uint)sgitg * (uint)NW + (uint)tiisg;
     threadgroup float *pre_shmem = norm_shmem + 32u + 4u*NW;
     threadgroup float *sum_shmem = pre_shmem + 4;
@@ -1676,7 +1676,7 @@ kernel void kernel_dsv4_hc_expand4_rms_norm_mix_f16_cluster2_pre_norm(
             }
         }
     }
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
     if (tiitg == 0) {
         atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst,
                             thread_scope_device);
@@ -1688,7 +1688,7 @@ kernel void kernel_dsv4_hc_expand4_rms_norm_mix_f16_cluster2_pre_norm(
         atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst,
                             thread_scope_device);
     }
-    threadgroup_barrier(mem_flags::mem_device_and_threadgroup);
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
     ds4_hc_rms_norm_mix_cluster2_pre_norm_body<half4>(args, split_args, x, weight, dst, hc_scale, hc_base, split, collapse_dst, norm_weight, norm_dst, completion, shmem, tgpig, tiisg, sgitg);
 }
 
