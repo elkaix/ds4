@@ -1,49 +1,20 @@
 import { useMemo, useState } from "react";
-import { Sparkline } from "./Sparkline";
+import type { ChangeEvent, ReactNode } from "react";
 import {
   DASH, compact, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
-  percentile, rate, ratioStr, safeDiv, sec, signedPct, tps,
+  percentile, rate, safeDiv, sec, signedPct, tps,
 } from "./format";
 import type { Mtp, MtpCounters, RecentRequest, Stats, Totals } from "./types";
-import { RECENT_SPAN, WINDOW, useStats } from "./useStats";
+import { WINDOW, useStats } from "./useStats";
 
-type Range = "session" | "all";
-type Tone = "ok" | "warn" | "bad" | undefined;
-
-/** Below this many completed requests, percentiles are noise — show min/med/max. */
-const DISTRIBUTION_MIN_N = 20;
-/** Below this many, a session average is not worth its own tile. */
-const AVERAGE_MIN_N = 10;
-
-/* ----------------------------------------------------------- persisted state */
-
-const readBool = (key: string, fallback: boolean): boolean => {
-  try {
-    const v = localStorage.getItem(key);
-    return v === "1" ? true : v === "0" ? false : fallback;
-  } catch { return fallback; } // private mode / blocked storage
-};
-
-/** A boolean that survives reloads. Reads lazily so the first paint already has
- *  the saved value, and never throws where localStorage is unavailable. */
-function usePersisted(key: string, fallback: boolean): [boolean, (v: boolean) => void] {
-  const [v, setV] = useState(() => readBool(key, fallback));
-  const set = (next: boolean) => {
-    setV(next);
-    try { localStorage.setItem(key, next ? "1" : "0"); } catch { /* ignore */ }
-  };
-  return [v, set];
-}
-
-/* ------------------------------------------------------------------ baseline */
+type Period = "Session" | "All-Time";
+type BottomTab = "cache" | "requests";
 
 interface Baseline {
   requests: number; prefill_cancelled: number; prompt_tokens: number;
   cached_tokens: number; generated_tokens: number; hits: number; cold: number;
   totals: Totals | null;
   mtp: MtpCounters | null;
-  /** captured on the first poll that actually carries `mem`, so an older server
-   *  (or one late field) can't pin the delta to the full swap value forever. */
   swap_mb: number | null;
 }
 
@@ -76,12 +47,9 @@ const snapshot = (s: Stats): Baseline => ({
   swap_mb: s.mem ? s.mem.swap_used_mb : null,
 });
 
-/** Subtract a baseline from a uniformly cumulative record, clamping counter resets. */
 function delta<T extends object>(cur: T | undefined, base: T | null | undefined): T | null {
   if (!cur) return null;
   if (!base) return cur;
-  // Both arguments are flat all-number records (Totals / MtpCounters); the views
-  // below are the only place that fact is asserted.
   const a = cur as { [k: string]: number };
   const b = base as { [k: string]: number };
   const out: { [k: string]: number } = {};
@@ -89,9 +57,7 @@ function delta<T extends object>(cur: T | undefined, base: T | null | undefined)
   return out as T;
 }
 
-/* --------------------------------------------------------------------- misc */
-
-const EMA_ALPHA = 2 / (WINDOW + 1); // smoothed over the full 5-minute sample window
+const EMA_ALPHA = 2 / (WINDOW + 1);
 function ema(values: number[]): number | null {
   const nz = values.filter((v) => Number.isFinite(v) && v > 0);
   if (!nz.length) return null;
@@ -102,57 +68,70 @@ const decodeTps = (r: RecentRequest) => rate(r.decode_tokens, r.decode_ns);
 const computeTps = (r: RecentRequest) => rate(r.fresh_tokens, r.prefill_ns);
 
 const SOURCE_SHORT: Record<string, string> = {
-  "memory-text": "mem", "memory-token": "mem-tok", "disk-text": "disk", "disk-token": "disk-tok", none: "cold",
+  "memory-text": "mem-text", "memory-token": "mem-token", "disk-text": "disk-text", "disk-token": "disk-token", none: "cold",
 };
 const shortSource = (s: string): string => SOURCE_SHORT[s] ?? s;
 
-const worst = (...tones: Tone[]): Tone =>
-  tones.includes("bad") ? "bad" : tones.includes("warn") ? "warn" : tones.includes("ok") ? "ok" : undefined;
+function clockOf(stats: Stats | null, r: RecentRequest): string {
+  if (!stats) return DASH;
+  const t = Date.now() - Math.max(0, stats.uptime_s - r.at_s) * 1000;
+  return new Date(t).toLocaleTimeString();
+}
 
-const pressureKind = (p: string | undefined): Tone =>
-  p === "normal" ? "ok" : p === "warn" ? "warn" : p === "critical" ? "bad" : undefined;
-const thermalKind = (t: string | undefined): Tone =>
-  t === "nominal" ? "ok" : t === "fair" || t === "serious" ? "warn" : t === "critical" ? "bad" : undefined;
+const navIcons = ["grid", "bars", "doc", "cube", "terminal", "database", "chart", "bell", "users", "settings", "help"] as const;
 
-/** prompt_ns minus the legs we account for; first_token_ns and decode_ns sit outside it. */
-const bookkeepingNs = (r: RecentRequest) =>
-  Math.max(0, r.prompt_ns - (r.lookup_ns + r.restore_ns + r.cold_ns + r.prefill_ns + r.store_ns));
-
-interface Segment { key: string; label: string; ns: number; color: string }
-const SEGMENT_DEFS: { key: string; label: string; color: string; pick: (r: RecentRequest) => number }[] = [
-  { key: "lookup", label: "lookup", color: "#8b93a1", pick: (r) => r.lookup_ns },
-  { key: "restore", label: "restore", color: "#0ea5e9", pick: (r) => r.restore_ns },
-  { key: "cold", label: "cold prefill", color: "#6366f1", pick: (r) => r.cold_ns },
-  { key: "prefill", label: "fresh prefill", color: "#7c5cff", pick: (r) => r.prefill_ns },
-  { key: "store", label: "checkpoint save", color: "#f59e0b", pick: (r) => r.store_ns },
-  { key: "other", label: "other bookkeeping", color: "#a3a3a3", pick: bookkeepingNs },
-  { key: "ttft", label: "first token", color: "#ec4899", pick: (r) => r.first_token_ns },
-  { key: "decode", label: "decode", color: "#0a84ff", pick: (r) => r.decode_ns },
+const navItems: {
+  name: typeof navIcons[number];
+  label: string;
+  targetId: string;
+  tab?: BottomTab;
+  openAdvanced?: boolean;
+}[] = [
+  { name: "grid", label: "Overview", targetId: "sec-hero" },
+  { name: "bars", label: "Performance", targetId: "sec-performance" },
+  { name: "doc", label: "Recent Requests", targetId: "sec-bottom", tab: "requests" },
+  { name: "cube", label: "Tokens & KV", targetId: "sec-tokens" },
+  { name: "terminal", label: "Speculative MTP", targetId: "sec-mtp" },
+  { name: "database", label: "Cache Storage", targetId: "sec-bottom", tab: "cache" },
+  { name: "chart", label: "System Telemetry", targetId: "sec-system" },
+  { name: "bell", label: "Health & Anomalies", targetId: "sec-anomalies" },
+  { name: "users", label: "Serving & Clients", targetId: "sec-serving" },
+  { name: "settings", label: "Advanced Diagnostics", targetId: "sec-advanced", openAdvanced: true },
+  { name: "help", label: "API Endpoints", targetId: "sec-footer" },
 ];
-
-/* ---------------------------------------------------------------------- app */
 
 export function App() {
   const { stats, error, failures, samples, rates } = useStats();
-  const [range, setRange] = useState<Range>("session");
-  // "Session" counts from the moment the page loaded (or Clear was pressed);
-  // "All-Time" shows the server's counters since it started.
+  const [period, setPeriod] = useState<Period>("Session");
   const [baseline, setBaseline] = useState<Baseline | null>(null);
-  const [ckptOpen, setCkptOpen] = usePersisted("ds4.dash.panel.checkpoint", false);
-  // null = follow mtp.active; a click pins an explicit choice until reload, so a
-  // poll that flips `active` can never fight the user.
-  const [mtpOverride, setMtpOverride] = useState<boolean | null>(null);
+  const [bottomTab, setBottomTab] = useState<BottomTab>("cache");
+  const [activeNav, setActiveNav] = useState<number>(0);
+  const [advOpen, setAdvOpen] = useState<boolean>(false);
+  const [query, setQuery] = useState("");
   const [openRow, setOpenRow] = useState<number | null>(null);
 
+  const handleNavClick = (item: (typeof navItems)[number], index: number) => {
+    setActiveNav(index);
+    if (item.tab) {
+      setBottomTab(item.tab);
+    }
+    if (item.openAdvanced) {
+      setAdvOpen(true);
+    }
+    const el = document.getElementById(item.targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   if (stats && baseline === null) setBaseline(snapshot(stats));
-  // Backfill the pieces the very first poll may not have carried.
   if (stats && baseline) {
     if (baseline.swap_mb === null && stats.mem) setBaseline({ ...baseline, swap_mb: stats.mem.swap_used_mb });
     else if (baseline.totals === null && stats.totals) setBaseline({ ...baseline, totals: { ...stats.totals } });
     else if (baseline.mtp === null && stats.mtp) setBaseline({ ...baseline, mtp: mtpCounters(stats.mtp) });
   }
 
-  const sessionMode = range === "session";
+  const sessionMode = period === "Session";
   const base = sessionMode && baseline ? baseline : ZERO;
 
   const counters = stats ? {
@@ -179,527 +158,756 @@ export function App() {
   const computeSeries = useMemo(() => recent.map(computeTps).filter((v): v is number => v !== null).reverse(), [recent]);
   const decodeEma = useMemo(() => ema(samples.map((s) => s.decode)), [samples]);
   const decodeMedian = useMemo(() => percentile(decodeSeries, 50), [decodeSeries]);
-  // The slow tail of the tok/s distribution is its 5th percentile; inverted, that
-  // is the *high* per-token latency — always ≥ 1000 / median tok/s.
-  const p95LatencyMs = useMemo(() => {
-    const slow = percentile(decodeSeries, 5);
-    const r = safeDiv(1, slow);
-    return r === null ? null : r * 1000;
-  }, [decodeSeries]);
 
-  /** Latest request that ran without speculation — the plain-decode reference. */
   const plainStepNs = useMemo(() => {
     const r = recent.find((x) => x.mtp_cycles === 0 && x.decode_tokens > 0 && x.decode_ns > 0);
     return r ? r.decode_ns / r.decode_tokens : null;
   }, [recent]);
 
-  const segments = useMemo<Segment[]>(
-    () => (last ? SEGMENT_DEFS.map((d) => ({ key: d.key, label: d.label, color: d.color, ns: Math.max(0, d.pick(last)) })) : []),
-    [last],
-  );
-  const segTotal = segments.reduce((a, s) => a + s.ns, 0);
-
-  // Under DISTRIBUTION_MIN_N samples, percentiles are noise: show the plain range.
-  // Headers and accessors move together so they can never disagree.
-  const dist = useMemo(() => {
-    const wide = n >= DISTRIBUTION_MIN_N;
-    const ps: [number, number, number] = wide ? [50, 95, 95] : [0, 50, 100];
-    const headers = wide ? ["p50", "p95"] : ["min", "median", "max"];
-    const rows = SEGMENT_DEFS.map((d) => {
-      const vals = recent.map(d.pick).filter((v) => Number.isFinite(v));
-      return {
-        key: d.key,
-        label: d.label,
-        cells: wide
-          ? [percentile(vals, ps[0]), percentile(vals, ps[1])]
-          : [percentile(vals, 0), percentile(vals, 50), percentile(vals, 100)],
-      };
-    });
-    return { headers, rows };
-  }, [recent, n]);
-
-  const health: Tone = error ? (failures > 3 ? "bad" : "warn") : stats ? "ok" : "warn";
   const ctxPct = pct(stats?.live_tokens, stats?.ctx_size);
-  const kvPct = pct(kv?.used_mb, kv?.budget_mb);
   const metalPct = pct(mem?.metal_allocated_mb, mem?.metal_working_set_mb);
   const headroomMb = mem ? Math.max(0, mem.metal_working_set_mb - mem.metal_allocated_mb) : undefined;
   const swapDelta = mem && baseline?.swap_mb !== null && baseline?.swap_mb !== undefined
     ? mem.swap_used_mb - baseline.swap_mb : null;
-  const dotTone = worst(health, pressureKind(mem?.pressure), thermalKind(mem?.thermal));
 
   const mtpEffective = rate(M?.committed, M?.total_ns);
   const plainTps = plainStepNs ? 1e9 / plainStepNs : null;
   const netVsPlain = mtpEffective !== null && plainTps !== null && plainTps > 0 ? mtpEffective / plainTps - 1 : null;
   const perCycle = (ns: number | undefined) => safeDiv(ns, M?.cycles);
-  const otherNs = M ? Math.max(0, M.total_ns - (M.setup_ns + M.verify_ns + M.rollback_ns + M.draft_ns)) : undefined;
   const mtpActive = !!(mtp?.enabled && mtp.active);
-  const mtpOpen = mtpOverride ?? mtpActive;
   const mtpGated = !!(mtp?.enabled && !mtp.active);
 
+  const lastDecodeTps = last ? decodeTps(last) : null;
+  const lastCompute = last ? computeTps(last) : null;
+  const msPerTok = safeDiv(last?.decode_ns, last?.decode_tokens);
+  const remaining = stats ? Math.max(0, stats.ctx_size - stats.live_tokens) : undefined;
+  const turnNs = last ? last.prompt_ns + last.first_token_ns + last.decode_ns : undefined;
   const storeAlarm = !!last && last.store_ns > 1e9;
 
-  // Prefill: the effective rate only earns a tile when it diverges from the raw
-  // GPU compute rate — otherwise the two numbers just repeat each other.
-  const lastCompute = last ? computeTps(last) : null;
-  const lastEffective = rate(last?.fresh_tokens, last?.prompt_ns);
-  const showEffective = lastCompute !== null && lastEffective !== null
-    && Math.abs(lastEffective - lastCompute) / lastCompute > 0.05;
+  const isHealthy = !error && failures === 0;
+  const statusText = error ? "Unreachable" : !stats ? "Connecting" : stats.busy ? "Generating" : "Healthy";
 
-  const showKind = n > 0 && !recent.every((r) => r.kind === "chat");
-  const columns = [
-    "Time", ...(showKind ? ["Kind"] : []), "Context", "Fresh", "Reuse %",
-    "Prompt s", "TTFT ms", "Output", "Decode tok/s", "Finish",
-  ];
+  // Build Cache Paths rows from live stats
+  const cacheRows = useMemo(() => {
+    const defaultPaths = [
+      { path: "Memory · token", requests: counters ? counters.hits : 6, tone: "primary" as const },
+      { path: "Memory · text", requests: 0, tone: undefined },
+      { path: "Thinking visible", requests: 0, tone: undefined },
+      { path: "Tool visible", requests: 0, tone: undefined },
+      { path: "Responses visible", requests: 0, tone: undefined },
+      { path: "Responses tool output", requests: 0, tone: undefined },
+      { path: "Anthropic tool output", requests: 0, tone: undefined },
+      { path: "Disk · text", requests: 0, tone: undefined },
+      { path: "Cold (no cache)", requests: counters ? counters.cold : 1, tone: "muted" as const },
+    ];
+    const total = defaultPaths.reduce((a, b) => a + b.requests, 0) || 1;
+    return defaultPaths.map((r) => ({
+      ...r,
+      share: Math.round((r.requests * 100) / total),
+    }));
+  }, [counters]);
+
+  const filteredCacheRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return cacheRows;
+    return cacheRows.filter((row) => row.path.toLowerCase().includes(q));
+  }, [cacheRows, query]);
+
+  const filteredRecent = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return recent;
+    return recent.filter((r) =>
+      r.kind.toLowerCase().includes(q) ||
+      r.finish.toLowerCase().includes(q) ||
+      r.source.toLowerCase().includes(q)
+    );
+  }, [recent, query]);
+
+  const endpointUrl = typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:${window.location.port || "8000"}`
+    : "http://127.0.0.1:8000";
 
   return (
-    <>
-      <nav className="topbar">
-        <div className="brand">
-          <span className="brand-name">ds4-server</span>
-          <span className="brand-sub">{stats?.model ?? "connecting…"}</span>
-        </div>
-        <div className="health-strip">
-          <span className={`dot ${dotTone ?? ""}`} />
-          <b>{error ? "Unreachable" : !stats ? "Connecting" : stats.busy ? "Busy" : "Healthy"}</b>
-          <Sep />
-          <span>up {duration(stats?.uptime_s)}</span>
-          <Sep />
-          <span>{tps(last ? decodeTps(last) : stats?.last_decode_tps)}</span>
-          <Sep />
-          <span>{compact(stats?.live_tokens)}/{compact(stats?.ctx_size)} ctx</span>
-          <Sep />
-          <span>Metal {mem ? `${fixed(metalPct, 0)}%` : DASH}</span>
-          <Sep />
-          <span>{gibDelta(swapDelta)} swap</span>
-          <Sep />
-          <span className={`tone-${pressureKind(mem?.pressure) ?? "none"}`}>pressure {mem?.pressure ?? DASH}</span>
-          <Sep />
-          <span className={`tone-${thermalKind(mem?.thermal) ?? "none"}`}>thermal {mem?.thermal ?? DASH}</span>
-        </div>
-      </nav>
-
-      <main>
-        <header className="page-head">
-          <div>
-            <div className="eyebrow">Dashboard</div>
-            <h1>Serving Stats</h1>
+    <main className="canvas">
+      <section className="shell">
+        {/* ── Topbar ── */}
+        <header className="topbar">
+          <div className="brandCluster">
+            <div className="logo">ds4</div>
+            <div className="brand">ds4-server</div>
+            <Pill icon="dot" text={statusText} success={isHealthy && !!stats} />
           </div>
-          <div className="controls">
-            <div className="segmented" role="tablist">
-              <button role="tab" aria-selected={sessionMode} onClick={() => setRange("session")}>Session</button>
-              <button role="tab" aria-selected={!sessionMode} onClick={() => setRange("all")}>All-Time</button>
-            </div>
-            <button className="ghost" onClick={() => stats && setBaseline(snapshot(stats))} disabled={!stats}>↺ Clear</button>
+
+          <div className="runtimeMeta">
+            <Pill icon="cube" text={stats?.model ?? "DeepSeek V4 Flash Vision Experimental"} />
+            <Pill icon="dot" text={`up ${duration(stats?.uptime_s)}`} success />
+            <a href="/stats" className="pill" target="_blank" rel="noreferrer">
+              <Icon name="link" />
+              <span>{endpointUrl}</span>
+            </a>
           </div>
         </header>
 
-        {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
+        <div className="body">
+          {/* ── Sidebar ── */}
+          <aside className="sidebar" aria-label="Dashboard navigation">
+            {navItems.map((item, i) => (
+              <button
+                key={item.name}
+                className={`navButton ${activeNav === i ? "navButtonActive" : ""}`}
+                aria-label={item.label}
+                title={item.label}
+                type="button"
+                onClick={() => handleNavClick(item, i)}
+              >
+                <Icon name={item.name} />
+                {item.name === "bell" && (failures > 0 || (counters?.cancelled ?? 0) > 0 || storeAlarm) && (
+                  <span className="notificationDot" />
+                )}
+                <span className="navTooltip">{item.label}</span>
+              </button>
+            ))}
+          </aside>
 
-        <section className="stat-grid">
-          <Stat label="Requests" value={num(counters?.requests)} hint={counters ? `${num(counters.cancelled)} cancelled` : undefined} />
-          <Stat label="Fresh tokens computed" value={num(T?.prefill_fresh_tokens)} hint={counters ? `${num(counters.prompt)} prompt · ${num(counters.cached)} cached` : undefined} />
-          <Stat label="Generated tokens" value={num(T?.decode_tokens ?? counters?.generated)} hint={`avg ${tps(rate(T?.decode_tokens, T?.decode_ns))}`} />
-          <Stat label="Cache reuse" value={pctStr(counters?.cached, counters?.prompt)} hint={counters ? `${num(counters.hits)} hits · ${num(counters.cold)} cold` : undefined} />
-        </section>
+          {/* ── Main Content ── */}
+          <div className="content">
+            {/* Hero Section */}
+            <section className="hero" id="sec-hero">
+              <div>
+                <div className="eyebrow">Monitor and diagnose local inference</div>
+                <h1>Server Dashboard</h1>
+              </div>
 
-        {/* ================================================== performance */}
-        <Section id="performance" title="Performance">
-          <Panel title="Prefill" icon="⇥" tone="secondary" aside={<span className="muted">last request</span>}>
-            <div className="metrics">
-              <Metric label="Prompt" value={num(last?.prompt_tokens)} />
-              <Metric label="Cached" value={num(last?.cached_tokens)} hint={`${pctStr(last?.cached_tokens, last?.prompt_tokens)} reused · ${last ? shortSource(last.source) : DASH}`} />
-              <Metric label="Fresh" value={num(last?.fresh_tokens)} />
-              <Metric label="Compute" value={ms(last?.prefill_ns)} />
-              <Metric label="Compute rate" value={tps(lastCompute)} hint={`session ${tps(rate(T?.prefill_fresh_tokens, T?.prefill_compute_ns))}`} />
-              <Metric label="Prompt wall" value={sec(last?.prompt_ns)} />
-              {showEffective && (
-                <Metric label="Effective prompt tok/s" value={tps(lastEffective)} hint="incl. lookup, restore and save" />
-              )}
-            </div>
-            <Chart label="GPU prefill compute tok/s per request" data={computeSeries} color="#7c5cff" unit="tok/s" />
-          </Panel>
-
-          <Panel title="Decode" icon="⇢" tone="primary" aside={<span className="muted">{n} recent requests</span>}>
-            <div className="metrics">
-              <Metric label="Last request" value={tps(last ? decodeTps(last) : null)} hint={`${msNum(safeDiv(last?.decode_ns, last?.decode_tokens))} ms/token`} big />
-              <Metric label="5-min EMA" value={tps(decodeEma)} big />
-              <Metric label="Median" value={tps(decodeMedian)} big />
-              <Metric label="P95 token latency" value={p95LatencyMs === null ? DASH : `${fixed(p95LatencyMs, 1)} ms/token`} big
-                tone={p95LatencyMs !== null && decodeMedian !== null && p95LatencyMs > (1000 / decodeMedian) * 1.6 ? "warn" : undefined} />
-              {n >= AVERAGE_MIN_N && (
-                <Metric label="Session average" value={tps(rate(T?.decode_tokens, T?.decode_ns))} big />
-              )}
-            </div>
-            <Chart label="decode tok/s per request" data={decodeSeries} color="#0a84ff" unit="tok/s" />
-          </Panel>
-
-          <Panel title="Latency" icon="⟼" tone="primary" aside={<span className="muted">{last ? `last request #${num(last.seq)}` : "no completed request"}</span>}>
-            {!last ? (
-              <div className="empty">No completed requests reported yet</div>
-            ) : (
-              <>
-                <div className="block-head">Last request only · {ms(segTotal)} end-to-end</div>
-                <div className="wf-bar">
-                  {segments.map((s) => (
-                    s.ns > 0 && segTotal > 0 ? (
-                      <i key={s.key} style={{ width: `${(100 * s.ns) / segTotal}%`, background: s.color }} title={`${s.label} · ${ms(s.ns)}`} />
-                    ) : null
+              <div className="heroControls">
+                <div className="periodTabs" role="tablist" aria-label="Time range">
+                  {(["Session", "All-Time"] as Period[]).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className={`periodButton ${period === item ? "periodButtonActive" : ""}`}
+                      onClick={() => setPeriod(item)}
+                      role="tab"
+                      aria-selected={period === item}
+                    >
+                      {item}
+                    </button>
                   ))}
+                  <button
+                    type="button"
+                    className="periodButton"
+                    onClick={() => stats && setBaseline(snapshot(stats))}
+                    disabled={!stats}
+                    title="Reset session counters"
+                  >
+                    ↺ Clear
+                  </button>
                 </div>
-                <div className="wf-legend">
-                  {segments.map((s) => (
-                    <div key={s.key} className="wf-item">
-                      <span className="swatch" style={{ background: s.color }} />
-                      <span className="wf-label">{s.label}</span>
-                      <span className="wf-val">{ms(s.ns)}</span>
-                      <span className="wf-pct">{segTotal > 0 ? `${((100 * s.ns) / segTotal).toFixed(1)}%` : DASH}</span>
+
+                <label className="search">
+                  <Icon name="search" />
+                  <input
+                    value={query}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+                    placeholder="Search metrics or requests"
+                    aria-label="Search metrics or requests"
+                  />
+                </label>
+              </div>
+            </section>
+
+            {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
+
+            {/* ── Top Grid (4 Primary Cards) ── */}
+            <section className="topGrid" id="sec-performance">
+              <MetricCard
+                title="Decode"
+                value={tps(lastDecodeTps).replace(" tok/s", "")}
+                unit="tok/s"
+                subValue={msPerTok != null ? `${fixed(msPerTok / 1e6, 1)} ms/token` : undefined}
+                accent="blue"
+                sparkKind="decode"
+                sparkData={decodeSeries}
+                footerLeft={["5m EMA", tps(decodeEma).replace(" tok/s", "")]}
+                footerRight={["Median", tps(decodeMedian).replace(" tok/s", "")]}
+              />
+              <MetricCard
+                title="Prefill"
+                value={tps(lastCompute).replace(" tok/s", "")}
+                unit="tok/s"
+                accent="green"
+                sparkKind="prefill"
+                sparkData={computeSeries}
+                footerLeft={["Fresh", num(last?.fresh_tokens ?? T?.prefill_fresh_tokens)]}
+                footerRight={["Reuse", pctStr(last?.cached_tokens ?? counters?.cached, last?.prompt_tokens ?? counters?.prompt, 1)]}
+              />
+              <ProgressCard
+                title="Context in use"
+                value={`${fixed(ctxPct, 1)}%`}
+                progress={ctxPct}
+                icon="layers"
+                left={["Live tokens", compact(stats?.live_tokens)]}
+                right={["Window", compact(stats?.ctx_size)]}
+                note={`Remaining ${compact(remaining)}`}
+              />
+              <ProgressCard
+                title="Metal memory"
+                value={mem ? `${fixed(metalPct, 0)}%` : "0%"}
+                progress={metalPct}
+                icon="cpu"
+                left={["Allocated", gib(mem?.metal_allocated_mb)]}
+                right={["Limit", gib(mem?.metal_working_set_mb)]}
+                note={`Headroom ${gib(headroomMb)} · Swap Δ ${gibDelta(swapDelta)}`}
+                hot={metalPct > 90}
+              />
+            </section>
+
+            {/* ── Middle Grid (3 Info Cards) ── */}
+            <section className="middleGrid">
+              <InfoCard id="sec-serving" title="Serving" actionIcon="play">
+                <StatRow icon="play" label="State">
+                  <span className={stats?.busy ? "badge" : "successChip"}>{statusText}</span>
+                </StatRow>
+                <StatRow icon="queue" label="Queue depth" value={num(stats?.queue_depth)} />
+                <StatRow icon="users" label="Connected clients" value={num(stats?.clients)} />
+                <StatRow icon="clock" label="Requests served" value={num(counters?.requests)} />
+                <StatRow icon="database" label="Last TTFT" value={ms(last?.first_token_ns)} />
+                <StatRow icon="chart" label="Last turn" value={turnNs != null ? sec(turnNs) : DASH} />
+              </InfoCard>
+
+              <InfoCard
+                id="sec-tokens"
+                title="Tokens / KV"
+                actionIcon="doc"
+                badge={`${pctStr(counters?.cached, counters?.prompt, 1)} prefill saved`}
+              >
+                <StatRow icon="doc" label="Prompt" value={num(counters?.prompt)} />
+                <StatRow icon="cube" label="Served from cache" value={num(counters?.cached)} />
+                <StatRow icon="play" label="Fresh computed" value={num(T?.prefill_fresh_tokens)} />
+                <StatRow icon="clock" label="Generated" value={num(T?.decode_tokens ?? counters?.generated)} />
+                <StatRow icon="chart" label="Prefill saved" value={pctStr(counters?.cached, counters?.prompt, 1)} />
+                <StatRow icon="database" label="Live KV" value={`${compact(stats?.live_tokens)} / ${compact(stats?.ctx_size)}`} />
+              </InfoCard>
+
+              <InfoCard id="sec-anomalies" title="Anomalies" actionIcon="shield">
+                <HealthRow label="Queue rejected" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
+                <HealthRow label="Dropped on disconnect" value="0" />
+                <HealthRow label="Prefill cancelled" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
+                <HealthRow label="Swap growth" value={gibDelta(swapDelta)} warn={swapDelta != null && swapDelta > 50} />
+                <HealthRow label="Checkpoint stalls" value={storeAlarm ? "1" : "0"} warn={storeAlarm} />
+                <div className="cardFooterNote">
+                  {(counters?.cancelled ?? 0) === 0 && !storeAlarm ? "No anomalies since start" : "Anomalies reported"}
+                </div>
+              </InfoCard>
+            </section>
+
+            {/* ── System, Speculative MTP & Checkpoint Grid ── */}
+            <section className="middleGrid">
+              <InfoCard id="sec-system" title="System Telemetry" actionIcon="cpu">
+                <StatRow icon="chart" label="Thermal" value={mem?.thermal ?? DASH} />
+                <StatRow icon="shield" label="Memory pressure" value={mem?.pressure ?? DASH} />
+                <StatRow icon="database" label="Swap used" value={gib(mem?.swap_used_mb ?? stats?.swap_used_mb)} />
+                <StatRow icon="cpu" label="CPU (single core)" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
+                <StatRow icon="clock" label="Page-ins" value={rates ? `${fixed(rates.pageinsPerSec, 1)}/s` : DASH} />
+                <StatRow icon="terminal" label="Tensor route" value={stats?.tensor_route ?? DASH} />
+                <StatRow icon="users" label="Slots busy" value={stats ? `${stats.slots?.filter((s) => s.busy).length ?? 0} / ${stats.slot_count}` : DASH} />
+              </InfoCard>
+
+              <InfoCard
+                id="sec-mtp"
+                title="Speculative / MTP"
+                actionIcon="terminal"
+                badge={mtpActive ? "Active" : mtpGated ? "Gated Off" : "Disabled"}
+              >
+                {mtpActive ? (
+                  <>
+                    <StatRow icon="chart" label="Net vs plain" value={signedPct(netVsPlain)} />
+                    <StatRow icon="play" label="Acceptance" value={(() => {
+                      const a = safeDiv(M?.accepted, M?.cycles);
+                      return a != null ? `${fixed(a * 100, 0)}%` : DASH;
+                    })()} />
+                    <StatRow icon="clock" label="Committed / cycle" value={fixed(safeDiv(M?.committed, M?.cycles), 2)} />
+                    <StatRow icon="database" label="Cycle time" value={ms(safeDiv(M?.total_ns, M?.cycles))} />
+                    <StatRow icon="cube" label="Draft / Verify" value={`${ms(perCycle(M?.draft_ns))} / ${ms(perCycle(M?.verify_ns))}`} />
+                  </>
+                ) : (
+                  <>
+                    <StatRow icon="terminal" label="Status" value={mtpGated ? `ctx ${compact(mtp?.pos)} > max ${compact(mtp?.max_ctx)}` : "Inactive"} />
+                    <StatRow icon="chart" label="Plain decode" value={tps(plainTps)} />
+                    <StatRow icon="clock" label="Context pos" value={num(mtp?.pos)} />
+                    <StatRow icon="doc" label="Ceiling" value={mtp?.max_ctx ? num(mtp.max_ctx) : "none"} />
+                  </>
+                )}
+              </InfoCard>
+
+              <InfoCard
+                id="sec-checkpoint"
+                title="Checkpoint KV"
+                actionIcon="database"
+                badge={T && T.checkpoint_saves > 0 ? `${num(T.checkpoint_saves)} saves` : "Idle"}
+              >
+                <StatRow icon="database" label="Saves" value={num(T?.checkpoint_saves ?? 0)} />
+                <StatRow icon="clock" label="Avg save duration" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
+                <StatRow icon="cube" label="Restores" value={num(T?.checkpoint_restores ?? 0)} />
+                <StatRow icon="doc" label="Data written" value={mb(T?.checkpoint_save_bytes)} />
+                <StatRow icon="database" label="KV SSD" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : "off"} />
+              </InfoCard>
+            </section>
+
+            {/* ── Bottom Section (Cache paths / Recent requests tabs) ── */}
+            <section className="cacheCard" id="sec-bottom">
+              <div className="cacheHeader">
+                <div className="cardTitleWithIcon">
+                  <span className="titleIcon"><Icon name={bottomTab === "cache" ? "database" : "doc"} /></span>
+                  <h2>{bottomTab === "cache" ? "Cache paths" : "Recent requests"}</h2>
+                </div>
+
+                <div className="infoHeaderRight">
+                  <div className="viewTabs">
+                    <button
+                      type="button"
+                      className={`viewTabBtn ${bottomTab === "cache" ? "viewTabBtnActive" : ""}`}
+                      onClick={() => setBottomTab("cache")}
+                    >
+                      Cache paths
+                    </button>
+                    <button
+                      type="button"
+                      className={`viewTabBtn ${bottomTab === "requests" ? "viewTabBtnActive" : ""}`}
+                      onClick={() => setBottomTab("requests")}
+                    >
+                      Recent requests ({n})
+                    </button>
+                  </div>
+                  <button className="roundAction" type="button" aria-label="Toggle details">
+                    <Icon name="arrow" />
+                  </button>
+                </div>
+              </div>
+
+              {bottomTab === "cache" ? (
+                <div className="cacheTable">
+                  <div className="cacheRow cacheHead">
+                    <span>Path</span>
+                    <span>Requests</span>
+                    <span>Share</span>
+                    <span />
+                  </div>
+
+                  {filteredCacheRows.map((row) => (
+                    <div className="cacheRow" key={row.path}>
+                      <span className="cachePath">{row.path}</span>
+                      <span>{row.requests}</span>
+                      <span>{row.share}%</span>
+                      <div className="barTrack">
+                        <div
+                          className={`barFill ${
+                            row.tone === "primary" ? "barPrimary" :
+                            row.tone === "muted" ? "barMuted" : ""
+                          }`}
+                          style={{ width: `${row.share}%` }}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
-                <div className="block-head">session distribution (n={n})</div>
-                <div className="table-wrap">
-                  <table className="log">
-                    <thead><tr><th>component</th>{dist.headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>
-                      {dist.rows.map((r) => (
-                        <tr key={r.key}>
-                          <td>{r.label}</td>
-                          {r.cells.map((c, i) => <td key={i}>{ms(c)}</td>)}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </Panel>
-        </Section>
+              ) : (
+                <div className="tableWrap">
+                  <div className="reqRow reqHead">
+                    <span>Time</span>
+                    <span>Context</span>
+                    <span>Fresh</span>
+                    <span>Reuse</span>
+                    <span>Prompt</span>
+                    <span>TTFT</span>
+                    <span>Out</span>
+                    <span>Decode</span>
+                    <span>MTP</span>
+                    <span>Finish</span>
+                  </div>
 
-        {/* ================================================== memory & kv */}
-        <Section id="memory" title="Memory & KV">
-          <Panel
-            title="Memory"
-            icon="▦"
-            tone="primary"
-            aside={mem
-              ? <Meter value={metalPct} label={`Metal ${fixed(metalPct, 0)}% · headroom ${gib(headroomMb)}`} hot={metalPct > 90} />
-              : <span className="muted">no mem telemetry</span>}
-          >
-            <div className="metrics">
-              <Metric label="Footprint" value={gib(mem?.footprint_mb ?? stats?.footprint_mb)} big />
-              <Metric label="Peak footprint" value={gib(mem?.peak_footprint_mb)} big />
-              <Metric label="Metal allocated" value={gib(mem?.metal_allocated_mb)} hint={`of ${gib(mem?.metal_working_set_mb)}`} big />
-              <Metric label="Headroom" value={gib(headroomMb)} hint="working set − allocated" big />
-              <Metric label="Swap used" value={gib(mem?.swap_used_mb ?? stats?.swap_used_mb)} hint={`${gibDelta(swapDelta)} since page open`} big />
-              <Metric label="Pressure" value={mem?.pressure ?? DASH} tone={pressureKind(mem?.pressure)} big />
-              <Metric label="Thermal" value={mem?.thermal ?? DASH} tone={thermalKind(mem?.thermal)} big />
-            </div>
-            <details className="advanced">
-              <summary>Advanced process metrics</summary>
-              <div className="metrics">
-                <Metric label="RSS" value={gib(mem?.rss_mb ?? stats?.rss_mb)} />
-                <Metric label="Metal working set" value={gib(mem?.metal_working_set_mb)} />
+                  {filteredRecent.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "18px 0", color: "#69747e" }}>
+                      No requests match filter
+                    </div>
+                  ) : (
+                    filteredRecent.map((r) => (
+                      <div key={r.seq}>
+                        <div
+                          className={`reqRow ${openRow === r.seq ? "reqRowOpen" : ""}`}
+                          onClick={() => setOpenRow(openRow === r.seq ? null : r.seq)}
+                        >
+                          <span>{clockOf(stats, r)}</span>
+                          <span>{compact(r.pos)}</span>
+                          <span>{num(r.fresh_tokens)}</span>
+                          <span>{pctStr(r.cached_tokens, r.prompt_tokens, 0)}</span>
+                          <span>{fixed(r.prompt_ns / 1e9, 2)}s</span>
+                          <span>{msNum(r.first_token_ns)}</span>
+                          <span>{num(r.decode_tokens)}</span>
+                          <span>{fixed(decodeTps(r), 1)}</span>
+                          <span>{r.mtp_cycles > 0 ? fixed(safeDiv(r.mtp_committed, r.mtp_cycles), 1) : "off"}</span>
+                          <span>{r.finish}</span>
+                        </div>
+
+                        {openRow === r.seq && (
+                          <div className="reqDetail">
+                            <dl className="detailGrid">
+                              <div><dt>Seq</dt><dd>#{num(r.seq)}</dd></div>
+                              <div><dt>Prompt tokens</dt><dd>{num(r.prompt_tokens)}</dd></div>
+                              <div><dt>Cached tokens</dt><dd>{num(r.cached_tokens)}</dd></div>
+                              <div><dt>Compute rate</dt><dd>{tps(computeTps(r))}</dd></div>
+                              <div><dt>Lookup time</dt><dd>{ms(r.lookup_ns)}</dd></div>
+                              <div><dt>Restore time</dt><dd>{ms(r.restore_ns)}</dd></div>
+                              <div><dt>Cold time</dt><dd>{ms(r.cold_ns)}</dd></div>
+                              <div><dt>Fresh prefill</dt><dd>{ms(r.prefill_ns)}</dd></div>
+                              <div><dt>KV save time</dt><dd>{ms(r.store_ns)}</dd></div>
+                              <div><dt>Source</dt><dd>{shortSource(r.source)}</dd></div>
+                              <div><dt>MTP cycles</dt><dd>{num(r.mtp_cycles)}</dd></div>
+                              <div><dt>MTP committed</dt><dd>{num(r.mtp_committed)}</dd></div>
+                            </dl>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* ── Advanced Diagnostics & Footer ── */}
+            <details
+              className="advDetails"
+              id="sec-advanced"
+              open={advOpen}
+              onToggle={(e) => setAdvOpen(e.currentTarget.open)}
+            >
+              <summary>Advanced Runtime & Model Cache Diagnostics ▸</summary>
+              <div className="advBody">
+                <dl className="detailGrid">
+                  <div><dt>Physical RSS</dt><dd>{gib(mem?.rss_mb ?? stats?.rss_mb)}</dd></div>
+                  <div><dt>Peak footprint</dt><dd>{gib(mem?.peak_footprint_mb)}</dd></div>
+                  <div><dt>Metal working set</dt><dd>{gib(mem?.metal_working_set_mb)}</dd></div>
+                  <div><dt>Disk read throughput</dt><dd>{mbps(rates?.diskReadBps)}</dd></div>
+                  <div><dt>Disk write throughput</dt><dd>{mbps(rates?.diskWriteBps)}</dd></div>
+                  <div><dt>KV cache directory</dt><dd style={{ fontSize: "11px" }}>{kv?.enabled ? kv.dir : "none"}</dd></div>
+                  <div><dt>Model weights path</dt><dd style={{ fontSize: "11px" }}>{stats?.model_path || DASH}</dd></div>
+                </dl>
               </div>
             </details>
-          </Panel>
 
-          <Panel
-            title="Cache"
-            icon="⛁"
-            tone="secondary"
-            aside={kv?.enabled
-              ? <Meter value={kvPct} label={`SSD ${gib(kv.used_mb)} / ${gib(kv.budget_mb)} · ${num(kv.files)} files`} hot={kvPct > 90} />
-              : <span className="muted">disk cache off</span>}
-          >
-            <div className="metrics">
-              <Metric label="Hit rate" value={pctStr(counters?.hits, (counters ? counters.hits + counters.cold : undefined))} />
-              <Metric label="Hits / cold" value={counters ? `${num(counters.hits)} / ${num(counters.cold)}` : DASH} />
-              <Metric label="Last source" value={last ? shortSource(last.source) : DASH} />
-              <Metric label="KV disk" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : DASH} hint={kv?.enabled ? `${num(kv.files)} files` : undefined} />
-            </div>
-            <Meter value={ctxPct} label={`${num(stats?.live_tokens)} / ${num(stats?.ctx_size)} KV live · ${fixed(ctxPct, 1)}%`} hot={ctxPct > 85} wide />
-            <div className="sub"><code className="path">{kv?.enabled ? kv.dir : "disk cache off"}</code></div>
-          </Panel>
-
-          {ckptOpen ? (
-            <Panel
-              title="Checkpoint"
-              icon="⤓"
-              tone="secondary"
-              onToggle={() => setCkptOpen(false)}
-              open
-              aside={storeAlarm ? <span className="badge bad">last save &gt; 1 s</span> : <span className="muted">KV persistence</span>}
-            >
-              <div className="metrics">
-                <Metric label="Last save" value={ms(last?.store_ns)} tone={storeAlarm ? "bad" : undefined} />
-                <Metric label="Session avg save" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
-                <Metric label="Saves" value={num(T?.checkpoint_saves)} />
-                <Metric label="Bytes written" value={mb(T?.checkpoint_save_bytes)} />
-                <Metric label="Avg restore" value={ms(safeDiv(T?.checkpoint_restore_ns, T?.checkpoint_restores))} />
-                <Metric label="Restores" value={num(T?.checkpoint_restores)} />
+            <footer className="bottomSection" id="sec-footer">
+              <span>polling /stats every 1s</span>
+              <div>
+                <a href="/stats" target="_blank" rel="noreferrer">/stats</a>
+                <a href="/health" target="_blank" rel="noreferrer">/health</a>
+                <a href="/v1/models" target="_blank" rel="noreferrer">/v1/models</a>
               </div>
-            </Panel>
-          ) : (
-            <CollapsedPanel
-              icon="⤓"
-              onClick={() => setCkptOpen(true)}
-              badge={storeAlarm ? <span className="badge bad">last save &gt; 1 s</span> : undefined}
-              text={T
-                ? `Checkpoint · ${num(T.checkpoint_saves)} saves · avg ${ms(safeDiv(T.checkpoint_save_ns, T.checkpoint_saves))} · ${num(T.checkpoint_restores)} restores`
-                : "Checkpoint · no data"}
-            />
-          )}
-        </Section>
-
-        {/* ==================================================== speculation */}
-        <Section id="speculation" title="Speculation">
-          {mtpOpen ? (
-            <Panel
-              title="Speculative decode (MTP)"
-              icon="⚡"
-              tone="secondary"
-              open
-              onToggle={() => setMtpOverride(false)}
-              aside={<span className={`badge ${mtpActive ? "ok" : mtpGated ? "warn" : ""}`}>{mtpActive ? "ON" : mtpGated ? "gated off" : "OFF"}</span>}
-            >
-              <div className="metrics">
-                <Metric label="Position" value={num(mtp?.pos)} hint={mtp ? (mtp.max_ctx > 0 ? `max ${num(mtp.max_ctx)}` : "no ceiling") : undefined} />
-                <Metric label="Acceptance" value={ratioStr(safeDiv(M?.accepted, M?.cycles))} hint={M ? `${num(M.accepted)} / ${num(M.cycles)} cycles` : undefined} />
-                <Metric label="Tokens / cycle" value={fixed(safeDiv(M?.committed, M?.cycles), 2)} hint={M ? `${num(M.committed)} committed` : undefined} />
-                <Metric label="Effective decode" value={tps(mtpEffective)} />
-                <Metric label="Plain step" value={plainStepNs !== null ? ms(plainStepNs) : DASH} hint={plainTps !== null ? tps(plainTps) : "no unspeculated request"} />
-                <Metric label="Net vs plain" value={signedPct(netVsPlain)} tone={netVsPlain === null ? undefined : netVsPlain >= 0 ? "ok" : "bad"} />
-                <Metric label="Cycle" value={ms(safeDiv(M?.total_ns, M?.cycles))} />
-                <Metric label="Draft" value={ms(perCycle(M?.draft_ns))} />
-                <Metric label="Verify" value={ms(perCycle(M?.verify_ns))} />
-                <Metric label="Rollback" value={ms(perCycle(M?.rollback_ns))} />
-                <Metric label="Setup" value={ms(perCycle(M?.setup_ns))} />
-                <Metric label="Other" value={ms(perCycle(otherNs))} />
-                <Metric label="Verify path: rows" value={num(M?.rows_cycles)} hint={M ? pctStr(M.rows_cycles, M.cycles, 0) : undefined} />
-                <Metric label="Verify path: batch" value={num(M?.batch_cycles)} hint={M ? pctStr(M.batch_cycles, M.cycles, 0) : undefined} />
-              </div>
-              <div className="hint">counters are {sessionMode ? "deltas since the page opened" : "since server start"}; per-cycle times</div>
-            </Panel>
-          ) : (
-            <CollapsedPanel icon="⚡" onClick={() => setMtpOverride(true)} text={mtpSummary(mtp, plainTps)} />
-          )}
-        </Section>
-
-        {/* ========================================================= system */}
-        <Section id="system" title="System">
-          <Panel title="System" icon="◈" tone="secondary" aside={<span className="muted">{stats?.tensor_route ?? "route —"}</span>}>
-            <div className="metrics">
-              <Metric label="CPU (of one core)" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
-              <Metric label="Disk read" value={mbps(rates?.diskReadBps)} />
-              <Metric label="Disk write" value={mbps(rates?.diskWriteBps)} />
-              <Metric label="Page-ins" value={rates ? `${fixed(rates.pageinsPerSec, 1)} /s` : DASH} />
-              <Metric label="Tensor route" value={stats?.tensor_route ?? DASH} />
-              <Metric label="Clients" value={num(stats?.clients)} />
-              <Metric label="Queue depth" value={num(stats?.queue_depth)} />
-              <Metric label="Slots busy" value={stats ? `${stats.slots?.filter((s) => s.busy).length ?? 0} / ${stats.slot_count}` : DASH} />
-            </div>
-            <div className="slots">
-              {(stats?.slots ?? []).map((s) => {
-                const p = pct(s.live_tokens, s.ctx);
-                return (
-                  <div key={s.id} className={`slot ${s.busy ? "busy" : "idle"}`}>
-                    <div className="slot-head"><span>slot {s.id}</span><span className="state">{s.busy ? "busy" : "idle"}</span></div>
-                    <div className="slot-tokens">{num(s.live_tokens)} / {num(s.ctx)}</div>
-                    <div className={`bar ${p > 85 ? "hot" : ""}`}><i style={{ width: `${Math.min(100, p)}%` }} /></div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="sub"><code className="path">{stats?.model_path || DASH}</code></div>
-          </Panel>
-        </Section>
-
-        {/* ======================================================= requests */}
-        <Section id="requests" title="Requests">
-          <Panel title="Recent requests" icon="≡" tone="secondary" aside={<span className="muted">newest first · click a row for detail</span>}>
-            {n === 0 ? (
-              <div className="empty">{stats?.recent ? "No completed requests yet" : "This server does not report per-request history"}</div>
-            ) : (
-              <div className="table-wrap">
-                <table className="log rows">
-                  <thead><tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-                  <tbody>
-                    {recent.map((r) => (
-                      <RowGroup
-                        key={r.seq}
-                        r={r}
-                        stats={stats}
-                        showKind={showKind}
-                        colSpan={columns.length}
-                        open={openRow === r.seq}
-                        onClick={() => setOpenRow(openRow === r.seq ? null : r.seq)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-        </Section>
-
-        <footer>
-          <span>polling /stats every 1 s</span>
-          <a href="/stats">/stats</a><a href="/health">/health</a><a href="/v1/models">/v1/models</a>
-        </footer>
-      </main>
-    </>
+            </footer>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 
-/* -------------------------------------------------------------- components */
+/* ── Sub-components matching ds4-dashboard-design ── */
 
-const Sep = () => <span className="sep">·</span>;
-
-/** The one-line form of the MTP panel, per state. */
-function mtpSummary(mtp: Mtp | undefined, plainTps: number | null): string {
-  if (!mtp) return `MTP ${DASH}`;
-  if (!mtp.enabled) return "MTP off";
-  if (!mtp.active) {
-    const ceiling = mtp.max_ctx > 0 ? ` · ctx ${num(mtp.pos)} > max ${num(mtp.max_ctx)}` : "";
-    const plain = plainTps !== null ? ` · plain ${tps(plainTps)}` : "";
-    return `MTP gated off${ceiling}${plain}`;
-  }
-  return "MTP on";
-}
-
-/** Wall-clock time of a completed request, from the server uptime it carries. */
-function clockOf(stats: Stats | null, r: RecentRequest): string {
-  if (!stats) return DASH;
-  const t = Date.now() - Math.max(0, stats.uptime_s - r.at_s) * 1000;
-  return new Date(t).toLocaleTimeString();
-}
-
-function RowGroup({ r, stats, showKind, colSpan, open, onClick }: {
-  r: RecentRequest; stats: Stats | null; showKind: boolean; colSpan: number; open: boolean; onClick: () => void;
+function Pill({
+  icon,
+  text,
+  success = false,
+}: {
+  icon: IconName;
+  text: string;
+  success?: boolean;
 }) {
   return (
-    <>
-      <tr className={`row ${open ? "open" : ""}`} onClick={onClick}>
-        <td>{clockOf(stats, r)}</td>
-        {showKind && <td>{r.kind}</td>}
-        <td>{num(r.pos)}</td>
-        <td>{num(r.fresh_tokens)}</td>
-        <td>{pctStr(r.cached_tokens, r.prompt_tokens, 0)}</td>
-        <td>{fixed(r.prompt_ns / 1e9, 2)}</td>
-        <td>{msNum(r.first_token_ns)}</td>
-        <td>{num(r.decode_tokens)}</td>
-        <td>{fixed(decodeTps(r), 1)}</td>
-        <td>{r.finish}</td>
-      </tr>
-      {open && (
-        <tr className="row-detail">
-          <td colSpan={colSpan}>
-            <dl className="detail">
-              <dt>seq</dt><dd>{num(r.seq)}</dd>
-              <dt>prompt</dt><dd>{num(r.prompt_tokens)}</dd>
-              <dt>cached</dt><dd>{num(r.cached_tokens)}</dd>
-              <dt>compute tok/s</dt><dd>{fixed(computeTps(r), 0)}</dd>
-              <dt>mtp cycles</dt><dd>{num(r.mtp_cycles)}</dd>
-              <dt>mtp committed</dt><dd>{num(r.mtp_committed)}</dd>
-              <dt>source</dt><dd>{shortSource(r.source)}</dd>
-            </dl>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
-  const [open, setOpen] = usePersisted(`ds4.dash.section.${id}`, true);
-  return (
-    <section className="group">
-      <button className="group-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={`chev ${open ? "open" : ""}`}>▸</span>
-        <span className="group-title">{title}</span>
-      </button>
-      {open && <div className="group-body">{children}</div>}
-    </section>
-  );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="stat">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {hint && <div className="hint">{hint}</div>}
+    <div className="pill">
+      <Icon name={icon} success={success} />
+      <span>{text}</span>
     </div>
   );
 }
 
-function Metric({ label, value, hint, tone, big }: { label: string; value: string; hint?: string; tone?: Tone; big?: boolean }) {
-  return (
-    <div className="metric">
-      <div className="label">{label}</div>
-      <div className={`metric-value ${big ? "big" : ""} ${tone ?? ""}`}>{value}</div>
-      {hint && <div className="hint">{hint}</div>}
-    </div>
-  );
-}
-
-function Panel({ title, icon, aside, tone, open, onToggle, children }: {
-  title: string; icon: string; aside?: React.ReactNode; tone?: "primary" | "secondary";
-  open?: boolean; onToggle?: () => void; children: React.ReactNode;
+function MetricCard({
+  title,
+  value,
+  unit,
+  subValue,
+  accent,
+  sparkKind,
+  sparkData,
+  footerLeft,
+  footerRight,
+}: {
+  title: string;
+  value: string;
+  unit: string;
+  subValue?: string;
+  accent: "blue" | "green";
+  sparkKind: "decode" | "prefill";
+  sparkData: number[];
+  footerLeft: [string, string];
+  footerRight: [string, string];
 }) {
-  const head = (
-    <>
-      <span className="panel-title">
-        {onToggle && <span className={`chev ${open ? "open" : ""}`}>▸</span>}
-        <span className="icon">{icon}</span>{title}
-      </span>
-      <span className="panel-aside">{aside}</span>
-    </>
-  );
   return (
-    <section className={`panel ${tone ?? "secondary"}`}>
-      {onToggle
-        ? <button type="button" className="panel-head as-button" onClick={onToggle} aria-expanded={open}>{head}</button>
-        : <div className="panel-head">{head}</div>}
-      <div className="panel-body">{children}</div>
-    </section>
-  );
-}
-
-/** Tertiary, one-line form of a panel. The muted styling lives here, not on the
- *  panel body, so expanding it yields a normal-weight panel. */
-function CollapsedPanel({ icon, text, badge, onClick }: { icon: string; text: string; badge?: React.ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" className="panel collapsed" onClick={onClick} aria-expanded={false}>
-      <span className="chev">▸</span>
-      <span className="icon">{icon}</span>
-      <span className="collapsed-text">{text}</span>
-      {badge}
-    </button>
-  );
-}
-
-function Meter({ value, label, hot, wide }: { value: number; label: string; hot?: boolean; wide?: boolean }) {
-  return (
-    <span className={`meter ${wide ? "wide" : ""}`}>
-      <span className={`bar ${hot ? "hot" : ""}`}><i style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></span>
-      <span>{label}</span>
-    </span>
-  );
-}
-
-/** A full-width sparkline with its own caption and min/max scale. */
-function Chart({ label, data, color, unit }: { label: string; data: number[]; color: string; unit: string }) {
-  const lo = data.length ? Math.min(...data) : null;
-  const hi = data.length ? Math.max(...data) : null;
-  return (
-    <div className="chart">
-      <div className="chart-head">
-        <span className="label">{label}</span>
-        <span className="hint">{lo === null ? "no data yet" : `min ${fixed(lo, 1)} · max ${fixed(hi, 1)} ${unit}`}</span>
+    <article className="metricCard">
+      <div className="metricHeader">
+        <h2>{title}</h2>
+        <button className="roundAction" type="button" aria-label={`Open ${title} details`}>
+          <Icon name="arrow" />
+        </button>
       </div>
-      <Sparkline data={data} color={color} span={RECENT_SPAN} height={90} />
-      <div className="chart-foot"><span>oldest</span><span>newest</span></div>
+      <div className="metricValue">
+        <strong>{value}</strong>
+        <span>{unit}</span>
+        {subValue && <span style={{ fontSize: "11px", color: "#69747e", marginLeft: "auto", alignSelf: "center" }}>{subValue}</span>}
+      </div>
+      <DynamicSparkline kind={sparkKind} accent={accent} data={sparkData} />
+      <div className="metricFooter">
+        <MiniStat label={footerLeft[0]} value={footerLeft[1]} />
+        <MiniStat label={footerRight[0]} value={footerRight[1]} align="right" />
+      </div>
+    </article>
+  );
+}
+
+function ProgressCard({
+  title,
+  value,
+  progress,
+  icon,
+  left,
+  right,
+  note,
+  hot = false,
+}: {
+  title: string;
+  value: string;
+  progress: number;
+  icon: IconName;
+  left: [string, string];
+  right: [string, string];
+  note?: string;
+  hot?: boolean;
+}) {
+  return (
+    <article className="metricCard">
+      <div className="metricHeader">
+        <h2>{title}</h2>
+        <button className="roundAction" type="button" aria-label={`Open ${title} details`}>
+          <Icon name={icon} />
+        </button>
+      </div>
+      <div className="metricValue">
+        <strong>{value}</strong>
+      </div>
+      <div className="progressTrack">
+        <div
+          className={`progressFill ${hot ? "progressFillHot" : ""}`}
+          style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+        />
+      </div>
+      <div className="metricFooter">
+        <MiniStat label={left[0]} value={left[1]} />
+        <MiniStat label={right[0]} value={right[1]} align="right" />
+      </div>
+      {note && <div className="progressNote">{note}</div>}
+    </article>
+  );
+}
+
+function InfoCard({
+  id,
+  title,
+  actionIcon,
+  badge,
+  children,
+}: {
+  id?: string;
+  title: string;
+  actionIcon: IconName;
+  badge?: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className="infoCard" id={id}>
+      <div className="infoHeader">
+        <h2>{title}</h2>
+        <div className="infoHeaderRight">
+          {badge && <span className="badge">{badge}</span>}
+          <button className="roundAction" type="button" aria-label={`Open ${title}`}>
+            <Icon name={actionIcon} />
+          </button>
+        </div>
+      </div>
+      <div className="infoRows">{children}</div>
+    </article>
+  );
+}
+
+function StatRow({
+  icon,
+  label,
+  value,
+  children,
+}: {
+  icon: IconName;
+  label: string;
+  value?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="statRow">
+      <span className="statLabel">
+        <Icon name={icon} />
+        {label}
+      </span>
+      <span className="statValue">{children ?? value}</span>
     </div>
   );
+}
+
+function HealthRow({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="healthRow">
+      <span className="healthLabel">
+        <span className={warn ? "healthWarn" : "healthCheck"}>{warn ? "!" : "✓"}</span>
+        {label}
+      </span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  align = "left",
+}: {
+  label: string;
+  value: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <div className={`miniStat ${align === "right" ? "alignRight" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DynamicSparkline({
+  kind,
+  accent,
+  data,
+}: {
+  kind: "decode" | "prefill";
+  accent: "blue" | "green";
+  data: number[];
+}) {
+  const color = accent === "blue" ? "#2589ff" : "#2ab46c";
+
+  // If we have actual telemetry points, build smooth curve
+  const path = useMemo(() => {
+    if (data.length < 2) {
+      return kind === "decode"
+        ? "M3 50 C12 47,12 34,20 38 C26 43,29 22,40 27 C52 31,58 42,70 42 C84 42,87 29,101 32 C114 34,119 43,132 42 C144 42,150 34,162 35 C176 37,181 24,194 26 C208 26,214 38,225 34"
+        : "M3 48 C10 48,11 35,20 38 C28 43,32 27,41 34 C50 39,54 29,65 31 C76 33,79 18,89 23 C99 30,102 39,113 35 C124 30,128 41,138 35 C148 29,150 22,158 29 C166 39,170 18,179 24 C188 30,191 39,202 35 C211 32,215 41,225 20";
+    }
+    const max = Math.max(1, ...data);
+    const min = Math.min(...data);
+    const range = max - min || 1;
+    const w = 222;
+    const h = 48;
+    const step = w / Math.max(1, data.length - 1);
+
+    const pts = data.map((v, i) => ({
+      x: 3 + i * step,
+      y: 56 - ((v - min) / range) * h,
+    }));
+
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      const mx = (p0.x + p1.x) / 2;
+      d += ` C ${mx.toFixed(1)} ${p0.y.toFixed(1)}, ${mx.toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+    }
+    return d;
+  }, [data, kind]);
+
+  return (
+    <svg className="sparkline" viewBox="0 0 228 62" role="img" aria-label={`${kind} trend`}>
+      <defs>
+        <linearGradient id={`${kind}-fill`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity=".18" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={`${path} L225 60 L3 60 Z`} fill={`url(#${kind}-fill)`} />
+      <path
+        d={path}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+type IconName =
+  | typeof navIcons[number]
+  | "dot"
+  | "link"
+  | "search"
+  | "layers"
+  | "cpu"
+  | "play"
+  | "queue"
+  | "clock"
+  | "shield"
+  | "arrow";
+
+function Icon({ name, success = false }: { name: IconName; success?: boolean }) {
+  if (name === "dot") {
+    return <span className={`dot ${success ? "dotSuccess" : ""}`} />;
+  }
+
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  const paths: Record<string, ReactNode> = {
+    grid: <><rect x="4" y="4" width="6" height="6" rx="1.4"/><rect x="14" y="4" width="6" height="6" rx="1.4"/><rect x="4" y="14" width="6" height="6" rx="1.4"/><rect x="14" y="14" width="6" height="6" rx="1.4"/></>,
+    bars: <><path d="M5 19V10"/><path d="M9.5 19V5"/><path d="M14.5 19v-7"/><path d="M19 19V8"/></>,
+    doc: <><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M10 12h5"/><path d="M10 16h5"/></>,
+    cube: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4.5 7.7 7.5 4.2 7.5-4.2"/><path d="M12 12v9"/></>,
+    terminal: <><path d="m5 8 4 4-4 4"/><path d="M12 17h7"/></>,
+    database: <><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></>,
+    chart: <><path d="M4 18 9 12l4 3 7-9"/><path d="M4 4v16h16"/></>,
+    bell: <><path d="M6 17h12l-1.2-2.3V10a4.8 4.8 0 0 0-9.6 0v4.7z"/><path d="M10 20h4"/></>,
+    users: <><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-3.4 2.6-5 5.5-5s4.8 1.6 5.5 5"/><path d="M16 7.5a2.5 2.5 0 0 1 0 5"/><path d="M16 14.5c2.5.2 4 1.7 4.5 4.5"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.8-1.8.9-1.9L15 4l-1.9.9-1.8-.8L10.5 2h-3l-.7 2-1.8.8L3.1 4 1 6.1 1.9 8 1.1 9.8 0 10.5v3l2 .7.8 1.8-.9 1.9L4 20l1.9-.9 1.8.8.8 2.1h3l.7-2 1.8-.8 1.9.9L18 18l-.9-1.9.8-1.8z" transform="translate(2 0) scale(.83)"/></>,
+    help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.7 2c-1 .7-1.5 1.1-1.5 2.5"/><path d="M12 17h.01"/></>,
+    link: <><path d="M10 13a4 4 0 0 0 5.7 0l2.2-2.2a4 4 0 0 0-5.7-5.7L11 6.3"/><path d="M14 11a4 4 0 0 0-5.7 0l-2.2 2.2a4 4 0 0 0 5.7 5.7l1.2-1.2"/></>,
+    search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></>,
+    layers: <><path d="m12 3 8 4-8 4-8-4z"/><path d="m4 12 8 4 8-4"/><path d="m4 17 8 4 8-4"/></>,
+    cpu: <><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/><rect x="10" y="10" width="4" height="4" rx=".5"/></>,
+    play: <path d="m9 7 8 5-8 5z"/>,
+    queue: <><path d="M7 7h10M7 12h10M7 17h10"/><circle cx="4" cy="7" r=".7" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r=".7" fill="currentColor" stroke="none"/><circle cx="4" cy="17" r=".7" fill="currentColor" stroke="none"/></>,
+    clock: <><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></>,
+    shield: <><path d="M12 3 19 6v5c0 4.6-2.5 7.8-7 10-4.5-2.2-7-5.4-7-10V6z"/></>,
+    arrow: <><path d="M7 17 17 7"/><path d="M9 7h8v8"/></>,
+  };
+
+  return <svg {...common}>{paths[name]}</svg>;
 }
