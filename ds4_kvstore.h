@@ -71,6 +71,7 @@ typedef struct {
     bool reject_different_quant;
     ds4_kvstore_options opt;
     int continued_last_store_tokens;
+    uint64_t last_store_bytes; /* size of the most recent successful store */
     ds4_kvstore_entry *entry;
     int len;
     int cap;

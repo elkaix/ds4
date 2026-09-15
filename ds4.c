@@ -931,6 +931,7 @@ static ds4_qwen4_ple_hash g_ds4_qwen4_ple;
 /* True while a Qwen3.8 PLE n-gram sidecar (--ple) owns w->ple_embd: the
  * tensor lives in a separate CPU-only mapping, never in a Metal view. */
 static bool g_ds4_ple_sidecar;
+static bool g_ds4_ple_resident;
 
 static bool ds4_model_is_glm53(void) {
     return DS4_MODEL_VARIANT == DS4_VARIANT_GLM53;
@@ -58827,6 +58828,27 @@ bool ds4_engine_mtp_exact_sampling(ds4_engine *e) {
     return e && e->dspark_exact_sampling;
 }
 
+void ds4_session_qwen_mtp_stats(ds4_session *s, ds4_qwen_mtp_stats *out) {
+    memset(out, 0, sizeof(*out));
+    if (!s || !s->engine) return;
+    out->enabled = s->engine->glm_mtp;
+    out->max_ctx = 0;
+    out->pos = s->checkpoint.len;
+    /* Qwen MTP is not context-gated: speculation runs whenever --mtp is set. */
+    out->active = out->enabled;
+#ifndef DS4_NO_GPU
+    out->cycles = s->qwen4_spec_cycles;
+    out->accepted = s->qwen4_spec_accepted;
+    out->committed = s->qwen4_spec_accepted;
+#endif
+}
+
+const char *ds4_engine_ple_mode(ds4_engine *e) {
+    (void)e;
+    if (!g_ds4_ple_sidecar) return "off";
+    return g_ds4_ple_resident ? "resident" : "demand-paged";
+}
+
 int ds4_engine_mtp_draft_tokens(ds4_engine *e) {
     if (e && ds4_model_is_qwen4()) {
         return e->glm_mtp && DS4_N_NEXTN_PREDICT != 0 && e->backend != DS4_BACKEND_CPU ? 2 : 0;
@@ -67038,6 +67060,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
         }
         if (prefault_full) {
             model_prefetch_cpu_mapping(&e->ple_model);
+            g_ds4_ple_resident = true;
             fprintf(stderr, "ds4: PLE sidecar resident prefetch enabled (full table)\n");
         } else {
             fprintf(stderr, "ds4: PLE sidecar demand-paged (insufficient RAM headroom "
