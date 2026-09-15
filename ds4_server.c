@@ -14728,9 +14728,11 @@ static void format_stats_json(server *s, buf *out) {
     ds4_qwen_mtp_stats mtp;
     memset(&mtp, 0, sizeof(mtp));
     if (s->slot_count > 0 && s->slots[0].session) {
-        pthread_mutex_lock(&s->inference_mu);
+        /* inference_mu is held for a whole request, so taking it here
+         * would stall /stats for the entire prefill.  The counters are
+         * monotonically increasing uint64 fields; a lock-free read may be
+         * one cycle stale, which is fine for a 1 s poll. */
         ds4_session_qwen_mtp_stats(s->slots[0].session, &mtp);
-        pthread_mutex_unlock(&s->inference_mu);
     } else if (s->engine) {
         /* No live session yet: --mtp arms draft tokens > 0 on Qwen. */
         mtp.enabled = ds4_engine_mtp_draft_tokens(s->engine) > 0;
