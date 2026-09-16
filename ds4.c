@@ -991,6 +991,7 @@ typedef struct {
 
 static ds4_qwen4_ple_hash g_ds4_qwen4_ple;
 
+
 static bool ds4_model_is_glm53(void) {
     return DS4_MODEL_VARIANT == DS4_VARIANT_GLM53;
 }
@@ -62198,6 +62199,27 @@ bool ds4_engine_has_mtp(ds4_engine *e) {
 
 bool ds4_engine_mtp_exact_sampling(ds4_engine *e) {
     return e && e->dspark_exact_sampling;
+}
+
+void ds4_session_qwen_mtp_stats(ds4_session *s, ds4_qwen_mtp_stats *out) {
+    memset(out, 0, sizeof(*out));
+    if (!s || !s->engine) return;
+    out->enabled = s->engine->glm_mtp;
+    out->max_ctx = 0;
+    out->pos = s->checkpoint.len;
+    /* Qwen MTP is not context-gated: speculation runs whenever --mtp is set. */
+    out->active = out->enabled;
+#ifndef DS4_NO_GPU
+    out->cycles = s->qwen4_spec_cycles;
+    out->accepted = s->qwen4_spec_accepted;
+    out->committed = s->qwen4_spec_accepted;
+#endif
+}
+
+const char *ds4_engine_ple_mode(ds4_engine *e) {
+    /* Main uses embedded BF16 n-grams (ngram_fd pread), not a --ple sidecar. */
+    if (e && e->model.ngram_tensor && e->model.ngram_fd >= 0) return "native-bf16";
+    return "off";
 }
 
 int ds4_engine_mtp_draft_tokens(ds4_engine *e) {

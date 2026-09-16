@@ -598,6 +598,21 @@ bool ds4_engine_has_output_head(ds4_engine *e);
 bool ds4_engine_has_mtp(ds4_engine *e);
 int ds4_engine_mtp_draft_tokens(ds4_engine *e);
 bool ds4_engine_mtp_exact_sampling(ds4_engine *e);
+/* Qwen3.8 speculative-decode counters for /stats.  Not context-gated: when
+ * --mtp is set, active mirrors enabled.  Timing fields stay zero (not
+ * instrumented on Qwen).  committed counts accepted draft tokens. */
+typedef struct {
+    bool enabled;
+    bool active;
+    uint32_t max_ctx; /* always 0 on Qwen (no ceiling) */
+    int pos;
+    uint64_t cycles, accepted, committed;
+    uint64_t rows_cycles, batch_cycles;
+    double setup_ms, verify_ms, rollback_ms, draft_ms, total_ms;
+} ds4_qwen_mtp_stats;
+void ds4_session_qwen_mtp_stats(ds4_session *s, ds4_qwen_mtp_stats *out);
+/* "native-bf16" when embedded BF16 n-grams are open, "off" otherwise. */
+const char *ds4_engine_ple_mode(ds4_engine *e);
 const ds4_tokens *ds4_session_tokens(ds4_session *s);
 
 /* Low-level graph slice entry points used by distributed inference.  The
