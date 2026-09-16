@@ -1,11 +1,25 @@
 #include "ds4.h"
 #include "ds4_tool_text.h"
 #include "ds4_distributed.h"
+#include "ds4_gpu.h"
 #include "ds4_gpu_args.h"
 #include "ds4_help.h"
 #include "ds4_kvstore.h"
 #include "ds4_tp.h"
+/* LOCAL PATCH (not upstream / not antirez main): /health, /stats, and the
+ * embedded /dashboard page. Self-contained on this branch for easy rebase:
+ *   git fetch origin && git rebase origin/main
+ * Resolve only hunks marked "LOCAL PATCH". UI lives entirely under dashboard/
+ * and embeds via generated dashboard_html.h (gitignored). Do not mix in a
+ * second /stats client schema — types.ts matches format_stats_json(). */
+#include "dashboard_html.h"
 #include "rax.h"
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <libproc.h>
+#include <sys/sysctl.h>
+#endif
 
 /* OpenAI/Anthropic compatible local server.
  *
@@ -10002,6 +10016,53 @@ typedef struct {
     bool token_text_disk_key;
 } visible_live_state;
 
+/* LOCAL PATCH */
+/* Operational counters for GET /stats.  Guarded by server.mu; every field
+ * piggybacks on decisions the request path already makes. */
+typedef struct {
+    uint64_t requests;
+    uint64_t prefill_cancelled;
+    uint64_t cache_hits;
+    uint64_t cache_cold;
+    uint64_t prompt_tokens;
+    uint64_t cached_tokens;
+    uint64_t generated_tokens;
+    double last_prefill_tps;
+    double last_decode_tps;
+    /* Raw counters (ns / tokens / bytes) so /stats consumers derive rates
+     * themselves. checkpoint_* are touched from the prefill progress callback
+     * without server.mu; they use atomic adds. */
+    uint64_t prefill_fresh_tokens;
+    uint64_t prefill_compute_ns;
+    uint64_t prompt_total_ns;
+    uint64_t decode_tokens;
+    uint64_t decode_ns;
+    uint64_t first_token_ns;
+    uint64_t checkpoint_saves;
+    uint64_t checkpoint_save_ns;
+    uint64_t checkpoint_save_bytes;
+    uint64_t checkpoint_restores;
+    uint64_t checkpoint_restore_ns;
+} server_stats;
+
+/* One completed request, for the /stats "recent" ring. */
+#define SERVER_RECENT_MAX 64
+typedef struct {
+    uint64_t seq;
+    double at_s;
+    const char *kind;
+    int pos;
+    int prompt_tokens;
+    int cached_tokens;
+    uint64_t lookup_ns, restore_ns, cold_ns, prefill_ns, store_ns, prompt_ns;
+    uint64_t first_token_ns;
+    int decode_tokens;
+    uint64_t decode_ns;
+    uint64_t mtp_cycles, mtp_committed;
+    char source[32];
+    char finish[24];
+} server_req_record;
+
 struct server_slot {
     server *srv;
     int id;
@@ -10010,6 +10071,8 @@ struct server_slot {
     live_tool_state anthropic_live;
     visible_live_state thinking_live;
     int continued_last_store_tokens;
+    /* Checkpoint saves charged to the running request. */
+    uint64_t req_store_ns;
 
     job *assigned;
     job *running;
@@ -10159,6 +10222,13 @@ struct server {
     job *tail;
     bool stopping;
     int clients;
+    /* LOCAL PATCH */
+    double started_at;
+    const char *model_path;
+    server_stats stats;
+    server_req_record recent[SERVER_RECENT_MAX]; /* guarded by mu */
+    int recent_len;
+    uint64_t recent_seq;
     FILE *trace;
     pthread_mutex_t trace_mu;
     uint64_t trace_seq;
@@ -11291,6 +11361,8 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
         return false;
     }
     pthread_mutex_lock(&s->kv_mu);
+    const double store_t0 = now_sec();
+    s->kv.last_store_bytes = 0;
     bool ok = ds4_kvstore_store_live_prefix_text(&s->kv, s->engine,
                                                   slot->session,
                                                   tokens, store_len, reason,
@@ -11298,8 +11370,20 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
                                                   cache_text_ext,
                                                   cache_text_key,
                                                   &hooks, err, sizeof(err));
+    const uint64_t store_bytes = s->kv.last_store_bytes;
+    const uint64_t store_ns = (uint64_t)((now_sec() - store_t0) * 1e9);
     pthread_mutex_unlock(&s->kv_mu);
     pthread_mutex_unlock(&s->inference_mu);
+    /* Charge the save to the request and the server totals.  Runs from the
+     * prefill progress callback too, so no server.mu here. */
+    slot->req_store_ns += store_ns;
+    /* ds4_kvstore_store_live_prefix_text returns true for skipped stores too
+     * (below min tokens, prefix already on disk); only a real write counts. */
+    if (ok && store_bytes > 0) {
+        __atomic_add_fetch(&s->stats.checkpoint_saves, 1, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&s->stats.checkpoint_save_ns, store_ns, __ATOMIC_RELAXED);
+        __atomic_add_fetch(&s->stats.checkpoint_save_bytes, store_bytes, __ATOMIC_RELAXED);
+    }
     return ok;
 }
 
@@ -13364,6 +13448,15 @@ static void *decode_worker_main(void *arg) {
 static void generate_job_inner(server *s, server_slot *slot, job *j) {
     char err[160];
     err[0] = '\0';
+    /* Per-request timing breakdown for /stats recent[]. lookup = cache
+     * resolution before the prefill clock, cold/sync/store = prompt legs,
+     * first_token/decode measured after prompt done. */
+    const double t_enter = now_sec();
+    double t_cold_sec = 0.0, t_sync_sec = 0.0, t_store_sec = 0.0;
+    double t_restore_sec = 0.0, t_prompt_done = 0.0, t_first_token = 0.0;
+    slot->req_store_ns = 0;
+    ds4_qwen_mtp_stats mtp_at_start;
+    ds4_session_qwen_mtp_stats(slot->session, &mtp_at_start);
     const bool multimodal = j->req.image_count != 0;
     pthread_mutex_lock(&s->inference_mu);
     const int old_pos = ds4_session_pos(slot->session);
@@ -13518,6 +13611,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         kv_cache_store_current(s, slot, "evict");
     }
     if (!multimodal && cached == 0) {
+        const double t_restore0 = now_sec();
         disk_cached = kv_cache_try_load(s, slot, &j->req, &effective_prompt,
                                         &disk_cache_path,
                                         &disk_cache_ext_flags);
@@ -13525,6 +13619,11 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             cached = disk_cached;
             cache_source = "disk-text";
             prompt_for_sync = &effective_prompt;
+            t_restore_sec = now_sec() - t_restore0;
+            pthread_mutex_lock(&s->mu);
+            s->stats.checkpoint_restores++;
+            s->stats.checkpoint_restore_ns += (uint64_t)(t_restore_sec * 1e9);
+            pthread_mutex_unlock(&s->mu);
         }
     }
     const bool responses_reasoning_state_preserved =
@@ -13538,6 +13637,15 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         j->req.responses_requires_live_reasoning &&
         !responses_reasoning_state_preserved;
     const int prompt_tokens = prompt_for_sync->len;
+    /* LOCAL PATCH */
+    pthread_mutex_lock(&s->mu);
+    s->stats.requests++;
+    if (cached > 0) s->stats.cache_hits++; else s->stats.cache_cold++;
+    s->stats.prompt_tokens += (uint64_t)prompt_tokens;
+    s->stats.cached_tokens += (uint64_t)(cached > 0 ? cached : 0);
+    if (prompt_tokens > cached)
+        s->stats.prefill_fresh_tokens += (uint64_t)(prompt_tokens - cached);
+    pthread_mutex_unlock(&s->mu);
     /* OpenAI usage details: the reusable prefix is a cache read, while the
      * effective prompt suffix evaluated by ds4_session_sync() is written into
      * the live KV cache and can be reused by the next request. */
@@ -13643,6 +13751,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     {
         ds4_tokens prefix = {0};
         tokens_copy_prefix(&prefix, prompt_for_sync, cold_store_len);
+        const double t_cold0 = now_sec();
         if (server_session_sync(s, slot, &prefix, err, sizeof(err)) != 0) {
             ds4_tokens_free(&prefix);
             ds4_tokens_free(&effective_prompt);
@@ -13654,6 +13763,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             free(disk_cache_path);
             if (job_cancelled(j)) {
                 request_live_state_clear(s, slot);
+                pthread_mutex_lock(&s->mu);
+                s->stats.prefill_cancelled++;
+                pthread_mutex_unlock(&s->mu);
                 trace_event(s, trace_id, "cancelled during prefill");
                 return;
             }
@@ -13670,14 +13782,17 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                                              cold_store_len);
             suppressed_continued_last = -1;
         }
+        t_cold_sec = now_sec() - t_cold0;
         ds4_tokens_free(&prefix);
     }
 
+    const double t_sync0 = now_sec();
     int prompt_sync_rc = multimodal ?
         server_session_sync_multimodal(s, slot, prompt_for_sync,
                                        j->req.images, j->req.image_count,
                                        err, sizeof(err)) :
         server_session_sync(s, slot, prompt_for_sync, err, sizeof(err));
+    t_sync_sec = now_sec() - t_sync0;
     if (prompt_sync_rc != 0) {
         ds4_tokens_free(&effective_prompt);
         ds4_session_set_progress(slot->session, NULL, NULL);
@@ -13688,6 +13803,9 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         free(disk_cache_path);
         if (job_cancelled(j)) {
             request_live_state_clear(s, slot);
+            pthread_mutex_lock(&s->mu);
+            s->stats.prefill_cancelled++;
+            pthread_mutex_unlock(&s->mu);
             trace_event(s, trace_id, "cancelled during prefill");
             return;
         }
@@ -13712,13 +13830,31 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     ds4_session_set_progress(slot->session, NULL, NULL);
     ds4_session_set_display_progress(slot->session, NULL, NULL);
     if (!multimodal) kv_cache_maybe_store_continued(s, slot);
+    /* LOCAL PATCH */
+    t_store_sec = (double)slot->req_store_ns / 1e9;
+    t_prompt_done = now_sec();
+    {
+        const double prefill_sec = t_prompt_done - t0;
+        pthread_mutex_lock(&s->mu);
+        if (prompt_tokens > cached && prefill_sec > 0.0)
+            s->stats.last_prefill_tps = (double)(prompt_tokens - cached) / prefill_sec;
+        if (prompt_tokens > cached)
+            s->stats.prefill_compute_ns += (uint64_t)(t_sync_sec * 1e9);
+        s->stats.prompt_total_ns += (uint64_t)((t_prompt_done - t_enter) * 1e9);
+        pthread_mutex_unlock(&s->mu);
+    }
     server_log(DS4_LOG_PREFILL,
-               "ds4-server: %s ctx=%s%s%s prompt done %.3fs",
+               "ds4-server: %s ctx=%s%s%s prompt done %.3fs lookup=%.3fs cold=%.3fs sync=%.3fs store=%.3fs source=%s",
                j->req.kind == REQ_CHAT ? "chat" : "completion",
                ctx_span,
                req_flags[0] ? " " : "",
                req_flags,
-               now_sec() - t0);
+               now_sec() - t0,
+               t0 - t_enter,
+               t_cold_sec,
+               t_sync_sec,
+               t_store_sec,
+               cache_source);
     if (cold_store_len == prompt_for_sync->len) {
         if (!multimodal && kv_cache_store_live_prefix(s, slot, prompt_for_sync,
                                        cold_store_len, "cold")) {
@@ -13961,6 +14097,7 @@ decode_again:
             size_t piece_len = 0;
             char *piece = ds4_token_text(s->engine, token, &piece_len);
             completion++;
+            if (completion == 1) t_first_token = now_sec();
             kept++;
 
             trace_piece(s, trace_id, piece, piece_len);
@@ -14292,6 +14429,48 @@ decode_again:
                             decode_t0,
                             &last_decode_log_t,
                             &last_decode_log_completion);
+    }
+    /* LOCAL PATCH */
+    {
+        const double t_end = now_sec();
+        const double decode_sec = t_end - decode_t0;
+        ds4_qwen_mtp_stats mtp_now;
+        ds4_session_qwen_mtp_stats(slot->session, &mtp_now);
+        server_req_record rec;
+        memset(&rec, 0, sizeof(rec));
+        rec.at_s = t_end - s->started_at;
+        rec.kind = j->req.kind == REQ_CHAT ? "chat" : "completion";
+        rec.pos = old_pos;
+        rec.prompt_tokens = prompt_tokens;
+        rec.cached_tokens = cached;
+        rec.lookup_ns = (uint64_t)((t0 - t_enter) * 1e9);
+        rec.restore_ns = (uint64_t)(t_restore_sec * 1e9);
+        rec.cold_ns = (uint64_t)(t_cold_sec * 1e9);
+        rec.prefill_ns = (uint64_t)(t_sync_sec * 1e9);
+        rec.store_ns = slot->req_store_ns;
+        rec.prompt_ns = t_prompt_done > 0.0 ?
+            (uint64_t)((t_prompt_done - t_enter) * 1e9) : 0;
+        rec.first_token_ns = t_first_token > 0.0 ?
+            (uint64_t)((t_first_token - decode_t0) * 1e9) : 0;
+        rec.decode_tokens = completion > 0 ? completion : 0;
+        rec.decode_ns = (uint64_t)(decode_sec * 1e9);
+        rec.mtp_cycles = mtp_now.cycles - mtp_at_start.cycles;
+        rec.mtp_committed = mtp_now.committed - mtp_at_start.committed;
+        snprintf(rec.source, sizeof(rec.source), "%s", cache_source);
+        snprintf(rec.finish, sizeof(rec.finish), "%s", finish ? finish : "");
+        pthread_mutex_lock(&s->mu);
+        s->stats.generated_tokens += (uint64_t)(completion > 0 ? completion : 0);
+        if (completion > 0 && decode_sec > 0.0)
+            s->stats.last_decode_tps = (double)completion / decode_sec;
+        s->stats.decode_tokens += (uint64_t)(completion > 0 ? completion : 0);
+        s->stats.decode_ns += rec.decode_ns;
+        s->stats.first_token_ns += rec.first_token_ns;
+        rec.seq = ++s->recent_seq;
+        if (s->recent_len < SERVER_RECENT_MAX) s->recent_len++;
+        memmove(&s->recent[1], &s->recent[0],
+                (size_t)(s->recent_len - 1) * sizeof(rec));
+        s->recent[0] = rec;
+        pthread_mutex_unlock(&s->mu);
     }
 
     if (j->req.stream && !structured_stream && text.len > plain_stream_pos) {
@@ -14805,6 +14984,290 @@ static void dispatch_jobs_locked(server *s) {
     }
 }
 
+/* LOCAL PATCH */
+static double process_rss_mb(void) {
+#ifdef __APPLE__
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS)
+        return (double)info.resident_size / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
+/* phys_footprint counts wired/mapped model pages that resident_size omits. */
+static double process_footprint_mb(void) {
+#ifdef __APPLE__
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS)
+        return (double)info.phys_footprint / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
+typedef struct {
+    double peak_footprint_mb;
+    uint64_t cpu_user_ns, cpu_sys_ns, disk_read_bytes, disk_write_bytes, pageins;
+} process_usage;
+
+static process_usage process_usage_now(void) {
+    process_usage u = {0};
+#ifdef __APPLE__
+    struct rusage_info_v4 ri;
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri) == 0) {
+        static mach_timebase_info_data_t tb;
+        if (tb.denom == 0) mach_timebase_info(&tb);
+        const double scale = tb.denom ? (double)tb.numer / (double)tb.denom : 1.0;
+        u.peak_footprint_mb = (double)ri.ri_lifetime_max_phys_footprint / (1024.0 * 1024.0);
+        u.cpu_user_ns = (uint64_t)((double)ri.ri_user_time * scale);
+        u.cpu_sys_ns = (uint64_t)((double)ri.ri_system_time * scale);
+        u.disk_read_bytes = ri.ri_diskio_bytesread;
+        u.disk_write_bytes = ri.ri_diskio_byteswritten;
+        u.pageins = ri.ri_pageins;
+    }
+#endif
+    return u;
+}
+
+/* kern.memorystatus_vm_pressure_level: 1 normal, 2 warn, 4 critical. */
+static const char *system_memory_pressure(void) {
+#ifdef __APPLE__
+    int level = 0;
+    size_t len = sizeof(level);
+    if (sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &len, NULL, 0) == 0) {
+        if (level == 1) return "normal";
+        if (level == 2) return "warn";
+        if (level >= 4) return "critical";
+    }
+#endif
+    return "unknown";
+}
+
+static const char *thermal_state_name(void) {
+    switch (ds4_gpu_thermal_state()) {
+    case 0: return "nominal";
+    case 1: return "fair";
+    case 2: return "serious";
+    case 3: return "critical";
+    default: return "unknown";
+    }
+}
+
+static double system_swap_used_mb(void) {
+#ifdef __APPLE__
+    struct xsw_usage sw;
+    size_t len = sizeof(sw);
+    if (sysctlbyname("vm.swapusage", &sw, &len, NULL, 0) == 0)
+        return (double)sw.xsu_used / (1024.0 * 1024.0);
+#endif
+    return 0.0;
+}
+
+/* Build /stats JSON into out.  Used by send_stats and DS4_SERVER_TEST. */
+static void format_stats_json(server *s, buf *out) {
+    buf slots = {0};
+    pthread_mutex_lock(&s->mu);
+    server_stats st = s->stats;
+    int queue_depth = 0;
+    for (job *j = s->head; j; j = j->next) queue_depth++;
+    bool busy = false;
+    int live_tokens = 0;
+    int ctx_size = s->ctx_size;
+    buf_puts(&slots, "[");
+    for (int i = 0; i < s->slot_count; i++) {
+        const server_slot *sl = &s->slots[i];
+        const bool sl_busy = sl->busy || sl->running != NULL;
+        const int pos = sl->session ? ds4_session_pos(sl->session) : 0;
+        if (sl_busy) busy = true;
+        live_tokens += pos;
+        buf_printf(&slots, "%s{\"id\":%d,\"busy\":%s,\"live_tokens\":%d,\"ctx\":%d}",
+                   i ? "," : "", sl->id, sl_busy ? "true" : "false", pos,
+                   sl->session ? ds4_session_ctx(sl->session) : ctx_size);
+    }
+    buf_puts(&slots, "]");
+    const int clients = s->clients;
+    server_req_record *recent = NULL;
+    int recent_len = s->recent_len;
+    if (recent_len > 0) {
+        recent = xmalloc((size_t)recent_len * sizeof(*recent));
+        memcpy(recent, s->recent, (size_t)recent_len * sizeof(*recent));
+    }
+    pthread_mutex_unlock(&s->mu);
+    st.checkpoint_saves = __atomic_load_n(&s->stats.checkpoint_saves, __ATOMIC_RELAXED);
+    st.checkpoint_save_ns = __atomic_load_n(&s->stats.checkpoint_save_ns, __ATOMIC_RELAXED);
+    st.checkpoint_save_bytes = __atomic_load_n(&s->stats.checkpoint_save_bytes, __ATOMIC_RELAXED);
+    ds4_qwen_mtp_stats mtp;
+    memset(&mtp, 0, sizeof(mtp));
+    if (s->slot_count > 0 && s->slots[0].session) {
+        /* inference_mu is held for a whole request, so taking it here
+         * would stall /stats for the entire prefill.  The counters are
+         * monotonically increasing uint64 fields; a lock-free read may be
+         * one cycle stale, which is fine for a 1 s poll. */
+        ds4_session_qwen_mtp_stats(s->slots[0].session, &mtp);
+    } else if (s->engine) {
+        /* No live session yet: --mtp arms draft tokens > 0 on Qwen. */
+        mtp.enabled = ds4_engine_mtp_draft_tokens(s->engine) > 0;
+        mtp.active = mtp.enabled;
+    }
+    const process_usage pu = process_usage_now();
+    const double footprint_mb = process_footprint_mb();
+    const double rss_mb = process_rss_mb();
+    const double swap_mb = system_swap_used_mb();
+    uint64_t kv_used = 0, kv_budget = 0;
+    int kv_files = 0;
+    bool kv_enabled = false;
+    char *kv_dir = NULL;
+    pthread_mutex_lock(&s->kv_mu);
+    kv_enabled = s->kv.enabled;
+    if (kv_enabled) {
+        kv_budget = s->kv.budget_bytes;
+        kv_files = s->kv.len;
+        for (int i = 0; i < s->kv.len; i++) kv_used += s->kv.entry[i].file_size;
+        if (s->kv.dir) kv_dir = xstrdup(s->kv.dir);
+    }
+    pthread_mutex_unlock(&s->kv_mu);
+    buf_puts(out, "{\"model\":");
+    json_escape(out, s->engine ? ds4_engine_model_name(s->engine) : "test-model");
+    buf_puts(out, ",\"model_path\":");
+    json_escape(out, s->model_path ? s->model_path : "");
+    buf_puts(out, ",\"kv_disk\":{\"enabled\":");
+    buf_puts(out, kv_enabled ? "true" : "false");
+    buf_puts(out, ",\"dir\":");
+    json_escape(out, kv_dir ? kv_dir : "");
+    buf_printf(out, ",\"used_mb\":%.1f,\"budget_mb\":%.1f,\"files\":%d}",
+               (double)kv_used / (1024.0 * 1024.0),
+               (double)kv_budget / (1024.0 * 1024.0), kv_files);
+    free(kv_dir);
+    buf_printf(out,
+        ",\"uptime_s\":%.0f,"
+        "\"busy\":%s,"
+        "\"queue_depth\":%d,"
+        "\"clients\":%d,"
+        "\"live_tokens\":%d,"
+        "\"ctx_size\":%d,"
+        "\"slot_count\":%d,"
+        "\"rss_mb\":%.1f,"
+        "\"footprint_mb\":%.1f,"
+        "\"swap_used_mb\":%.1f,"
+        "\"tensor_route\":\"%s\","
+        "\"requests\":%llu,"
+        "\"queue_rejected\":0,"
+        "\"queue_dropped_disconnected\":0,"
+        "\"prefill_cancelled\":%llu,"
+        "\"prompt_tokens\":%llu,"
+        "\"cached_tokens\":%llu,"
+        "\"generated_tokens\":%llu,"
+        "\"last_prefill_tps\":%.2f,"
+        "\"last_decode_tps\":%.2f,"
+        "\"cache\":{\"hits\":%llu,\"cold\":%llu},"
+        "\"slots\":%s",
+        s->started_at > 0.0 ? now_sec() - s->started_at : 0.0,
+        busy ? "true" : "false",
+        queue_depth,
+        clients,
+        live_tokens,
+        ctx_size,
+        s->slot_count,
+        rss_mb,
+        footprint_mb,
+        swap_mb,
+        ds4_gpu_tensor_route_name(),
+        (unsigned long long)st.requests,
+        (unsigned long long)st.prefill_cancelled,
+        (unsigned long long)st.prompt_tokens,
+        (unsigned long long)st.cached_tokens,
+        (unsigned long long)st.generated_tokens,
+        st.last_prefill_tps,
+        st.last_decode_tps,
+        (unsigned long long)st.cache_hits,
+        (unsigned long long)st.cache_cold,
+        slots.ptr ? slots.ptr : "[]");
+    buf_free(&slots);
+    buf_printf(out,
+        ",\"mem\":{\"footprint_mb\":%.1f,\"peak_footprint_mb\":%.1f,\"rss_mb\":%.1f,"
+        "\"metal_allocated_mb\":%.1f,\"metal_working_set_mb\":%.1f,\"swap_used_mb\":%.1f,"
+        "\"pressure\":\"%s\",\"thermal\":\"%s\"}",
+        footprint_mb, pu.peak_footprint_mb, rss_mb,
+        (double)ds4_gpu_current_allocated_size() / (1024.0 * 1024.0),
+        (double)ds4_gpu_recommended_working_set_size() / (1024.0 * 1024.0),
+        swap_mb, system_memory_pressure(), thermal_state_name());
+    buf_printf(out,
+        ",\"proc\":{\"cpu_user_ns\":%llu,\"cpu_sys_ns\":%llu,\"disk_read_bytes\":%llu,"
+        "\"disk_write_bytes\":%llu,\"pageins\":%llu}",
+        (unsigned long long)pu.cpu_user_ns, (unsigned long long)pu.cpu_sys_ns,
+        (unsigned long long)pu.disk_read_bytes, (unsigned long long)pu.disk_write_bytes,
+        (unsigned long long)pu.pageins);
+    buf_printf(out,
+        ",\"totals\":{\"prefill_fresh_tokens\":%llu,\"prefill_compute_ns\":%llu,"
+        "\"prompt_total_ns\":%llu,\"decode_tokens\":%llu,\"decode_ns\":%llu,"
+        "\"first_token_ns\":%llu,\"checkpoint_saves\":%llu,\"checkpoint_save_ns\":%llu,"
+        "\"checkpoint_save_bytes\":%llu,\"checkpoint_restores\":%llu,"
+        "\"checkpoint_restore_ns\":%llu}",
+        (unsigned long long)st.prefill_fresh_tokens, (unsigned long long)st.prefill_compute_ns,
+        (unsigned long long)st.prompt_total_ns, (unsigned long long)st.decode_tokens,
+        (unsigned long long)st.decode_ns, (unsigned long long)st.first_token_ns,
+        (unsigned long long)st.checkpoint_saves, (unsigned long long)st.checkpoint_save_ns,
+        (unsigned long long)st.checkpoint_save_bytes, (unsigned long long)st.checkpoint_restores,
+        (unsigned long long)st.checkpoint_restore_ns);
+    buf_printf(out,
+        ",\"mtp\":{\"enabled\":%s,\"active\":%s,\"max_ctx\":%u,\"pos\":%d,"
+        "\"cycles\":%llu,\"accepted\":%llu,\"committed\":%llu,\"rows_cycles\":%llu,"
+        "\"batch_cycles\":%llu,\"setup_ns\":%.0f,\"verify_ns\":%.0f,\"rollback_ns\":%.0f,"
+        "\"draft_ns\":%.0f,\"total_ns\":%.0f}",
+        mtp.enabled ? "true" : "false", mtp.active ? "true" : "false",
+        (unsigned)mtp.max_ctx, mtp.pos,
+        (unsigned long long)mtp.cycles, (unsigned long long)mtp.accepted,
+        (unsigned long long)mtp.committed, (unsigned long long)mtp.rows_cycles,
+        (unsigned long long)mtp.batch_cycles,
+        mtp.setup_ms * 1e6, mtp.verify_ms * 1e6, mtp.rollback_ms * 1e6,
+        mtp.draft_ms * 1e6, mtp.total_ms * 1e6);
+    buf_printf(out, ",\"ple\":{\"mode\":\"%s\"}",
+               s->engine ? ds4_engine_ple_mode(s->engine) : "off");
+    buf_puts(out, ",\"recent\":[");
+    for (int i = 0; i < recent_len; i++) {
+        const server_req_record *r = &recent[i];
+        buf_printf(out,
+            "%s{\"seq\":%llu,\"at_s\":%.3f,\"kind\":\"%s\",\"pos\":%d,"
+            "\"prompt_tokens\":%d,\"cached_tokens\":%d,\"fresh_tokens\":%d,"
+            "\"lookup_ns\":%llu,\"restore_ns\":%llu,\"cold_ns\":%llu,\"prefill_ns\":%llu,"
+            "\"store_ns\":%llu,\"prompt_ns\":%llu,\"first_token_ns\":%llu,"
+            "\"decode_tokens\":%d,\"decode_ns\":%llu,\"mtp_cycles\":%llu,"
+            "\"mtp_committed\":%llu,\"source\":\"%s\",\"finish\":\"%s\"}",
+            i ? "," : "", (unsigned long long)r->seq, r->at_s, r->kind, r->pos,
+            r->prompt_tokens, r->cached_tokens, r->prompt_tokens - r->cached_tokens,
+            (unsigned long long)r->lookup_ns, (unsigned long long)r->restore_ns,
+            (unsigned long long)r->cold_ns, (unsigned long long)r->prefill_ns,
+            (unsigned long long)r->store_ns, (unsigned long long)r->prompt_ns,
+            (unsigned long long)r->first_token_ns, r->decode_tokens,
+            (unsigned long long)r->decode_ns, (unsigned long long)r->mtp_cycles,
+            (unsigned long long)r->mtp_committed, r->source, r->finish);
+    }
+    buf_puts(out, "]}");
+    free(recent);
+}
+
+static bool send_health(server *s, int fd) {
+    buf b = {0};
+    buf_puts(&b, "{\"status\":\"ok\",\"model\":");
+    json_escape(&b, ds4_engine_model_name(s->engine));
+    buf_printf(&b, ",\"uptime_s\":%.0f}\n", now_sec() - s->started_at);
+    bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
+    buf_free(&b);
+    return ok;
+}
+
+static bool send_stats(server *s, int fd) {
+    buf b = {0};
+    format_stats_json(s, &b);
+    buf_puts(&b, "\n");
+    bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
+    buf_free(&b);
+    return ok;
+}
+
 static bool enqueue(server *s, job *j) {
     pthread_mutex_lock(&s->mu);
     if (s->stopping) {
@@ -15173,6 +15636,31 @@ static void *client_main(void *arg) {
 
     if (!strcmp(hr.method, "GET") && !strcmp(hr.path, "/v1/models")) {
         send_models(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    /* LOCAL PATCH */
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/health") || !strcmp(hr.path, "/v1/health")))
+    {
+        send_health(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/stats") || !strcmp(hr.path, "/v1/stats")))
+    {
+        send_stats(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/dashboard") || !strcmp(hr.path, "/dashboard/")))
+    {
+        /* Live stats page embedded at build time from dashboard.html; served
+         * same-origin so it can poll /stats without --cors. */
+        http_response(fd, s->enable_cors, 200, "text/html; charset=utf-8",
+                      dashboard_html);
         http_request_free(&hr);
         goto done;
     }
@@ -15827,6 +16315,9 @@ int main(int argc, char **argv) {
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
     s.tool_mem.max_entries = cfg.tool_memory_max_ids;
     s.enable_cors = cfg.enable_cors;
+    /* LOCAL PATCH */
+    s.started_at = now_sec();
+    s.model_path = cfg.engine.model_path;
     s.slots = xmalloc((size_t)slot_count * sizeof(*s.slots));
     memset(s.slots, 0, (size_t)slot_count * sizeof(*s.slots));
     if (s.batched_mode) {
@@ -22283,6 +22774,141 @@ static void test_deepseek41_live_result_order(void) {
     pthread_mutex_destroy(&s.tool_mu);
 }
 
+/* Synthetic /stats JSON: two recent requests + totals; asserts new keys and
+ * that decode tok/s == decode_tokens / decode_ns * 1e9 for the newest row. */
+static void test_stats_json_recent_and_totals(void) {
+    server s;
+    memset(&s, 0, sizeof(s));
+    pthread_mutex_init(&s.mu, NULL);
+    pthread_mutex_init(&s.kv_mu, NULL);
+    pthread_mutex_init(&s.inference_mu, NULL);
+    s.started_at = now_sec() - 10.0;
+    s.model_path = "/tmp/test-qwen.gguf";
+    s.ctx_size = 262144;
+    s.slot_count = 0;
+    s.stats.requests = 2;
+    s.stats.prompt_tokens = 300;
+    s.stats.cached_tokens = 100;
+    s.stats.generated_tokens = 50;
+    s.stats.prefill_fresh_tokens = 200;
+    s.stats.prefill_compute_ns = 400000000ull;
+    s.stats.prompt_total_ns = 500000000ull;
+    s.stats.decode_tokens = 50;
+    s.stats.decode_ns = 1000000000ull; /* 50 tok / 1s => 50 tok/s */
+    s.stats.first_token_ns = 20000000ull;
+    s.stats.checkpoint_saves = 1;
+    s.stats.checkpoint_save_ns = 3000000ull;
+    s.stats.checkpoint_save_bytes = 4096;
+    s.stats.checkpoint_restores = 1;
+    s.stats.checkpoint_restore_ns = 5000000ull;
+    s.stats.last_prefill_tps = 500.0;
+    s.stats.last_decode_tps = 50.0;
+    s.stats.cache_hits = 1;
+    s.stats.cache_cold = 1;
+
+    server_req_record a = {0}, b = {0};
+    a.seq = 2;
+    a.at_s = 9.0;
+    a.kind = "chat";
+    a.pos = 100;
+    a.prompt_tokens = 200;
+    a.cached_tokens = 100;
+    a.lookup_ns = 1000000ull;
+    a.prefill_ns = 200000000ull;
+    a.prompt_ns = 250000000ull;
+    a.first_token_ns = 10000000ull;
+    a.decode_tokens = 30;
+    a.decode_ns = 500000000ull; /* 60 tok/s */
+    a.mtp_cycles = 20;
+    a.mtp_committed = 12;
+    snprintf(a.source, sizeof(a.source), "%s", "memory-token");
+    snprintf(a.finish, sizeof(a.finish), "%s", "stop");
+
+    b.seq = 1;
+    b.at_s = 5.0;
+    b.kind = "chat";
+    b.pos = 0;
+    b.prompt_tokens = 100;
+    b.cached_tokens = 0;
+    b.prefill_ns = 200000000ull;
+    b.prompt_ns = 250000000ull;
+    b.first_token_ns = 10000000ull;
+    b.decode_tokens = 20;
+    b.decode_ns = 500000000ull; /* 40 tok/s */
+    b.mtp_cycles = 10;
+    b.mtp_committed = 5;
+    snprintf(b.source, sizeof(b.source), "%s", "none");
+    snprintf(b.finish, sizeof(b.finish), "%s", "length");
+
+    s.recent[0] = a;
+    s.recent[1] = b;
+    s.recent_len = 2;
+    s.recent_seq = 2;
+
+    buf out = {0};
+    format_stats_json(&s, &out);
+    TEST_ASSERT(out.ptr != NULL);
+    const char *json = out.ptr;
+    TEST_ASSERT(strstr(json, "\"metal_allocated_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"metal_working_set_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"swap_used_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"pressure\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"thermal\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"tensor_route\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"footprint_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"peak_footprint_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"cpu_user_ns\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"cpu_sys_ns\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"prefill_fresh_tokens\":200") != NULL);
+    TEST_ASSERT(strstr(json, "\"prefill_compute_ns\":400000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"prompt_total_ns\":500000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"decode_tokens\":50") != NULL);
+    TEST_ASSERT(strstr(json, "\"decode_ns\":1000000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"first_token_ns\":20000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"checkpoint_saves\":1") != NULL);
+    TEST_ASSERT(strstr(json, "\"checkpoint_save_ns\":3000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"checkpoint_save_bytes\":4096") != NULL);
+    TEST_ASSERT(strstr(json, "\"checkpoint_restores\":1") != NULL);
+    TEST_ASSERT(strstr(json, "\"checkpoint_restore_ns\":5000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"mtp\":") != NULL);
+    TEST_ASSERT(strstr(json, "\"ple\":") != NULL);
+    TEST_ASSERT(strstr(json, "\"recent\":[") != NULL);
+    TEST_ASSERT(strstr(json, "\"mtp_cycles\":20") != NULL);
+    TEST_ASSERT(strstr(json, "\"mtp_committed\":12") != NULL);
+    TEST_ASSERT(strstr(json, "\"source\":\"memory-token\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"fresh_tokens\":100") != NULL);
+    /* Newest request: 30 tokens / 0.5s = 60 tok/s. */
+    {
+        const char *p = strstr(json, "\"decode_tokens\":30");
+        TEST_ASSERT(p != NULL);
+        const char *dns = strstr(p, "\"decode_ns\":500000000");
+        TEST_ASSERT(dns != NULL);
+        const double tok_s = 30.0 / (500000000.0 / 1e9);
+        TEST_ASSERT(tok_s > 59.9 && tok_s < 60.1);
+    }
+    /* Session totals: 50 tokens / 1s = 50 tok/s. */
+    {
+        const double tok_s = (double)s.stats.decode_tokens /
+                             ((double)s.stats.decode_ns / 1e9);
+        TEST_ASSERT(tok_s > 49.9 && tok_s < 50.1);
+    }
+    /* Existing monitor keys must remain. */
+    TEST_ASSERT(strstr(json, "\"requests\":2") != NULL);
+    TEST_ASSERT(strstr(json, "\"rss_mb\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"last_prefill_tps\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"last_decode_tps\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"cache\":{\"hits\":1,\"cold\":1}") != NULL);
+    TEST_ASSERT(strstr(json, "\"kv_disk\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"queue_depth\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"clients\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"live_tokens\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"busy\"") != NULL);
+    buf_free(&out);
+    pthread_mutex_destroy(&s.mu);
+    pthread_mutex_destroy(&s.kv_mu);
+    pthread_mutex_destroy(&s.inference_mu);
+}
+
 static void ds4_server_unit_tests_run(void) {
     test_deepseek41_server_stream();
     test_deepseek41_server_tools();
@@ -22292,6 +22918,7 @@ static void ds4_server_unit_tests_run(void) {
     test_anthropic_tool_image_output();
     test_responses_tool_image_output();
     test_server_image_embedding_cache();
+    test_stats_json_recent_and_totals();
     test_batched_prefill_round_robin();
     test_mixed_prefill_quantum_option();
     test_multimodal_prefill_resume_frontier();

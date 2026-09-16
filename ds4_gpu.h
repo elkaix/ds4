@@ -372,6 +372,9 @@ int ds4_gpu_qwen4_batch_mm_q8_tensor(
         const void *model_map, uint64_t model_size, uint64_t weight_offset,
         uint32_t n_tokens, uint32_t in_dim, uint32_t out_rows);
 uint64_t ds4_gpu_recommended_working_set_size(void);
+uint64_t ds4_gpu_current_allocated_size(void);
+int ds4_gpu_thermal_state(void); /* 0 nominal 1 fair 2 serious 3 critical, -1 n/a */
+const char *ds4_gpu_tensor_route_name(void);
 uint32_t ds4_gpu_stream_expert_cache_configured_count(void);
 uint32_t ds4_gpu_stream_expert_cache_current_count(void);
 typedef struct ds4_gpu_stream_expert_table {
