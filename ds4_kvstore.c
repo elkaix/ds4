@@ -1028,6 +1028,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
     }
 
     ds4_session_payload_file staged = {0};
+    const double block_t0 = kv_now_sec();
     if (ds4_session_stage_payload(session, &staged,
                                   save_err, sizeof(save_err)) != 0) {
         kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
@@ -1043,6 +1044,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         ds4_tokens_free(&store_tokens);
         return false;
     }
+    const double blocking_sec = kv_now_sec() - block_t0;
     uint64_t payload_bytes = staged.bytes;
 
     uint64_t est_file_bytes = 0, est_required_bytes = 0;
@@ -1132,6 +1134,11 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         ok = false;
     }
     const double save_ms = (kv_now_sec() - save_t0) * 1000.0;
+    if (ok) {
+        kc->saves_count++;
+        kc->last_blocking_s = blocking_sec;
+        kc->last_write_s = (kv_now_sec() - save_t0) + blocking_sec;
+    }
     if (!ok) {
         if (final_size_over_budget) {
             kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
@@ -1302,6 +1309,7 @@ int ds4_kvstore_try_load_text(ds4_kvstore *kc,
         const ds4_tokens *loaded_tokens = ds4_session_tokens(session);
         if (loaded_tokens && loaded_tokens->len == (int)hdr.tokens) {
             loaded = (int)hdr.tokens;
+            kc->restores_count++;
             if (effective_prompt) {
                 /* The cache lookup was by bytes, but the graph state is still
                  * the exact token history stored in the payload.  Build the

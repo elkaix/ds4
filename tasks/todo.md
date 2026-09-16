@@ -219,3 +219,16 @@ two `--model` edits; see run.md.
 Caveat on the fixture: prose+C from this repo is domain-narrow. A wider or task-shaped fixture
 could move the number either way. Re-run with `tasks/perplexity-ab.sh` (committed) after
 swapping `ppl.txt` if a different domain matters.
+
+
+### O2b promotion continuation — 2026-09-13
+
+- [x] Read completed gates; Gate 5 medians pass, original near-full run has zero inference-window swapouts.
+- [x] Stop stale eza listing and paused downloader; preserve partial download files.
+- [x] Verify all O2b tensor payloads before deleting build inputs.
+- [x] Observe full-context streaming plus startup/shutdown swap and pressure.
+- [x] Verify daily launcher and symlink select O2b; preserve O1 and its KV directory.
+- [x] Delete only user-approved Q2 base and O2 donor after evidence passes.
+- [x] Resume pinned GLM download; update local notes and final evidence.
+
+Review: complete. Evidence lives in `tasks/2026-09-13-o2-gates/`; no commit or push performed.

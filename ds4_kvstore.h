@@ -77,6 +77,10 @@ typedef struct {
     const char *log_name;
     void *log_ud;
     void (*log)(void *ud, ds4_kvstore_log_type type, const char *msg);
+    uint64_t saves_count;
+    uint64_t restores_count;
+    double last_write_s;
+    double last_blocking_s;
 } ds4_kvstore;
 
 typedef struct {

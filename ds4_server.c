@@ -1,5 +1,6 @@
 #include "ds4.h"
 #include "ds4_distributed.h"
+#include "ds4_gpu.h"
 #include "ds4_gpu_args.h"
 #include "ds4_help.h"
 #include "ds4_kvstore.h"
@@ -35,12 +36,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#include <mach/mach.h>
+#include <mach/task_info.h>
+#endif
 
 static volatile sig_atomic_t g_stop_requested = 0;
 static volatile sig_atomic_t g_listen_fd = -1;
@@ -9370,6 +9378,35 @@ typedef struct {
     double last_decode_tps;
 } server_stats;
 
+#define SERVER_STATS_REQUEST_CAP 256
+
+typedef struct {
+    uint64_t id;
+    double started_at;
+    double completed_at;
+    int context_before;
+    int context_after;
+    int context_capacity;
+    int logical_prompt_tokens;
+    int cached_prompt_tokens;
+    int fresh_prompt_tokens;
+    char cache_source[32];
+    double prompt_wall_s;
+    double prefill_compute_s;
+    double first_token_s;
+    double decode_s;
+    int output_tokens;
+    char finish_reason[24];
+    char mtp_state[16];
+} server_request_record;
+
+typedef struct {
+    server_request_record rec[SERVER_STATS_REQUEST_CAP];
+    int len;
+    int head;
+    uint64_t seq;
+} server_request_ring;
+
 /* Client threads serialize this value copy and never inspect the mutable model
  * session.  Only the worker publishes live_tokens; the remaining fields are
  * sampled under server.mu at the same publication point. */
@@ -9381,6 +9418,7 @@ typedef struct {
     int ctx_size;
     bool busy;
     uint64_t version;
+    int live_tokens_peak;
 } server_stats_snapshot;
 
 typedef enum {
@@ -9796,6 +9834,7 @@ server_txn_run_adapters(const server_txn_adapters *adapters) {
 struct server {
     ds4_engine *engine;
     ds4_tp *tp_leader;
+    ds4_backend backend;
     server_slot *slots;
     int slot_count;
     int ctx_size;
@@ -9832,6 +9871,21 @@ struct server {
     double started_at;
     server_stats stats;
     server_stats_snapshot stats_snapshot;
+    server_request_ring requests;
+    int live_tokens_peak;
+    uint64_t mtp_cycles;
+    uint64_t mtp_accepted_tokens;
+    uint64_t mtp_drafted_tokens;
+    double mtp_cycle_time_s;
+    uint64_t mtp_plain_steps;
+    double mtp_plain_step_time_s;
+    uint64_t swap_bytes_at_start;
+    uint64_t host_cpu_ns;
+    uint64_t host_pageins;
+    uint64_t host_disk_r;
+    uint64_t host_disk_w;
+    double host_sample_at;
+    uint64_t peak_physical_footprint;
     uint64_t seq;
     FILE *trace;
     pthread_mutex_t trace_mu;
@@ -9872,6 +9926,8 @@ static void server_publish_stats_snapshot(server *s, int live_tokens) {
     s->stats_snapshot.queue_depth = s->queue_depth;
     s->stats_snapshot.clients = s->clients;
     s->stats_snapshot.live_tokens = live_tokens;
+    if (live_tokens > s->live_tokens_peak) s->live_tokens_peak = live_tokens;
+    s->stats_snapshot.live_tokens_peak = s->live_tokens_peak;
     s->stats_snapshot.ctx_size = s->ctx_size;
     s->stats_snapshot.busy = s->busy;
     s->stats_snapshot.version++;
@@ -12669,9 +12725,14 @@ typedef struct production_txn {
     int cached;
     int prompt_tokens;
     int completion;
+    int context_before;
     size_t plain_stream_pos;
     double started_at;
     double decode_started_at;
+    double prefill_elapsed;
+    double prefill_compute_s;
+    double first_token_s;
+    const char *mtp_state;
     uint64_t trace_id;
     trace_cache_diag trace_cache;
     char cache_source[32];
@@ -12981,6 +13042,7 @@ static bool production_statistics_record(
         s->busy = true;
         s->stats.requests++;
         pthread_mutex_unlock(&s->mu);
+        p->context_before = observation->live_tokens;
         server_publish_stats_snapshot(s, observation->live_tokens);
     } else if (observation->operation == SERVER_STATS_CACHE) {
         pthread_mutex_lock(&s->mu);
@@ -13005,14 +13067,16 @@ static bool production_statistics_record(
         pthread_mutex_unlock(&s->mu);
     } else if (observation->operation == SERVER_STATS_PROGRESS) {
         server_publish_stats_snapshot(s, observation->live_tokens);
-    } else if (observation->operation == SERVER_STATS_PREFILL_DONE &&
-               observation->prompt_tokens > observation->cached_tokens &&
-               observation->elapsed > 0.0) {
-        pthread_mutex_lock(&s->mu);
-        s->stats.last_prefill_tps =
-            (double)(observation->prompt_tokens -
-                     observation->cached_tokens) / observation->elapsed;
-        pthread_mutex_unlock(&s->mu);
+    } else if (observation->operation == SERVER_STATS_PREFILL_DONE) {
+        p->prefill_elapsed = observation->elapsed;
+        if (observation->prompt_tokens > observation->cached_tokens &&
+            observation->elapsed > 0.0) {
+            pthread_mutex_lock(&s->mu);
+            s->stats.last_prefill_tps =
+                (double)(observation->prompt_tokens -
+                         observation->cached_tokens) / observation->elapsed;
+            pthread_mutex_unlock(&s->mu);
+        }
     }
     return true;
 }
@@ -13616,14 +13680,17 @@ static server_txn_step_result production_synchronize(
             kv_cache_slot_suppress_continued(s, slot, cold_store_len);
     }
 
+    p->prefill_compute_s = 0.0;
     if (s->kv.enabled &&
         cold_store_len >= s->kv.opt.min_tokens &&
         cold_store_len < prompt_for_sync->len)
     {
         ds4_tokens prefix = {0};
         tokens_copy_prefix(&prefix, prompt_for_sync, cold_store_len);
+        const double compute_t0 = now_sec();
         int sync_rc = server_session_sync(s, slot, &prefix, p->err,
                                           sizeof(p->err));
+        p->prefill_compute_s += (now_sec() - compute_t0);
         if (sync_rc != 0) {
             ds4_tokens_free(&prefix);
             kv_cache_slot_restore_suppressed(slot, suppressed_continued_last,
@@ -13677,11 +13744,13 @@ static server_txn_step_result production_synchronize(
         ds4_tokens_free(&prefix);
     }
 
+    const double prompt_compute_t0 = now_sec();
     int prompt_sync_rc = multimodal ?
         server_session_sync_multimodal(s, slot, prompt_for_sync,
                                        j->req.images, j->req.image_count,
                                        p->err, sizeof(p->err)) :
         server_session_sync(s, slot, prompt_for_sync, p->err, sizeof(p->err));
+    p->prefill_compute_s += (now_sec() - prompt_compute_t0);
     if (prompt_sync_rc != 0) {
         kv_cache_slot_restore_suppressed(slot, suppressed_continued_last,
                                               cold_store_len);
@@ -13949,6 +14018,7 @@ decode_again:
             ds4_engine_mtp_draft_tokens(s->engine) > 1 &&
             getenv("DS4_MTP_SPEC_DISABLE") == NULL)
         {
+            const double mtp_t0 = now_sec();
             if (j->req.ignore_eos) {
                 ntok = ds4_session_eval_speculative_argmax_ignoring_eos(
                     slot->session, token, max_tokens - completion,
@@ -13962,6 +14032,17 @@ decode_again:
                     toks, (int)(sizeof(toks) / sizeof(toks[0])),
                     p->err, sizeof(p->err));
             }
+            const double mtp_dt = now_sec() - mtp_t0;
+            if (ntok > 0) {
+                const int draft_k = ds4_engine_mtp_draft_tokens(s->engine) - 1;
+                pthread_mutex_lock(&s->mu);
+                s->mtp_cycles++;
+                s->mtp_accepted_tokens += (uint64_t)(ntok > 1 ? ntok - 1 : 0);
+                s->mtp_drafted_tokens += (uint64_t)(draft_k > 0 ? draft_k : 1);
+                s->mtp_cycle_time_s += mtp_dt;
+                pthread_mutex_unlock(&s->mu);
+                p->mtp_state = "active";
+            }
             if (ntok < 0) {
                 finish = "error";
                 production_latch_failure(
@@ -13970,6 +14051,7 @@ decode_again:
                 break;
             }
         } else {
+            const double step_t0 = now_sec();
             if (server_eval_token(s, slot, token, p->err,
                                   sizeof(p->err)) != 0) {
                 finish = "error";
@@ -13978,6 +14060,11 @@ decode_again:
                     production_live_session(p), p->err);
                 break;
             }
+            const double step_dt = now_sec() - step_t0;
+            pthread_mutex_lock(&s->mu);
+            s->mtp_plain_steps++;
+            s->mtp_plain_step_time_s += step_dt;
+            pthread_mutex_unlock(&s->mu);
             toks[0] = token;
             ntok = 1;
         }
@@ -14000,6 +14087,9 @@ decode_again:
             size_t piece_len = 0;
             char *piece = ds4_token_text(s->engine, token, &piece_len);
             completion++;
+            if (completion == 1 && p->first_token_s <= 0.0) {
+                p->first_token_s = now_sec() - p->started_at;
+            }
 
             production_observe_trace(p, SERVER_TRACE_PIECE, piece, piece_len);
             buf_append(&text, piece, piece_len);
@@ -14897,30 +14987,68 @@ static server_txn_output_result production_output_finish(
     return (server_txn_output_result) {.ok = ok, .wire = p->wire};
 }
 
+static void server_request_ring_push(server *s, const server_request_record *rec) {
+    server_request_ring *r = &s->requests;
+    r->rec[r->head] = *rec;
+    r->head = (r->head + 1) % SERVER_STATS_REQUEST_CAP;
+    if (r->len < SERVER_STATS_REQUEST_CAP) r->len++;
+}
+
 static bool production_statistics_finish(
         void *ctx, const server_txn_outcome *outcome) {
     production_txn *p = ctx;
     server *s = p->srv;
     server_slot *slot = p->slot;
+    const double decode_sec = (p->count_generated && p->decode_started_at > 0.0) ?
+        now_sec() - p->decode_started_at : 0.0;
+    const int live_tokens = p->session_entered ?
+        ds4_session_pos(slot->session) : s->stats_snapshot.live_tokens;
+    const char *finish = p->final_finish;
+    if (!finish) {
+        finish = (outcome && outcome->class == SERVER_TXN_COMPLETED) ? "stop" : "error";
+    }
+    pthread_mutex_lock(&s->mu);
     if (p->count_generated) {
-        const double decode_sec = now_sec() - p->decode_started_at;
-        pthread_mutex_lock(&s->mu);
         s->stats.generated_tokens += (uint64_t)p->completion;
         if (p->completion > 0 && decode_sec > 0.0) {
             s->stats.last_decode_tps = (double)p->completion / decode_sec;
         }
-        pthread_mutex_unlock(&s->mu);
         p->count_generated = false;
     }
+    if (p->counted_request || p->prompt_tokens > 0 || p->completion > 0) {
+        server_request_record rec = {0};
+        rec.id = ++s->requests.seq;
+        rec.started_at = p->started_at;
+        rec.completed_at = now_sec();
+        rec.context_before = p->context_before;
+        rec.context_after = live_tokens;
+        rec.context_capacity = s->ctx_size;
+        rec.logical_prompt_tokens = p->prompt_tokens;
+        rec.cached_prompt_tokens = p->cached > 0 ? p->cached : 0;
+        rec.fresh_prompt_tokens = rec.logical_prompt_tokens > rec.cached_prompt_tokens ?
+            rec.logical_prompt_tokens - rec.cached_prompt_tokens : 0;
+        const char *src = p->cache_source[0] ? p->cache_source : "cold";
+        if (!strcmp(src, "none")) src = "cold";
+        snprintf(rec.cache_source, sizeof(rec.cache_source), "%s", src);
+        rec.prompt_wall_s = p->prefill_elapsed;
+        rec.prefill_compute_s = p->prefill_compute_s;
+        rec.first_token_s = p->first_token_s;
+        rec.decode_s = decode_sec;
+        rec.output_tokens = p->completion;
+        snprintf(rec.finish_reason, sizeof(rec.finish_reason), "%s", finish);
+        const char *mstate = p->mtp_state ? p->mtp_state :
+            (s->engine && ds4_engine_has_mtp(s->engine) ?
+                (s->batched_mode || ds4_engine_mtp_draft_tokens(s->engine) <= 1 ? "disabled" : "active") :
+                "unsupported");
+        snprintf(rec.mtp_state, sizeof(rec.mtp_state), "%s", mstate);
+        server_request_ring_push(s, &rec);
+    }
     if (p->counted_request) {
-        pthread_mutex_lock(&s->mu);
         s->busy = false;
-        pthread_mutex_unlock(&s->mu);
         p->counted_request = false;
     }
+    pthread_mutex_unlock(&s->mu);
     (void)outcome;
-    const int live_tokens = p->session_entered ?
-        ds4_session_pos(slot->session) : s->stats_snapshot.live_tokens;
     server_publish_stats_snapshot(s, live_tokens);
     return true;
 }
@@ -15352,6 +15480,354 @@ static bool send_models(server *s, int fd) {
     return ok;
 }
 
+#ifdef __APPLE__
+static int sysctl_str(const char *name, char *out, size_t cap) {
+    size_t n = cap;
+    if (!out || cap == 0) return -1;
+    out[0] = 0;
+    if (sysctlbyname(name, out, &n, NULL, 0) != 0) return -1;
+    if (n < cap) out[n] = 0;
+    else out[cap - 1] = 0;
+    return 0;
+}
+
+static uint64_t sysctl_u64(const char *name) {
+    uint64_t v = 0;
+    size_t n = sizeof(v);
+    if (sysctlbyname(name, &v, &n, NULL, 0) != 0) return 0;
+    return v;
+}
+
+static int sysctl_int(const char *name) {
+    int v = 0;
+    size_t n = sizeof(v);
+    if (sysctlbyname(name, &v, &n, NULL, 0) != 0) return 0;
+    return v;
+}
+
+static const char *memory_pressure_name(int level) {
+    /* kern.memorystatus_vm_pressure_level: 1 normal, 2 warn, 4 critical. */
+    if (level >= 4) return "critical";
+    if (level >= 2) return "warn";
+    if (level > 0) return "normal";
+    return NULL;
+}
+#endif
+
+static void stats_json_append_identity(buf *b, server *s) {
+    ds4_engine *e = s->engine;
+    buf_puts(b, ",\"identity\":{");
+    buf_puts(b, "\"backend\":");
+    json_escape(b, ds4_backend_name(s->backend));
+    buf_puts(b, ",\"tensor_route\":");
+    json_escape(b, ds4_backend_name(s->backend));
+    buf_printf(b, ",\"slot_count\":%d", s->slot_count > 0 ? s->slot_count : 1);
+    buf_printf(b, ",\"build_timestamp\":\"%s %s\"", __DATE__, __TIME__);
+    if (e) {
+        buf_puts(b, ",\"model_name\":");
+        json_escape(b, ds4_engine_model_name(e));
+        buf_printf(b, ",\"model_bytes\":%llu",
+                   (unsigned long long)ds4_engine_model_bytes(e));
+        buf_printf(b, ",\"layers\":%d", ds4_engine_layer_count(e));
+        buf_printf(b, ",\"routed_quant_bits\":%d", ds4_engine_routed_quant_bits(e));
+        buf_printf(b, ",\"vision\":%s", ds4_engine_has_vision(e) ? "true" : "false");
+        const char *arch = ds4_engine_is_glm53(e) ? "glm53" :
+            (ds4_engine_is_glm_dsa(e) ? "glm-dsa" : ds4_engine_model_name(e));
+        buf_puts(b, ",\"architecture\":");
+        json_escape(b, arch ? arch : "unknown");
+    }
+    buf_puts(b, "}");
+}
+
+static void stats_json_append_mtp(buf *b, server *s) {
+    ds4_engine *e = s->engine;
+    buf_puts(b, ",\"mtp\":{");
+    if (!e || !ds4_engine_has_mtp(e)) {
+        buf_puts(b, "\"state\":\"unsupported\"");
+    } else if (s->batched_mode || ds4_engine_mtp_draft_tokens(e) <= 1) {
+        buf_printf(b, "\"state\":\"disabled\",\"draft_tokens\":%d",
+                   e ? ds4_engine_mtp_draft_tokens(e) : 0);
+    } else {
+        buf_printf(b, "\"state\":\"active\",\"draft_tokens\":%d",
+                   ds4_engine_mtp_draft_tokens(e));
+    }
+    pthread_mutex_lock(&s->mu);
+    const uint64_t cycles = s->mtp_cycles;
+    const uint64_t accepted = s->mtp_accepted_tokens;
+    const uint64_t drafted = s->mtp_drafted_tokens;
+    const double cycle_s = s->mtp_cycle_time_s;
+    const uint64_t plain_steps = s->mtp_plain_steps;
+    const double plain_s = s->mtp_plain_step_time_s;
+    pthread_mutex_unlock(&s->mu);
+    if (cycles > 0) {
+        buf_printf(b, ",\"cycles\":%llu,\"accepted_tokens\":%llu,\"drafted_tokens\":%llu",
+                   (unsigned long long)cycles,
+                   (unsigned long long)accepted,
+                   (unsigned long long)drafted);
+        const double avg_cycle_ns = (cycle_s / (double)cycles) * 1e9;
+        buf_printf(b, ",\"cycle_ns\":%.0f", avg_cycle_ns);
+    }
+    if (plain_steps > 0) {
+        const double avg_plain_ns = (plain_s / (double)plain_steps) * 1e9;
+        buf_printf(b, ",\"plain_step_ns\":%.0f", avg_plain_ns);
+    }
+    buf_puts(b, "}");
+}
+
+static void stats_json_append_metal(buf *b) {
+    if (!ds4_gpu_telemetry_ready()) return;
+    buf_printf(b,
+               ",\"metal\":{\"allocated_bytes\":%llu,\"recommended_max_bytes\":%llu}",
+               (unsigned long long)ds4_gpu_current_allocated_size(),
+               (unsigned long long)ds4_gpu_recommended_working_set_size());
+}
+
+static void stats_json_append_kv(buf *b, server *s) {
+    if (!s->kv.enabled) {
+        buf_puts(b, ",\"kv\":{\"enabled\":false}");
+        return;
+    }
+    pthread_mutex_lock(&s->kv_mu);
+    const char *dir = s->kv.dir;
+    const uint64_t budget = s->kv.budget_bytes;
+    uint64_t used = 0;
+    int entries = s->kv.len;
+    uint64_t last_used = 0;
+    if (s->kv.entry) {
+        for (int i = 0; i < s->kv.len; i++) {
+            used += s->kv.entry[i].file_size;
+            if (s->kv.entry[i].last_used > last_used) last_used = s->kv.entry[i].last_used;
+        }
+    }
+    pthread_mutex_unlock(&s->kv_mu);
+    buf_printf(b, ",\"kv\":{\"enabled\":true,\"used_bytes\":%llu,\"budget_bytes\":%llu,\"entries\":%d",
+               (unsigned long long)used, (unsigned long long)budget, entries);
+    if (last_used > 0) {
+        const double ago = now_sec() - (double)last_used;
+        buf_printf(b, ",\"last_write_s_ago\":%.0f", ago > 0 ? ago : 0);
+    }
+    if (dir && dir[0]) {
+        buf_puts(b, ",\"dir\":");
+        json_escape(b, dir);
+    }
+    buf_puts(b, "}");
+}
+
+static void stats_json_append_checkpoint(buf *b, server *s) {
+    if (!s->kv.enabled) return;
+    pthread_mutex_lock(&s->kv_mu);
+    const uint64_t saves = s->kv.saves_count;
+    const uint64_t restores = s->kv.restores_count;
+    const double last_write = s->kv.last_write_s;
+    const double last_block = s->kv.last_blocking_s;
+    pthread_mutex_unlock(&s->kv_mu);
+    buf_printf(b, ",\"checkpoint\":{\"saves\":%llu,\"restores\":%llu",
+               (unsigned long long)saves, (unsigned long long)restores);
+    if (last_write > 0.0) {
+        buf_printf(b, ",\"last_write_s\":%.6f", last_write);
+    }
+    if (last_block > 0.0) {
+        buf_printf(b, ",\"last_blocking_s\":%.6f", last_block);
+    }
+    buf_puts(b, "}");
+}
+
+static void stats_json_append_last_request(buf *b, const server_request_record *rec) {
+    buf_printf(b,
+               ",\"last_request\":{"
+               "\"id\":%llu,"
+               "\"started_at_s\":%.6f,"
+               "\"completed_at_s\":%.6f,"
+               "\"context_before\":%d,"
+               "\"context_after\":%d,"
+               "\"context_capacity\":%d,"
+               "\"logical_prompt_tokens\":%d,"
+               "\"cached_prompt_tokens\":%d,"
+               "\"fresh_prompt_tokens\":%d,"
+               "\"prompt_wall_s\":%.6f,"
+               "\"decode_s\":%.6f,"
+               "\"output_tokens\":%d,",
+               (unsigned long long)rec->id,
+               rec->started_at,
+               rec->completed_at,
+               rec->context_before,
+               rec->context_after,
+               rec->context_capacity,
+               rec->logical_prompt_tokens,
+               rec->cached_prompt_tokens,
+               rec->fresh_prompt_tokens,
+               rec->prompt_wall_s,
+               rec->decode_s,
+               rec->output_tokens);
+    if (rec->first_token_s > 0.0) {
+        buf_printf(b, "\"first_token_s\":%.6f,", rec->first_token_s);
+    }
+    if (rec->prefill_compute_s > 0.0) {
+        buf_printf(b, "\"prefill_compute_s\":%.6f,", rec->prefill_compute_s);
+    }
+    if (rec->mtp_state[0]) {
+        buf_puts(b, "\"mtp_state\":");
+        json_escape(b, rec->mtp_state);
+        buf_puts(b, ",");
+    }
+    buf_puts(b, "\"cache_source\":");
+    json_escape(b, rec->cache_source[0] ? rec->cache_source : "cold");
+    buf_puts(b, ",\"finish_reason\":");
+    json_escape(b, rec->finish_reason[0] ? rec->finish_reason : "stop");
+    buf_puts(b, "}");
+}
+
+static void stats_json_append_process_and_host(buf *b, server *s) {
+#ifdef __APPLE__
+    struct task_vm_info vm = {0};
+    mach_msg_type_number_t vm_count = TASK_VM_INFO_COUNT;
+    kern_return_t kr = task_info(mach_task_self(), TASK_VM_INFO,
+                                 (task_info_t)&vm, &vm_count);
+    if (kr == KERN_SUCCESS) {
+        if (vm.phys_footprint > s->peak_physical_footprint) {
+            s->peak_physical_footprint = vm.phys_footprint;
+        }
+        buf_printf(b,
+                   ",\"process\":{\"pid\":%d,\"physical_footprint_bytes\":%llu,"
+                   "\"peak_physical_footprint_bytes\":%llu,\"rss_bytes\":%llu}",
+                   (int)getpid(),
+                   (unsigned long long)vm.phys_footprint,
+                   (unsigned long long)s->peak_physical_footprint,
+                   (unsigned long long)vm.resident_size);
+
+        char chip[128] = "";
+        char osver[64] = "";
+        sysctl_str("machdep.cpu.brand_string", chip, sizeof(chip));
+        sysctl_str("kern.osproductversion", osver, sizeof(osver));
+        const uint64_t unified = sysctl_u64("hw.memsize");
+        const int cores = sysctl_int("hw.ncpu");
+        int pressure = 0;
+        size_t plen = sizeof(pressure);
+        const char *pressure_name = NULL;
+        if (sysctlbyname("kern.memorystatus_vm_pressure_level",
+                         &pressure, &plen, NULL, 0) == 0) {
+            pressure_name = memory_pressure_name(pressure);
+        }
+        struct xsw_usage swap = {0};
+        size_t slen = sizeof(swap);
+        uint64_t swap_bytes = 0;
+        if (sysctlbyname("vm.swapusage", &swap, &slen, NULL, 0) == 0) {
+            swap_bytes = (uint64_t)swap.xsu_used;
+        }
+        if (s->swap_bytes_at_start == 0) s->swap_bytes_at_start = swap_bytes;
+        const int64_t swap_delta = (int64_t)swap_bytes - (int64_t)s->swap_bytes_at_start;
+
+        double cpu_pct = -1.0;
+        double pageins_per_s = -1.0;
+        double disk_r = -1.0;
+        double disk_w = -1.0;
+        const double now = now_sec();
+        struct task_absolutetime_info tinfo = {0};
+        mach_msg_type_number_t tcount = TASK_ABSOLUTETIME_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_ABSOLUTETIME_INFO,
+                      (task_info_t)&tinfo, &tcount) == KERN_SUCCESS) {
+            const uint64_t cpu_ns = tinfo.total_user + tinfo.total_system;
+            if (s->host_sample_at > 0.0 && now > s->host_sample_at) {
+                const double dt = now - s->host_sample_at;
+                if (cpu_ns >= s->host_cpu_ns) {
+                    cpu_pct = ((double)(cpu_ns - s->host_cpu_ns) / 1e9) / dt * 100.0;
+                }
+            }
+            s->host_cpu_ns = cpu_ns;
+        }
+        struct task_events_info ev = {0};
+        mach_msg_type_number_t ev_count = TASK_EVENTS_INFO_COUNT;
+        if (task_info(mach_task_self(), TASK_EVENTS_INFO,
+                      (task_info_t)&ev, &ev_count) == KERN_SUCCESS) {
+            if (s->host_sample_at > 0.0 && now > s->host_sample_at) {
+                const double dt = now - s->host_sample_at;
+                if ((uint64_t)ev.pageins >= s->host_pageins) {
+                    pageins_per_s = (double)((uint64_t)ev.pageins - s->host_pageins) / dt;
+                }
+            }
+            s->host_pageins = (uint64_t)ev.pageins;
+        }
+        rusage_info_current ru;
+        memset(&ru, 0, sizeof(ru));
+        if (proc_pid_rusage(getpid(), RUSAGE_INFO_CURRENT, (rusage_info_t *)&ru) == 0) {
+            if (s->host_sample_at > 0.0 && now > s->host_sample_at) {
+                const double dt = now - s->host_sample_at;
+                if (ru.ri_diskio_bytesread >= s->host_disk_r) {
+                    disk_r = (double)(ru.ri_diskio_bytesread - s->host_disk_r) / dt;
+                }
+                if (ru.ri_diskio_byteswritten >= s->host_disk_w) {
+                    disk_w = (double)(ru.ri_diskio_byteswritten - s->host_disk_w) / dt;
+                }
+            }
+            s->host_disk_r = ru.ri_diskio_bytesread;
+            s->host_disk_w = ru.ri_diskio_byteswritten;
+        }
+        s->host_sample_at = now;
+
+        buf_puts(b, ",\"host\":{");
+        int first = 1;
+        if (chip[0]) {
+            buf_puts(b, "\"chip\":");
+            json_escape(b, chip);
+            first = 0;
+        }
+        if (osver[0]) {
+            buf_printf(b, "%s\"macos_version\":", first ? "" : ",");
+            json_escape(b, osver);
+            first = 0;
+        }
+        if (unified) {
+            buf_printf(b, "%s\"unified_memory_bytes\":%llu",
+                       first ? "" : ",", (unsigned long long)unified);
+            first = 0;
+        }
+        if (cores) {
+            buf_printf(b, "%s\"cpu_cores\":%d", first ? "" : ",", cores);
+            first = 0;
+        }
+        const int gpu_cores = ds4_gpu_core_count();
+        if (gpu_cores > 0) {
+            buf_printf(b, "%s\"gpu_cores\":%d", first ? "" : ",", gpu_cores);
+            first = 0;
+        }
+        const char *thermal = ds4_gpu_thermal_state();
+        if (thermal && thermal[0]) {
+            buf_printf(b, "%s\"thermal_state\":", first ? "" : ",");
+            json_escape(b, thermal);
+            first = 0;
+        }
+        const double gpu_util = ds4_gpu_device_utilization();
+        if (gpu_util >= 0.0) {
+            buf_printf(b, "%s\"gpu_util_pct\":%.1f", first ? "" : ",", gpu_util);
+            first = 0;
+        }
+        if (pressure_name) {
+            buf_printf(b, "%s\"memory_pressure\":", first ? "" : ",");
+            json_escape(b, pressure_name);
+            first = 0;
+        }
+        buf_printf(b, "%s\"swap_bytes\":%llu,\"swap_delta_bytes\":%lld",
+                   first ? "" : ",",
+                   (unsigned long long)swap_bytes,
+                   (long long)swap_delta);
+        first = 0;
+        if (cpu_pct >= 0.0) buf_printf(b, ",\"process_cpu_pct\":%.2f", cpu_pct);
+        if (pageins_per_s >= 0.0) buf_printf(b, ",\"pageins_per_s\":%.2f", pageins_per_s);
+        if (disk_r >= 0.0) buf_printf(b, ",\"disk_read_bytes_per_s\":%.0f", disk_r);
+        if (disk_w >= 0.0) buf_printf(b, ",\"disk_write_bytes_per_s\":%.0f", disk_w);
+        buf_puts(b, "}");
+    }
+#else
+    (void)s;
+    struct rusage ru;
+    if (getrusage(RUSAGE_SELF, &ru) == 0) {
+        buf_printf(b, ",\"process\":{\"pid\":%d,\"rss_bytes\":%llu}",
+                   (int)getpid(),
+                   (unsigned long long)ru.ru_maxrss * 1024ull);
+    }
+#endif
+}
+
 /* Both handlers run on the client thread, so they answer immediately even
  * while the worker is deep inside a multi-minute prefill. */
 static bool send_health(server *s, int fd) {
@@ -15367,6 +15843,13 @@ static bool send_health(server *s, int fd) {
 static bool send_stats(server *s, int fd) {
     pthread_mutex_lock(&s->mu);
     const server_stats_snapshot snapshot = s->stats_snapshot;
+    server_request_record last = {0};
+    const bool has_last = s->requests.len > 0;
+    if (has_last) {
+        const int idx = (s->requests.head - 1 + SERVER_STATS_REQUEST_CAP) %
+                        SERVER_STATS_REQUEST_CAP;
+        last = s->requests.rec[idx];
+    }
     pthread_mutex_unlock(&s->mu);
     const server_stats st = snapshot.counters;
     const uint64_t cache_hits = st.cache_memory_token + st.cache_memory_text +
@@ -15382,6 +15865,7 @@ static bool send_stats(server *s, int fd) {
         "\"queue_depth\":%d,"
         "\"clients\":%d,"
         "\"live_tokens\":%d,"
+        "\"live_tokens_peak\":%d,"
         "\"ctx_size\":%d,"
         "\"requests\":%llu,"
         "\"queue_rejected\":%llu,"
@@ -15402,12 +15886,13 @@ static bool send_stats(server *s, int fd) {
             "\"anthropic_tool_output\":%llu,"
             "\"thinking_visible\":%llu,"
             "\"tool_visible\":%llu,"
-            "\"disk_text\":%llu}}\n",
+            "\"disk_text\":%llu}",
         now_sec() - s->started_at,
         snapshot.busy ? "true" : "false",
         snapshot.queue_depth,
         snapshot.clients,
         snapshot.live_tokens,
+        snapshot.live_tokens_peak,
         snapshot.ctx_size,
         (unsigned long long)st.requests,
         (unsigned long long)st.queue_rejected,
@@ -15428,6 +15913,63 @@ static bool send_stats(server *s, int fd) {
         (unsigned long long)st.cache_thinking_visible,
         (unsigned long long)st.cache_tool_visible,
         (unsigned long long)st.cache_disk_text);
+    stats_json_append_identity(&b, s);
+    stats_json_append_mtp(&b, s);
+    stats_json_append_metal(&b);
+    stats_json_append_kv(&b, s);
+    stats_json_append_checkpoint(&b, s);
+    stats_json_append_process_and_host(&b, s);
+    if (has_last) stats_json_append_last_request(&b, &last);
+    buf_puts(&b, "}\n");
+    bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
+    buf_free(&b);
+    return ok;
+}
+
+static bool send_stats_requests(server *s, int fd) {
+    server_request_record copy[SERVER_STATS_REQUEST_CAP];
+    int len = 0;
+    pthread_mutex_lock(&s->mu);
+    len = s->requests.len;
+    for (int i = 0; i < len; i++) {
+        const int idx = (s->requests.head - len + i + SERVER_STATS_REQUEST_CAP) %
+                        SERVER_STATS_REQUEST_CAP;
+        copy[i] = s->requests.rec[idx];
+    }
+    pthread_mutex_unlock(&s->mu);
+    buf b = {0};
+    buf_puts(&b, "{\"requests\":[");
+    for (int i = 0; i < len; i++) {
+        if (i) buf_puts(&b, ",");
+        const server_request_record *rec = &copy[i];
+        buf_printf(&b,
+                   "{\"id\":%llu,\"started_at_s\":%.6f,\"completed_at_s\":%.6f,"
+                   "\"context_before\":%d,\"context_after\":%d,\"context_capacity\":%d,"
+                   "\"logical_prompt_tokens\":%d,\"cached_prompt_tokens\":%d,"
+                   "\"fresh_prompt_tokens\":%d,\"prompt_wall_s\":%.6f,"
+                   "\"decode_s\":%.6f,\"output_tokens\":%d,\"cache_source\":",
+                   (unsigned long long)rec->id,
+                   rec->started_at, rec->completed_at,
+                   rec->context_before, rec->context_after, rec->context_capacity,
+                   rec->logical_prompt_tokens, rec->cached_prompt_tokens,
+                   rec->fresh_prompt_tokens, rec->prompt_wall_s,
+                   rec->decode_s, rec->output_tokens);
+        json_escape(&b, rec->cache_source[0] ? rec->cache_source : "cold");
+        buf_puts(&b, ",\"finish_reason\":");
+        json_escape(&b, rec->finish_reason[0] ? rec->finish_reason : "stop");
+        if (rec->first_token_s > 0.0) {
+            buf_printf(&b, ",\"first_token_s\":%.6f", rec->first_token_s);
+        }
+        if (rec->prefill_compute_s > 0.0) {
+            buf_printf(&b, ",\"prefill_compute_s\":%.6f", rec->prefill_compute_s);
+        }
+        if (rec->mtp_state[0]) {
+            buf_puts(&b, ",\"mtp_state\":");
+            json_escape(&b, rec->mtp_state);
+        }
+        buf_puts(&b, "}");
+    }
+    buf_puts(&b, "]}\n");
     bool ok = http_response(fd, s->enable_cors, 200, "application/json", b.ptr);
     buf_free(&b);
     return ok;
@@ -15566,6 +16108,13 @@ static void *client_main(void *arg) {
         (!strcmp(hr.path, "/health") || !strcmp(hr.path, "/v1/health")))
     {
         send_health(s, fd);
+        http_request_free(&hr);
+        goto done;
+    }
+    if (!strcmp(hr.method, "GET") &&
+        (!strcmp(hr.path, "/stats/requests") || !strcmp(hr.path, "/v1/stats/requests")))
+    {
+        send_stats_requests(s, fd);
         http_request_free(&hr);
         goto done;
     }
@@ -16234,6 +16783,7 @@ int main(int argc, char **argv) {
     server s = {0};
     s.engine = engine;
     s.tp_leader = tp_leader;
+    s.backend = cfg.engine.backend;
     s.ctx_size = cfg.ctx_size;
     s.slot_count = slot_count;
     s.batched_mode = cfg.batched_sessions > 0;
@@ -16962,10 +17512,68 @@ static void test_stats_uses_published_snapshot(void) {
         TEST_ASSERT(strstr(out, "\"ctx_size\":524288") != NULL);
         TEST_ASSERT(strstr(out, "\"requests\":9") != NULL);
         TEST_ASSERT(strstr(out, "\"hits\":2") != NULL);
+        TEST_ASSERT(strstr(out, "\"identity\"") != NULL);
+        TEST_ASSERT(strstr(out, "\"mtp\"") != NULL);
         free(out);
         close(sv[0]);
         close(sv[1]);
     }
+
+    pthread_mutex_init(&s.kv_mu, NULL);
+    s.kv.enabled = true;
+    s.kv.saves_count = 12;
+    s.kv.restores_count = 3;
+    s.kv.last_blocking_s = 0.015;
+    s.kv.last_write_s = 0.050;
+
+    server_request_record rec = {0};
+    rec.id = 42;
+    rec.started_at = 100.0;
+    rec.completed_at = 102.5;
+    rec.prompt_wall_s = 0.5;
+    rec.prefill_compute_s = 0.35;
+    rec.first_token_s = 0.45;
+    rec.decode_s = 2.0;
+    rec.output_tokens = 50;
+    snprintf(rec.mtp_state, sizeof(rec.mtp_state), "active");
+    s.requests.rec[0] = rec;
+    s.requests.head = 1;
+    s.requests.len = 1;
+
+    sv[0] = -1; sv[1] = -1;
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    if (sv[0] >= 0 && sv[1] >= 0) {
+        TEST_ASSERT(send_stats(&s, sv[0]));
+        shutdown(sv[0], SHUT_WR);
+        char *out = read_socket_text(sv[1]);
+        TEST_ASSERT(strstr(out, "\"checkpoint\":{") != NULL);
+        TEST_ASSERT(strstr(out, "\"saves\":12") != NULL);
+        TEST_ASSERT(strstr(out, "\"restores\":3") != NULL);
+        TEST_ASSERT(strstr(out, "\"last_blocking_s\":0.015") != NULL);
+        TEST_ASSERT(strstr(out, "\"last_request\":{") != NULL);
+        TEST_ASSERT(strstr(out, "\"first_token_s\":0.45") != NULL);
+        TEST_ASSERT(strstr(out, "\"prefill_compute_s\":0.35") != NULL);
+        TEST_ASSERT(strstr(out, "\"mtp_state\":\"active\"") != NULL);
+        free(out);
+        close(sv[0]);
+        close(sv[1]);
+    }
+
+    sv[0] = -1; sv[1] = -1;
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    if (sv[0] >= 0 && sv[1] >= 0) {
+        TEST_ASSERT(send_stats_requests(&s, sv[0]));
+        shutdown(sv[0], SHUT_WR);
+        char *out = read_socket_text(sv[1]);
+        TEST_ASSERT(strstr(out, "\"requests\":[") != NULL);
+        TEST_ASSERT(strstr(out, "\"first_token_s\":0.45") != NULL);
+        TEST_ASSERT(strstr(out, "\"prefill_compute_s\":0.35") != NULL);
+        TEST_ASSERT(strstr(out, "\"mtp_state\":\"active\"") != NULL);
+        free(out);
+        close(sv[0]);
+        close(sv[1]);
+    }
+    pthread_mutex_destroy(&s.kv_mu);
     pthread_mutex_destroy(&s.mu);
 }
 

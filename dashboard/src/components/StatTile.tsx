@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 interface Props {
   label: string;
   value: string;
-  unit?: string;
+  unit?: string | undefined;
   /** Small secondary facts rendered under the value, e.g. peak / average. */
   facts?: readonly { k: string; v: string }[];
   children?: ReactNode;

@@ -5,13 +5,26 @@
 # Usage:
 #   ./run-ds4-monitored.sh
 #   MONITOR_INTERVAL_SECONDS=30 ./run-ds4-monitored.sh
+#   DS4_ARM=o1 ./run-ds4-monitored.sh   # fallback: O1 (layers 37-42 Q4_K experts) with its own KV dir
 # Fans run at verified maximum while ds4-server runs, then return to Apple auto.
 
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 SERVER_BIN="$ROOT_DIR/ds4-server"
-MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf"
+# O2b (layers 33-42 Q4_K experts) is the default; O1 stays on disk as the fallback arm.
+# The KV cache is per-quant, so each arm keeps its own KV dir.
+case "${DS4_ARM:-o2b}" in
+    o2b)
+        MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf"
+        KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-uncensored-orcarouter-o2b-l33-42q4k"
+        ;;
+    o1)
+        MODEL="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf"
+        KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-uncensored-orcarouter-o1-l37-42q4k"
+        ;;
+    *) echo "DS4_ARM must be o2b or o1 (got: $DS4_ARM)" >&2; exit 2 ;;
+esac
 # Vision-Exp is sidecar_required: the encoder is a separate GGUF and must be the
 # unmodified 316-tensor antirez one. Without it the server still serves text.
 VISION_ENCODER="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
@@ -19,7 +32,6 @@ HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
-KV_DIR="$HOME/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q4k"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -30,7 +42,10 @@ FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RAMP_TIMEOUT_SECONDS=20
 FAN_RESTORE_TIMEOUT_SECONDS=5
 FAN_RAMP_MIN_PERCENT=95
+FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
+FAN_WATCH_INTERVAL_SECONDS=2
 fan_max_owned=false
+fan_watch_pid=""
 
 usage() {
     cat <<'EOF'
@@ -38,10 +53,12 @@ Usage: ./run-ds4-monitored.sh
 
 Starts ds4-server with the daily DeepSeek V4 Flash configuration and prints
 health, throughput, process memory, KV disk-cache use, and free disk space.
-Fans run at maximum while the server runs and return to Apple auto when it stops.
+Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
+server runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
+  FAN_PROFILE=name            thermalforge watch profile (default: balanced)
 EOF
 }
 
@@ -211,33 +228,42 @@ PY
 }
 
 set_fans_max() {
-    local deadline fan_status
-
-    # The controller may apply the write before reporting failure, so cleanup
-    # owns restoration from the moment the privileged command starts.
+    # Name kept for the call site; runs `thermalforge watch --profile $FAN_PROFILE`,
+    # which drives the fans from CPU/GPU temperature instead of pinning them at max.
+    # The controller may apply a write before we can check, so cleanup owns
+    # restoration from the moment the watcher starts.
     fan_max_owned=true
-    fan_control max || return 1
-    deadline=$((SECONDS + FAN_RAMP_TIMEOUT_SECONDS))
-    while ((SECONDS < deadline)); do
-        if [[ -n ${server_pid:-} ]] && ! kill -0 "$server_pid" 2>/dev/null; then
-            echo "ds4-server stopped while fans were ramping." >&2
-            return 1
-        fi
-        if fan_status=$(fan_control verify-max 2>/dev/null); then
-            echo "Fans at maximum: $fan_status"
-            return 0
-        fi
-        sleep 1
-    done
-    echo "Fans did not reach ${FAN_RAMP_MIN_PERCENT}% of maximum within ${FAN_RAMP_TIMEOUT_SECONDS}s." >&2
-    fan_control status >&2 || true
-    return 1
+    "$THERMALFORGE" watch --profile "$FAN_PROFILE" --interval "$FAN_WATCH_INTERVAL_SECONDS" \
+        >/dev/null 2>&1 &
+    fan_watch_pid=$!
+    sleep 2
+    if ! kill -0 "$fan_watch_pid" 2>/dev/null; then
+        echo "thermalforge watch --profile $FAN_PROFILE exited immediately." >&2
+        fan_watch_pid=""
+        return 1
+    fi
+    echo "Fans under ThermalForge '$FAN_PROFILE' profile (watch pid $fan_watch_pid)."
+    return 0
+}
+
+stop_fan_watch() {
+    local deadline
+    [[ -n $fan_watch_pid ]] || return 0
+    if kill -0 "$fan_watch_pid" 2>/dev/null; then
+        kill -INT "$fan_watch_pid" 2>/dev/null || true
+        deadline=$((SECONDS + FAN_RESTORE_TIMEOUT_SECONDS))
+        while ((SECONDS < deadline)) && kill -0 "$fan_watch_pid" 2>/dev/null; do sleep 1; done
+        kill -0 "$fan_watch_pid" 2>/dev/null && kill -KILL "$fan_watch_pid" 2>/dev/null || true
+    fi
+    wait "$fan_watch_pid" 2>/dev/null || true
+    fan_watch_pid=""
 }
 
 restore_fans() {
     local deadline attempt
 
     [[ $fan_max_owned == true ]] || return 0
+    stop_fan_watch
     echo "Restoring fans to Apple automatic control..." >&2
     for ((attempt = 1; attempt <= 3; attempt++)); do
         if fan_control auto; then
@@ -530,6 +556,8 @@ def restore_fans_after_server():
     """Hard-kill fallback: this monitor survives independently of the wrapper."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     emit(f"[monitor {timestamp}] fans=restore-attempt reason=server-stopped")
+    # Stop any thermalforge watch profile the wrapper left behind before resetting.
+    subprocess.run(["pkill", "-INT", "-f", "thermalforge watch"], check=False, capture_output=True)
     try:
         reset = subprocess.run(
             [fan_controller, "auto"],
@@ -609,8 +637,6 @@ while server_alive():
     warnings = []
     if cache_percent >= 90:
         warnings.append("kv-cache-near-full")
-    if ever_healthy and fans_at_max is False:
-        warnings.append("fans-below-max")
     warning = "".join(f" warning={value}" for value in warnings)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -652,7 +678,7 @@ Starting monitored ds4-server
   max tokens: $TOKENS
   KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens)
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
-  fans:       ThermalForge max + macmon RPM verification; Apple auto on stop
+  fans:       ThermalForge '$FAN_PROFILE' profile (temperature-driven); Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB
 
 Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
@@ -679,7 +705,7 @@ server_pid=$!
 
 start_monitor "$server_pid"
 if ! set_fans_max; then
-    echo "Verified maximum fan speed is required; stopping ds4-server." >&2
+    echo "ThermalForge fan profile could not be started; stopping ds4-server." >&2
     exit 1
 fi
 

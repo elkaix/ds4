@@ -1,5 +1,9 @@
 # Run ds4-server (daily)
 
+Current configuration (promoted 2026-09-13): O2b is selected by
+`run-ds4-monitored.sh` and `ds4flash.gguf`; O1 remains the rollback arm via
+`DS4_ARM=o1`. Older model details below are historical unless they name O2b.
+
 ## 1. After every reboot — raise the Metal wired-memory ceiling
 
 Resets to 0 on reboot.
@@ -8,22 +12,13 @@ Resets to 0 on reboot.
 sudo sysctl iogpu.wired_limit_mb=118000
 ```
 
-**The AProjQ4K build at `--ctx 262144` does not need this** — 82.74 GiB planned fits under the
-default cap, and it was verified loading with the limit at 0. You still need it for
-`run-ds4-*.sh`, which hard-guard `WIRED_LIMIT_MIN_MB=118000` and refuse to start below it, and
-for larger `--ctx` or a return to a bigger quant.
+The promoted O2b build plans 102.00 GiB at `--ctx 262144`. The canonical launcher
+requires a wired limit of at least 118000 MiB; O1 remains available as fallback.
 
 ## 2. Start the server
 
 ```bash
-cd ~/Projects/open-source/ds4 && ./ds4-server --chdir "$PWD" --metal \
-  --model ~/models/gguf/DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf \
-  --vision ~/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf \
-  --ctx 262144 --tokens 32768 \
-  --warm-weights --power 100 \
-  --host 127.0.0.1 --port 8000 \
-  --kv-disk-dir ~/.ds4/server-kv/deepseek-v4-flash-vision-exp-ablit-q4k --kv-disk-space-mb 131072 \
-  --kv-cache-min-tokens 2048 --kv-cache-reject-different-quant
+bash ~/Scripts/start-ds4.sh
 ```
 
 `--ctx 262144` matches both clients (see §5) and the four `run-ds4-*.sh` wrappers.
@@ -31,9 +26,9 @@ cd ~/Projects/open-source/ds4 && ./ds4-server --chdir "$PWD" --metal \
 well under the cap — and it needs no `iogpu.wired_limit_mb` bump to load.
 Think Max needs `393216`; raise both the server and the clients together if you want it.
 
-### The model (AProjQ4K, adopted 2026-09-02)
+### The model (O2b, promoted 2026-09-13)
 
-`DeepSeek-V4-Flash-Vision-Exp-Abliterated-IQ2XXS-w2Q2K-AProjQ4K-SExpQ8-OutQ4K.gguf`,
+`~/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf`,
 84,155,819,296 bytes, sha256 `22f7eeb2d3bd6142501fc54146e8ff9470ae03e2cae9a5dcfe8543a43d7ed4cb`. Built here: the audreyt Vision-Exp Abliterated Q8 GGUF with its
 216 dense attention-projection + output-head tensors re-quantized `q8_0 -> q4_K`,
 imatrix-guided by the merged routed-1p5m + dense-220k file, then **spliced** so the

@@ -152,6 +152,26 @@ extern "C" uint64_t ds4_gpu_recommended_working_set_size(void) {
     return (uint64_t)total_b;
 }
 
+extern "C" int ds4_gpu_telemetry_ready(void) {
+    return 0;
+}
+
+extern "C" uint64_t ds4_gpu_current_allocated_size(void) {
+    return 0;
+}
+
+extern "C" int ds4_gpu_core_count(void) {
+    return 0;
+}
+
+extern "C" double ds4_gpu_device_utilization(void) {
+    return -1.0;
+}
+
+extern "C" const char *ds4_gpu_thermal_state(void) {
+    return "unknown";
+}
+
 extern "C" uint32_t ds4_gpu_stream_expert_cache_configured_count(void) {
     return g_ssd_streaming_mode ? g_stream_expert_cache_budget : 0;
 }

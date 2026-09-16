@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <IOKit/IOKitLib.h>
 #include <mach-o/dyld.h>
 
 #include <stdint.h>
@@ -4253,6 +4254,68 @@ uint64_t ds4_gpu_recommended_working_set_size(void) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
     if (!g_device) return 0;
     return (uint64_t)[g_device recommendedMaxWorkingSetSize];
+}
+
+int ds4_gpu_telemetry_ready(void) {
+    return g_device != nil;
+}
+
+uint64_t ds4_gpu_current_allocated_size(void) {
+    if (!g_device) return 0;
+    return (uint64_t)[g_device currentAllocatedSize];
+}
+
+const char *ds4_gpu_thermal_state(void) {
+    NSProcessInfoThermalState state = [[NSProcessInfo processInfo] thermalState];
+    switch (state) {
+        case NSProcessInfoThermalStateNominal: return "nominal";
+        case NSProcessInfoThermalStateFair: return "fair";
+        case NSProcessInfoThermalStateSerious: return "serious";
+        case NSProcessInfoThermalStateCritical: return "critical";
+        default: return "nominal";
+    }
+}
+
+int ds4_gpu_core_count(void) {
+    static int cached_cores = -1;
+    if (cached_cores >= 0) return cached_cores;
+    cached_cores = 0;
+    mach_port_t main_port = kIOMainPortDefault;
+    io_service_t service = IOServiceGetMatchingService(main_port, IOServiceMatching("AGXAccelerator"));
+    if (!service) service = IOServiceGetMatchingService(main_port, IOServiceMatching("IOAccelerator"));
+    if (service) {
+        CFTypeRef prop = IORegistryEntryCreateCFProperty(service, CFSTR("gpu-core-count"), kCFAllocatorDefault, 0);
+        if (prop) {
+            if (CFGetTypeID(prop) == CFNumberGetTypeID()) {
+                CFNumberGetValue((CFNumberRef)prop, kCFNumberIntType, &cached_cores);
+            }
+            CFRelease(prop);
+        }
+        IOObjectRelease(service);
+    }
+    return cached_cores;
+}
+
+double ds4_gpu_device_utilization(void) {
+    mach_port_t main_port = kIOMainPortDefault;
+    io_service_t service = IOServiceGetMatchingService(main_port, IOServiceMatching("AGXAccelerator"));
+    if (!service) service = IOServiceGetMatchingService(main_port, IOServiceMatching("IOAccelerator"));
+    if (!service) return -1.0;
+    double util = -1.0;
+    CFTypeRef stats = IORegistryEntryCreateCFProperty(service, CFSTR("PerformanceStatistics"), kCFAllocatorDefault, 0);
+    if (stats) {
+        if (CFGetTypeID(stats) == CFDictionaryGetTypeID()) {
+            const void *val = CFDictionaryGetValue((CFDictionaryRef)stats, CFSTR("Device Utilization %"));
+            if (val && CFGetTypeID(val) == CFNumberGetTypeID()) {
+                int64_t u = 0;
+                CFNumberGetValue((CFNumberRef)val, kCFNumberSInt64Type, &u);
+                util = (double)u;
+            }
+        }
+        CFRelease(stats);
+    }
+    IOObjectRelease(service);
+    return util;
 }
 
 static int ds4_gpu_model_map_log_enabled(void) {

@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build && cp dist/index.html ../dashboard.html",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "node --test test/*.test.ts"
   },
   "dependencies": {
     "react": "^19.2.8",

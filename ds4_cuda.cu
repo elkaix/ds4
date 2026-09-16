@@ -32484,6 +32484,26 @@ extern "C" uint64_t ds4_gpu_recommended_working_set_size(void) {
     return (uint64_t)total_b * (uint64_t)n;
 }
 
+extern "C" int ds4_gpu_telemetry_ready(void) {
+    return 0;
+}
+
+extern "C" uint64_t ds4_gpu_current_allocated_size(void) {
+    return 0;
+}
+
+extern "C" int ds4_gpu_core_count(void) {
+    return 0;
+}
+
+extern "C" double ds4_gpu_device_utilization(void) {
+    return -1.0;
+}
+
+extern "C" const char *ds4_gpu_thermal_state(void) {
+    return "unknown";
+}
+
 extern "C" int ds4_gpu_routed_moe_set_selected_override(const int32_t *selected, uint32_t n_selected) {
     (void)selected;
     (void)n_selected;
