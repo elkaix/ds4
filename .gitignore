@@ -98,3 +98,5 @@ __pycache__/
 /tests/test_deepseek41_fusions
 /tests/test_deepseek41_topk
 /tests/test_deepseek41_live_edges
+
+dashboard_html.h
