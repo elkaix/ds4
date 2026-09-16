@@ -7,7 +7,7 @@
 #   ./run-qwen38-ds4.sh                 # full 262k ctx, agentic defaults
 #   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
 #   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh          # safer first smoke
-#   QWEN_DS4_BATCHED_SESSION=8 ./run-qwen38-ds4.sh # more concurrent agent sessions
+#   QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh # more concurrent agent sessions
 #   QWEN_DS4_MODEL=~/models/gguf/Qwen3.8-Flash-Next-Q2.gguf ./run-qwen38-ds4.sh
 # Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 #
@@ -65,9 +65,9 @@ MTP_DRAFT_MAX=16
 PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-1024}"
 # Concurrent resident sessions for agentic multi-turn / parallel tool clients.
 # main batches decode-ready sessions when N>1. 1 = single stream.
-BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-4}"
+BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-1}"
 # Exact tool-call IDs kept in RAM (agent loops generate many IDs).
-TOOL_MEMORY_MAX_IDS="${QWEN_DS4_TOOL_MEMORY_MAX_IDS:-200000}"
+TOOL_MEMORY_MAX_IDS="${QWEN_DS4_TOOL_MEMORY_MAX_IDS:-200000}"  # optional; upstream docs this mainly for DSML/DeepSeek tool history
 # Browser / local agent UIs often need CORS on 127.0.0.1.
 CORS="${QWEN_DS4_CORS:-1}"
 # Optional request trace for debugging agent tool loops (empty = off).
@@ -90,20 +90,28 @@ Full-context agentic launcher for antirez main + Qwen3.8 Uncensored
 native BF16 n-grams (Q4_K gate/up + Q8_0 down + embedded MTP). No --ple.
 
 Defaults tuned for agent / tool-loop workloads:
-  ctx 262144 (full native) · max tokens 65536 · batched-session 4
-  tool-memory-max-ids 200000 · CORS on · KV cold-max 131072 · MTP on
+  ctx 262144 (full native) · max tokens 65536 · batched-session 1
+  CORS on · KV cold-max 131072 · MTP on · tool-memory optional
   fan profile performance · prefill-chunk 1024
 
-Smoke (small ctx):
+Profiles:
+  # First validation
   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh
+
+  # Production: maximum native context, single agent/session (default)
+  ./run-qwen38-ds4.sh
+
+  # Parallel agents: start conservatively (do NOT pair C4 with 262K unmeasured)
+  QWEN_DS4_CTX=32768 QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh
+
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N     Monitor interval (default: 15)
   QWEN_DS4_MODEL=PATH            GGUF path (default: Uncensored native BF16 pack)
   QWEN_DS4_CTX=N                 Context tokens (default: 262144)
   QWEN_DS4_TOKENS=N              Default max output tokens (default: 65536)
-  QWEN_DS4_BATCHED_SESSION=N     Resident sessions to batch (default: 4; 1=off)
-  QWEN_DS4_TOOL_MEMORY_MAX_IDS=N Tool-call ID RAM cache (default: 200000)
+  QWEN_DS4_BATCHED_SESSION=N     Resident sessions to batch (default: 1; use 4+ only with smaller CTX)
+  QWEN_DS4_TOOL_MEMORY_MAX_IDS=N Tool-call ID RAM cache (default: 200000; DSML-oriented, optional for Qwen)
   QWEN_DS4_CORS=0                Disable CORS (default: on)
   QWEN_DS4_TRACE=FILE            Write prompt/tool trace log (default: off)
   QWEN_DS4_KV_DIR=PATH           KV disk-cache directory
@@ -821,8 +829,10 @@ Starting monitored ds4-server (Qwen3.8 Uncensored native BF16 n-grams, Q4_K/Q8_0
   wired limit: ${wired_limit_mb:-unknown} MiB
 
 API:        http://$HOST:$PORT/v1/chat/completions
-Dashboard:  http://$HOST:$PORT/dashboard
-Health:     http://$HOST:$PORT/health
+Models:     http://$HOST:$PORT/v1/models
+Dashboard:  http://$HOST:$PORT/dashboard   # this branch LOCAL PATCH
+Health:     http://$HOST:$PORT/health      # this branch LOCAL PATCH; pure main: /v1/models
+Stats:      http://$HOST:$PORT/stats       # this branch LOCAL PATCH
 
 Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
 EOF
