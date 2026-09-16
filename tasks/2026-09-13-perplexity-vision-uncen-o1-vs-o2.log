@@ -1,0 +1,11 @@
+=== o1 start 12:41:45 model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 90.88 GiB = 91.74 GiB planned
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+tokens=12737 scored=12705 nll=16620.915205347 avg_nll=1.308218434 ppl=3.699576798
+=== o1 end 12:48:15
+=== o2 start 12:48:15 model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 97.63 GiB = 98.49 GiB planned
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+tokens=12737 scored=12705 nll=16567.370456792 avg_nll=1.304003971 ppl=3.684017879
+=== o2 end 12:54:57
+O2b paired ppl (current binary): O1 3.699576798, O2b 3.684017879 — GATE2_PASS

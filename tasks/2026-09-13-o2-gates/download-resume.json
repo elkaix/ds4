@@ -1,0 +1,16 @@
+{
+  "time": "2026-09-13T14:20:43.983187-04:00",
+  "command": [
+    "/Users/panda/.local/bin/hf",
+    "download",
+    "dealignai/GLM-5.3-Flash-UNCENSORED-FP8",
+    "--revision",
+    "d21b19569d30e6f471c433b11e672b3bbb80552a",
+    "--local-dir",
+    "/Users/panda/models/hf/GLM-5.3-Flash-UNCENSORED-FP8"
+  ],
+  "completed_shards_before": 15,
+  "allocated_bytes_before": 82180042752,
+  "log": "/Users/panda/models/gguf/logs/glm53-uncen-fp8-download.log",
+  "pid": 35604
+}

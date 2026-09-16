@@ -1,0 +1,6 @@
+{
+  "pid": 29011,
+  "log": "/Users/panda/Projects/open-source/ds4/tasks/2026-09-13-o2-gates/daily-o2b.log",
+  "model": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf",
+  "backup": "/Users/panda/.ds4/o2-promotion-backup-20260913-141856"
+}

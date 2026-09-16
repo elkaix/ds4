@@ -1,0 +1,288 @@
+Starting monitored ds4-server
+  model:      /Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf
+  vision:     /Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf
+  endpoint:   http://127.0.0.1:8000
+  dashboard:  http://127.0.0.1:8000/dashboard
+  context:    262144
+  max tokens: 32768
+  KV cache:   /Users/panda/.ds4/server-kv/deepseek-v4-flash-vision-uncensored-orcarouter-o2b-l33-42q4k (131072 MiB budget, min 2048, cold max 65536 tokens)
+  monitor:    every 15s
+  fans:       ThermalForge 'balanced' profile (temperature-driven); Apple auto on stop
+  wired limit: 118000 MiB
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: warming mapped tensor pages: 97.63 GiB
+[monitor 2026-09-13 14:18:57] health=starting state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=0.0% mem=1.0% rss=1.2GiB fans=fan0=3457/5349,fan1=3718/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1654.4GiB
+Fans under ThermalForge 'balanced' profile (watch pid 29150).
+ds4: warmed tensor pages in 5.816s (checksum=773822820)
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 2.489 ms, residency requested in 433.928 ms, warmup 3.211 ms (mapped 99977.67 MiB from offset 5.09 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: Metal model views created in 0.059 ms, residency requested in 615.797 ms, warmup 1.253 ms (mapped 889.64 MiB from offset 0.02 MiB)
+ds4: Metal mapped mmaped model as 3 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.36 GiB (raw 0.36 + compressed 2.01) + buffers 2.00 GiB + resident model 97.63 GiB = 102.00 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=65538 backend=metal
+0913 14:19:03 ds4-server: context buffers 4471.67 MiB (ctx=262144, backend=metal, prefill_chunk=4096, raw_kv_rows=4352, compressed_kv_rows=65538)
+0913 14:19:03 ds4-server: KV disk cache /Users/panda/.ds4/server-kv/deepseek-v4-flash-vision-uncensored-orcarouter-o2b-l33-42q4k (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=10000, trim=32, align=2048, hit_half_life=21600s)
+0913 14:19:03 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-13 14:19:13] health=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=3005/5349,fan1=3237/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1654.4GiB
+[monitor 2026-09-13 14:19:29] health=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=2788/5349,fan1=3009/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1654.3GiB
+0913 14:19:34 ds4-server: chat ctx=0..13:13 prompt start
+0913 14:19:35 ds4-server: chat ctx=0..13:13 prompt done 0.710s
+0913 14:19:35 ds4-server: chat ctx=13..15:2 gen=2 decoding chunk=39.10 t/s avg=39.10 t/s 0.051s
+0913 14:19:35 ds4-server: chat ctx=0..13:13 gen=2 finish=stop 0.761s
+[monitor 2026-09-13 14:19:45] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=2320/5349,fan1=2518/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1654.3GiB
+[monitor 2026-09-13 14:20:01] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1476/5349,fan1=1597/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1654.3GiB
+[monitor 2026-09-13 14:20:17] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1351/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1832.5GiB
+[monitor 2026-09-13 14:20:33] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1354/5349,fan1=1456/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1831.6GiB
+[monitor 2026-09-13 14:20:49] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1354/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.8GiB
+[monitor 2026-09-13 14:21:05] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1347/5349,fan1=1458/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.8GiB
+[monitor 2026-09-13 14:21:21] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1355/5349,fan1=1459/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.7GiB
+[monitor 2026-09-13 14:21:37] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1352/5349,fan1=1463/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.7GiB
+[monitor 2026-09-13 14:21:53] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1348/5349,fan1=1452/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.6GiB
+[monitor 2026-09-13 14:22:09] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1346/5349,fan1=1456/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.5GiB
+[monitor 2026-09-13 14:22:25] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1349/5349,fan1=1456/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.4GiB
+[monitor 2026-09-13 14:22:41] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1346/5349,fan1=1463/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.3GiB
+[monitor 2026-09-13 14:22:57] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1352/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.2GiB
+[monitor 2026-09-13 14:23:13] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.3% rss=97.7GiB fans=fan0=1341/5349,fan1=1463/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1830.2GiB
+[monitor 2026-09-13 14:23:29] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1351/5349,fan1=1452/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1829.4GiB
+[monitor 2026-09-13 14:23:45] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1348/5349,fan1=1453/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1829.5GiB
+[monitor 2026-09-13 14:24:01] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1355/5349,fan1=1462/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1829.4GiB
+[monitor 2026-09-13 14:24:17] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1346/5349,fan1=1457/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1829.0GiB
+[monitor 2026-09-13 14:24:32] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1350/5349,fan1=1454/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1823.0GiB
+[monitor 2026-09-13 14:24:48] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1347/5349,fan1=1458/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.8GiB
+[monitor 2026-09-13 14:25:04] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1348/5349,fan1=1459/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.8GiB
+[monitor 2026-09-13 14:25:20] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1348/5349,fan1=1457/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.4GiB
+[monitor 2026-09-13 14:25:36] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1346/5349,fan1=1459/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.1GiB
+[monitor 2026-09-13 14:25:52] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1351/5349,fan1=1462/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.0GiB
+[monitor 2026-09-13 14:26:08] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1350/5349,fan1=1457/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1822.0GiB
+[monitor 2026-09-13 14:26:24] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1352/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1821.9GiB
+[monitor 2026-09-13 14:26:40] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1350/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1821.9GiB
+[monitor 2026-09-13 14:26:56] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1348/5349,fan1=1455/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1820.5GiB
+[monitor 2026-09-13 14:27:12] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1349/5349,fan1=1460/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1819.8GiB
+[monitor 2026-09-13 14:27:27] health=ok state=idle queue=0 clients=1 live=15 requests=1 hits=0 cold=1 cached=0 prefill=18.3t/s decode=39.0t/s cpu=0.0% mem=76.2% rss=97.6GiB fans=fan0=1341/5349,fan1=1459/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1818.7GiB
+0913 14:27:32 ds4-server: live kv cache miss live=15 prompt=29842 common=1 vision=match reason=token-mismatch
+0913 14:27:32 ds4-server: chat ctx=0..29842:29842 TOOLS prompt start
+0913 14:27:32 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 0/29842 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.001s
+ds4: metal indexer topk using stream512
+0913 14:27:39 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 4096/29842 (13.7%) chunk=581.44 t/s avg=581.33 t/s 7.046s
+[monitor 2026-09-13 14:27:43] health=ok state=busy queue=0 clients=1 live=4096 requests=2 hits=0 cold=2 cached=0 prefill=18.3t/s decode=39.0t/s cpu=2.0% mem=76.3% rss=97.6GiB fans=fan0=1353/5349,fan1=1456/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1818.2GiB
+0913 14:27:46 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 8192/29842 (27.5%) chunk=588.55 t/s avg=584.92 t/s 14.005s
+0913 14:27:53 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 12288/29842 (41.2%) chunk=569.73 t/s avg=579.76 t/s 21.195s
+[monitor 2026-09-13 14:27:59] health=ok state=busy queue=0 clients=1 live=12288 requests=2 hits=0 cold=2 cached=0 prefill=18.3t/s decode=39.0t/s cpu=1.8% mem=76.3% rss=97.6GiB fans=fan0=1522/5349,fan1=1655/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1818.1GiB
+0913 14:28:01 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 16384/29842 (54.9%) chunk=551.43 t/s avg=572.41 t/s 28.623s
+0913 14:28:08 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 20480/29842 (68.6%) chunk=522.47 t/s avg=561.67 t/s 36.462s
+[monitor 2026-09-13 14:28:15] health=ok state=busy queue=0 clients=1 live=20480 requests=2 hits=0 cold=2 cached=0 prefill=18.3t/s decode=39.0t/s cpu=1.0% mem=76.3% rss=97.6GiB fans=fan0=2329/5349,fan1=2534/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1818.0GiB
+0913 14:28:16 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 24576/29842 (82.4%) chunk=506.29 t/s avg=551.62 t/s 44.553s
+0913 14:28:25 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 28672/29842 (96.1%) chunk=498.69 t/s avg=543.38 t/s 52.766s
+0913 14:28:28 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 29838/29842 (100.0%) chunk=350.67 t/s avg=531.95 t/s 56.091s
+0913 14:28:28 ds4-server: kv cache stored tokens=29838 trimmed=4 reason=cold key=token-text size=414.63 MiB save=118.5 ms
+0913 14:28:28 ds4-server: chat ctx=0..29842:29842 TOOLS prefill chunk 29842/29842 (100.0%) chunk=8.27 t/s avg=527.48 t/s 56.575s
+0913 14:28:28 ds4-server: chat ctx=0..29842:29842 TOOLS prompt done 56.575s
+0913 14:28:29 ds4-server: chat ctx=29842..29854:12 gen=12 TOOLS decoding chunk=35.46 t/s avg=35.46 t/s 0.338s
+0913 14:28:29 ds4-server: chat ctx=0..29842:29842 gen=12 TOOLS finish=stop 56.913s
+0913 14:28:29 ds4-server: chat ctx=29854..29895:41 TOOLS prompt start
+0913 14:28:29 ds4-server: chat ctx=29854..29895:41 TOOLS prefill chunk 0/41 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:28:29 ds4-server: chat ctx=29854..29895:41 TOOLS prefill chunk 41/41 (100.0%) chunk=94.03 t/s avg=94.02 t/s 0.436s
+0913 14:28:29 ds4-server: chat ctx=29854..29895:41 TOOLS prompt done 0.436s
+0913 14:28:31 ds4-server: chat ctx=29895..29945:50 gen=50 TOOLS THINKING decoding chunk=35.65 t/s avg=35.65 t/s 1.402s
+[monitor 2026-09-13 14:28:31] health=ok state=busy queue=0 clients=1 live=29895 requests=3 hits=1 cold=2 cached=29854 prefill=527.5t/s decode=35.5t/s cpu=8.1% mem=76.5% rss=97.9GiB fans=fan0=2840/5349,fan1=3057/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1817.5GiB
+0913 14:28:32 ds4-server: chat ctx=29945..29995:50 gen=100 TOOLS DSML_START decoding chunk=35.56 t/s avg=35.61 t/s 2.808s
+0913 14:28:34 ds4-server: chat ctx=29995..30045:50 gen=150 TOOLS DSML_START decoding chunk=34.77 t/s avg=35.32 t/s 4.246s
+0913 14:28:35 ds4-server: chat ctx=30045..30095:50 gen=200 TOOLS DSML_START decoding chunk=34.85 t/s avg=35.20 t/s 5.681s
+0913 14:28:36 ds4-server: chat ctx=30095..30119:24 gen=224 TOOLS DSML_START DSML_END decoding chunk=34.74 t/s avg=35.15 t/s 6.372s
+0913 14:28:36 ds4-server: tool calls ctx=29854..29895:41 n=2 raw_tool_text=1 ids=[call_b15cc51ea92c1fa8cc87c15768fef78b,call_15b9aedf6f5f069098478301fd1a050f] names=[bash,bash]
+0913 14:28:36 ds4-server: tool live checkpoint remembered ctx=29854..29895:41 live=30119 visible=118977
+0913 14:28:36 ds4-server: chat ctx=29854..29895:41 gen=224 TOOLS DSML_START DSML_END finish=tool_calls 6.808s
+0913 14:28:39 ds4-server: chat ctx=30119..30847:728 TOOLS prompt start
+0913 14:28:39 ds4-server: chat ctx=30119..30847:728 TOOLS prefill chunk 0/728 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.002s
+0913 14:28:42 ds4-server: chat ctx=30119..30847:728 TOOLS prefill chunk 728/728 (100.0%) chunk=265.56 t/s avg=265.40 t/s 2.743s
+0913 14:28:42 ds4-server: chat ctx=30119..30847:728 TOOLS prompt done 2.743s
+0913 14:28:43 ds4-server: chat ctx=30847..30897:50 gen=50 TOOLS DSML_START decoding chunk=34.98 t/s avg=34.98 t/s 1.430s
+0913 14:28:45 ds4-server: chat ctx=30897..30947:50 gen=100 TOOLS DSML_START decoding chunk=35.56 t/s avg=35.27 t/s 2.836s
+0913 14:28:46 ds4-server: chat ctx=30947..30997:50 gen=150 TOOLS DSML_START decoding chunk=34.47 t/s avg=34.99 t/s 4.286s
+[monitor 2026-09-13 14:28:47] health=ok state=busy queue=0 clients=1 live=30947 requests=4 hits=2 cold=2 cached=59973 prefill=265.4t/s decode=35.1t/s cpu=8.4% mem=76.5% rss=97.9GiB fans=fan0=3308/5349,fan1=3551/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1816.7GiB
+0913 14:28:48 ds4-server: chat ctx=30997..31047:50 gen=200 TOOLS DSML_START decoding chunk=35.43 t/s avg=35.10 t/s 5.697s
+0913 14:28:49 ds4-server: chat ctx=31047..31097:50 gen=250 TOOLS DSML_START decoding chunk=35.75 t/s avg=35.23 t/s 7.096s
+0913 14:28:50 ds4-server: chat ctx=31097..31147:50 gen=300 TOOLS DSML_START decoding chunk=35.34 t/s avg=35.25 t/s 8.511s
+0913 14:28:52 ds4-server: chat ctx=31147..31197:50 gen=350 TOOLS DSML_START decoding chunk=34.51 t/s avg=35.14 t/s 9.960s
+0913 14:28:53 ds4-server: chat ctx=31197..31236:39 gen=389 TOOLS DSML_START DSML_END decoding chunk=34.94 t/s avg=35.12 t/s 11.076s
+0913 14:28:53 ds4-server: tool calls ctx=30119..30847:728 n=2 raw_tool_text=1 ids=[call_01b393c275675a9893dcf3ec387745de,call_622e6c376bbfb46f7f67e7822a82aa7c] names=[bash,bash]
+0913 14:28:53 ds4-server: tool live checkpoint remembered ctx=30119..30847:728 live=31236 visible=122600
+0913 14:28:53 ds4-server: chat ctx=30119..30847:728 gen=389 TOOLS DSML_START DSML_END finish=tool_calls 13.820s
+[monitor 2026-09-13 14:29:03] health=ok state=idle queue=0 clients=1 live=31236 requests=4 hits=2 cold=2 cached=59973 prefill=265.4t/s decode=35.1t/s cpu=0.0% mem=75.9% rss=97.2GiB fans=fan0=3460/5349,fan1=3735/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1814.6GiB
+0913 14:29:08 ds4-server: chat ctx=31236..31881:645 TOOLS prompt start
+0913 14:29:08 ds4-server: chat ctx=31236..31881:645 TOOLS prefill chunk 0/645 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:29:11 ds4-server: chat ctx=31236..31881:645 TOOLS prefill chunk 645/645 (100.0%) chunk=169.38 t/s avg=169.38 t/s 3.808s
+0913 14:29:11 ds4-server: chat ctx=31236..31881:645 TOOLS prompt done 3.808s
+0913 14:29:13 ds4-server: chat ctx=31881..31931:50 gen=50 TOOLS THINKING decoding chunk=35.20 t/s avg=35.20 t/s 1.420s
+0913 14:29:14 ds4-server: chat ctx=31931..31981:50 gen=100 TOOLS DSML_START decoding chunk=34.14 t/s avg=34.66 t/s 2.885s
+0913 14:29:16 ds4-server: chat ctx=31981..32031:50 gen=150 TOOLS DSML_START decoding chunk=32.40 t/s avg=33.88 t/s 4.428s
+0913 14:29:17 ds4-server: chat ctx=32031..32081:50 gen=200 TOOLS DSML_START decoding chunk=32.70 t/s avg=33.57 t/s 5.957s
+[monitor 2026-09-13 14:29:18] health=ok state=busy queue=0 clients=1 live=32081 requests=5 hits=3 cold=2 cached=91209 prefill=169.4t/s decode=35.1t/s cpu=7.2% mem=75.9% rss=97.2GiB fans=fan0=3447/5349,fan1=3736/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.6GiB
+0913 14:29:19 ds4-server: chat ctx=32081..32131:50 gen=250 TOOLS DSML_START decoding chunk=33.03 t/s avg=33.46 t/s 7.471s
+0913 14:29:20 ds4-server: chat ctx=32131..32181:50 gen=300 TOOLS DSML_START decoding chunk=32.60 t/s avg=33.32 t/s 9.004s
+0913 14:29:22 ds4-server: chat ctx=32181..32231:50 gen=350 TOOLS DSML_START decoding chunk=32.66 t/s avg=33.22 t/s 10.535s
+0913 14:29:22 ds4-server: chat ctx=32231..32238:7 gen=357 TOOLS DSML_START DSML_END decoding chunk=33.19 t/s avg=33.22 t/s 10.746s
+0913 14:29:22 ds4-server: tool calls ctx=31236..31881:645 n=2 raw_tool_text=1 ids=[call_e3a01808df292dabc547677d19d2a8db,call_179ea48b3c79c8fdfe3204978680ac64] names=[bash,bash]
+0913 14:29:22 ds4-server: tool live checkpoint remembered ctx=31236..31881:645 live=32238 visible=125707
+0913 14:29:22 ds4-server: chat ctx=31236..31881:645 gen=357 TOOLS DSML_START DSML_END finish=tool_calls 14.555s
+0913 14:29:23 ds4-server: chat ctx=32238..33199:961 TOOLS prompt start
+0913 14:29:23 ds4-server: chat ctx=32238..33199:961 TOOLS prefill chunk 0/961 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:29:25 ds4-server: chat ctx=32238..33199:961 TOOLS prefill chunk 530/961 (55.2%) chunk=276.68 t/s avg=276.67 t/s 1.916s
+0913 14:29:27 ds4-server: chat ctx=32238..33199:961 TOOLS prefill chunk 961/961 (100.0%) chunk=235.76 t/s avg=256.69 t/s 3.744s
+0913 14:29:27 ds4-server: chat ctx=32238..33199:961 TOOLS prompt done 3.744s
+0913 14:29:28 ds4-server: chat ctx=33199..33249:50 gen=50 TOOLS DSML_START decoding chunk=34.65 t/s avg=34.65 t/s 1.443s
+0913 14:29:30 ds4-server: chat ctx=33249..33299:50 gen=100 TOOLS DSML_START decoding chunk=32.96 t/s avg=33.79 t/s 2.960s
+0913 14:29:31 ds4-server: chat ctx=33299..33349:50 gen=150 TOOLS DSML_START decoding chunk=31.89 t/s avg=33.13 t/s 4.528s
+0913 14:29:33 ds4-server: chat ctx=33349..33399:50 gen=200 TOOLS DSML_START decoding chunk=32.20 t/s avg=32.89 t/s 6.080s
+[monitor 2026-09-13 14:29:34] health=ok state=busy queue=0 clients=1 live=33399 requests=6 hits=4 cold=2 cached=123447 prefill=256.7t/s decode=33.2t/s cpu=7.0% mem=75.9% rss=97.2GiB fans=fan0=3454/5349,fan1=3734/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.6GiB
+0913 14:29:35 ds4-server: chat ctx=33399..33449:50 gen=250 TOOLS DSML_START decoding chunk=32.43 t/s avg=32.80 t/s 7.622s
+0913 14:29:36 ds4-server: chat ctx=33449..33499:50 gen=300 TOOLS DSML_START decoding chunk=32.19 t/s avg=32.70 t/s 9.176s
+0913 14:29:38 ds4-server: chat ctx=33499..33549:50 gen=350 TOOLS DSML_START decoding chunk=32.10 t/s avg=32.61 t/s 10.733s
+0913 14:29:38 ds4-server: chat ctx=33549..33573:24 gen=374 TOOLS DSML_START DSML_END decoding chunk=32.44 t/s avg=32.60 t/s 11.473s
+0913 14:29:38 ds4-server: tool calls ctx=32238..33199:961 n=2 raw_tool_text=1 ids=[call_c342ddb31dd1f95d007a1e503e6994b6,call_b1446c0320904aaf45c86df174618377] names=[bash,bash]
+0913 14:29:38 ds4-server: tool live checkpoint remembered ctx=32238..33199:961 live=33573 visible=130161
+0913 14:29:38 ds4-server: chat ctx=32238..33199:961 gen=374 TOOLS DSML_START DSML_END finish=tool_calls 15.217s
+0913 14:29:42 ds4-server: chat ctx=33573..33817:244 TOOLS prompt start
+0913 14:29:42 ds4-server: chat ctx=33573..33817:244 TOOLS prefill chunk 0/244 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:29:44 ds4-server: chat ctx=33573..33817:244 TOOLS prefill chunk 244/244 (100.0%) chunk=157.96 t/s avg=157.94 t/s 1.545s
+0913 14:29:44 ds4-server: chat ctx=33573..33817:244 TOOLS prompt done 1.545s
+0913 14:29:45 ds4-server: chat ctx=33817..33867:50 gen=50 TOOLS THINKING decoding chunk=35.83 t/s avg=35.83 t/s 1.396s
+0913 14:29:47 ds4-server: chat ctx=33867..33917:50 gen=100 TOOLS DSML_START decoding chunk=36.10 t/s avg=35.96 t/s 2.780s
+0913 14:29:48 ds4-server: chat ctx=33917..33967:50 gen=150 TOOLS DSML_START decoding chunk=35.65 t/s avg=35.86 t/s 4.183s
+0913 14:29:49 ds4-server: chat ctx=33967..34017:50 gen=200 TOOLS DSML_START decoding chunk=33.13 t/s avg=35.14 t/s 5.692s
+[monitor 2026-09-13 14:29:50] health=ok state=busy queue=0 clients=1 live=33967 requests=7 hits=5 cold=2 cached=157020 prefill=157.9t/s decode=32.6t/s cpu=6.6% mem=76.0% rss=97.2GiB fans=fan0=3454/5349,fan1=3735/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.6GiB
+0913 14:29:51 ds4-server: chat ctx=34017..34067:50 gen=250 TOOLS DSML_START decoding chunk=30.75 t/s avg=34.16 t/s 7.318s
+0913 14:29:53 ds4-server: chat ctx=34067..34117:50 gen=300 TOOLS DSML_START decoding chunk=31.37 t/s avg=33.66 t/s 8.912s
+0913 14:29:54 ds4-server: chat ctx=34117..34167:50 gen=350 TOOLS DSML_START decoding chunk=31.44 t/s avg=33.32 t/s 10.503s
+0913 14:29:56 ds4-server: chat ctx=34167..34217:50 gen=400 TOOLS DSML_START decoding chunk=31.45 t/s avg=33.08 t/s 12.093s
+0913 14:29:57 ds4-server: chat ctx=34217..34267:50 gen=450 TOOLS DSML_START decoding chunk=31.60 t/s avg=32.91 t/s 13.675s
+0913 14:29:59 ds4-server: chat ctx=34267..34317:50 gen=500 TOOLS DSML_START decoding chunk=31.30 t/s avg=32.74 t/s 15.272s
+0913 14:30:01 ds4-server: chat ctx=34317..34367:50 gen=550 TOOLS DSML_START decoding chunk=31.39 t/s avg=32.61 t/s 16.865s
+0913 14:30:02 ds4-server: chat ctx=34367..34417:50 gen=600 TOOLS DSML_START decoding chunk=31.32 t/s avg=32.50 t/s 18.461s
+0913 14:30:04 ds4-server: chat ctx=34417..34467:50 gen=650 TOOLS DSML_START decoding chunk=30.96 t/s avg=32.38 t/s 20.076s
+0913 14:30:05 ds4-server: chat ctx=34467..34517:50 gen=700 TOOLS DSML_START decoding chunk=31.46 t/s avg=32.31 t/s 21.666s
+[monitor 2026-09-13 14:30:06] health=ok state=busy queue=0 clients=1 live=34467 requests=7 hits=5 cold=2 cached=157020 prefill=157.9t/s decode=32.6t/s cpu=7.9% mem=76.0% rss=97.2GiB fans=fan0=3457/5349,fan1=3729/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.2GiB
+0913 14:30:06 ds4-server: chat ctx=34517..34537:20 gen=720 TOOLS DSML_START DSML_END decoding chunk=32.04 t/s avg=32.30 t/s 22.290s
+0913 14:30:06 ds4-server: tool calls ctx=33573..33817:244 n=2 raw_tool_text=1 ids=[call_f53a8dc124701c8fe64e8a3d81982e32,call_fa5a03a0cfc739f0d53d9ac71006424b] names=[bash,bash]
+0913 14:30:06 ds4-server: tool live checkpoint remembered ctx=33573..33817:244 live=34537 visible=133044
+0913 14:30:06 ds4-server: chat ctx=33573..33817:244 gen=720 TOOLS DSML_START DSML_END finish=tool_calls 23.835s
+0913 14:30:07 ds4-server: chat ctx=34537..35166:629 TOOLS prompt start
+0913 14:30:07 ds4-server: chat ctx=34537..35166:629 TOOLS prefill chunk 0/629 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:30:10 ds4-server: chat ctx=34537..35166:629 TOOLS prefill chunk 629/629 (100.0%) chunk=286.26 t/s avg=286.25 t/s 2.197s
+0913 14:30:10 ds4-server: chat ctx=34537..35166:629 TOOLS prompt done 2.198s
+0913 14:30:11 ds4-server: chat ctx=35166..35216:50 gen=50 TOOLS DSML_START decoding chunk=33.75 t/s avg=33.75 t/s 1.481s
+0913 14:30:13 ds4-server: chat ctx=35216..35266:50 gen=100 TOOLS DSML_START decoding chunk=31.45 t/s avg=32.56 t/s 3.071s
+0913 14:30:14 ds4-server: chat ctx=35266..35316:50 gen=150 TOOLS DSML_START decoding chunk=31.07 t/s avg=32.05 t/s 4.681s
+0913 14:30:16 ds4-server: chat ctx=35316..35366:50 gen=200 TOOLS DSML_START decoding chunk=31.33 t/s avg=31.86 t/s 6.277s
+0913 14:30:16 ds4-server: chat ctx=35366..35370:4 gen=204 TOOLS DSML_START DSML_END decoding chunk=31.74 t/s avg=31.86 t/s 6.403s
+0913 14:30:16 ds4-server: tool calls ctx=34537..35166:629 n=1 raw_tool_text=1 ids=[call_f5cbe1b3d004f21d796e5bbdca3a124a] names=[bash]
+0913 14:30:16 ds4-server: tool live checkpoint remembered ctx=34537..35166:629 live=35370 visible=135766
+0913 14:30:16 ds4-server: chat ctx=34537..35166:629 gen=204 TOOLS DSML_START DSML_END finish=tool_calls 8.601s
+0913 14:30:16 ds4-server: chat ctx=35370..35526:156 TOOLS prompt start
+0913 14:30:16 ds4-server: chat ctx=35370..35526:156 TOOLS prefill chunk 0/156 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:30:17 ds4-server: chat ctx=35370..35526:156 TOOLS prefill chunk 156/156 (100.0%) chunk=151.00 t/s avg=150.99 t/s 1.033s
+0913 14:30:17 ds4-server: chat ctx=35370..35526:156 TOOLS prompt done 1.033s
+0913 14:30:19 ds4-server: chat ctx=35526..35576:50 gen=50 TOOLS decoding chunk=32.92 t/s avg=32.92 t/s 1.519s
+0913 14:30:20 ds4-server: chat ctx=35576..35626:50 gen=100 TOOLS decoding chunk=31.52 t/s avg=32.21 t/s 3.105s
+[monitor 2026-09-13 14:30:22] health=ok state=busy queue=0 clients=1 live=35626 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.9t/s cpu=7.4% mem=76.0% rss=97.2GiB fans=fan0=3445/5349,fan1=3736/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.1GiB
+0913 14:30:22 ds4-server: chat ctx=35626..35676:50 gen=150 TOOLS decoding chunk=31.02 t/s avg=31.80 t/s 4.717s
+0913 14:30:24 ds4-server: chat ctx=35676..35726:50 gen=200 TOOLS decoding chunk=31.13 t/s avg=31.63 t/s 6.323s
+0913 14:30:25 ds4-server: chat ctx=35726..35776:50 gen=250 TOOLS decoding chunk=31.31 t/s avg=31.57 t/s 7.920s
+0913 14:30:27 ds4-server: chat ctx=35776..35826:50 gen=300 TOOLS decoding chunk=31.30 t/s avg=31.52 t/s 9.517s
+0913 14:30:28 ds4-server: chat ctx=35826..35876:50 gen=350 TOOLS decoding chunk=31.19 t/s avg=31.47 t/s 11.120s
+0913 14:30:30 ds4-server: chat ctx=35876..35926:50 gen=400 TOOLS decoding chunk=29.99 t/s avg=31.28 t/s 12.788s
+0913 14:30:32 ds4-server: chat ctx=35926..35976:50 gen=450 TOOLS decoding chunk=30.85 t/s avg=31.23 t/s 14.408s
+0913 14:30:33 ds4-server: chat ctx=35976..36026:50 gen=500 TOOLS decoding chunk=31.21 t/s avg=31.23 t/s 16.010s
+0913 14:30:35 ds4-server: chat ctx=36026..36076:50 gen=550 TOOLS decoding chunk=30.69 t/s avg=31.18 t/s 17.639s
+0913 14:30:37 ds4-server: chat ctx=36076..36126:50 gen=600 TOOLS decoding chunk=30.10 t/s avg=31.09 t/s 19.300s
+[monitor 2026-09-13 14:30:38] health=ok state=busy queue=0 clients=1 live=36126 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.9t/s cpu=9.8% mem=76.0% rss=97.2GiB fans=fan0=3452/5349,fan1=3729/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1813.0GiB
+0913 14:30:38 ds4-server: chat ctx=36126..36176:50 gen=650 TOOLS decoding chunk=30.18 t/s avg=31.02 t/s 20.957s
+0913 14:30:40 ds4-server: chat ctx=36176..36226:50 gen=700 TOOLS decoding chunk=30.69 t/s avg=30.99 t/s 22.586s
+0913 14:30:42 ds4-server: chat ctx=36226..36276:50 gen=750 TOOLS decoding chunk=30.93 t/s avg=30.99 t/s 24.202s
+0913 14:30:43 ds4-server: chat ctx=36276..36326:50 gen=800 TOOLS decoding chunk=31.04 t/s avg=30.99 t/s 25.813s
+0913 14:30:45 ds4-server: chat ctx=36326..36376:50 gen=850 TOOLS decoding chunk=31.04 t/s avg=30.99 t/s 27.424s
+0913 14:30:46 ds4-server: chat ctx=36376..36426:50 gen=900 TOOLS decoding chunk=31.04 t/s avg=31.00 t/s 29.035s
+0913 14:30:48 ds4-server: chat ctx=36426..36476:50 gen=950 TOOLS decoding chunk=30.98 t/s avg=31.00 t/s 30.649s
+0913 14:30:50 ds4-server: chat ctx=36476..36526:50 gen=1000 TOOLS decoding chunk=31.05 t/s avg=31.00 t/s 32.259s
+0913 14:30:51 ds4-server: chat ctx=36526..36576:50 gen=1050 TOOLS decoding chunk=30.95 t/s avg=31.00 t/s 33.874s
+0913 14:30:53 ds4-server: chat ctx=36576..36626:50 gen=1100 TOOLS decoding chunk=31.12 t/s avg=31.00 t/s 35.481s
+[monitor 2026-09-13 14:30:54] health=ok state=busy queue=0 clients=1 live=36626 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.9t/s cpu=8.2% mem=75.9% rss=97.2GiB fans=fan0=3450/5349,fan1=3731/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1812.8GiB
+0913 14:30:54 ds4-server: chat ctx=36626..36676:50 gen=1150 TOOLS decoding chunk=31.11 t/s avg=31.01 t/s 37.088s
+0913 14:30:56 ds4-server: chat ctx=36676..36726:50 gen=1200 TOOLS decoding chunk=30.95 t/s avg=31.00 t/s 38.704s
+0913 14:30:58 ds4-server: chat ctx=36726..36776:50 gen=1250 TOOLS decoding chunk=30.90 t/s avg=31.00 t/s 40.322s
+0913 14:30:59 ds4-server: chat ctx=36776..36814:38 gen=1288 TOOLS decoding chunk=30.85 t/s avg=31.00 t/s 41.553s
+0913 14:30:59 ds4-server: chat ctx=35370..35526:156 gen=1288 TOOLS finish=stop 42.587s
+[monitor 2026-09-13 14:31:10] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.9% rss=97.2GiB fans=fan0=3455/5349,fan1=3731/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1812.8GiB
+[monitor 2026-09-13 14:31:25] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=3454/5349,fan1=3725/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1809.2GiB
+[monitor 2026-09-13 14:31:41] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=3457/5349,fan1=3735/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1807.1GiB
+[monitor 2026-09-13 14:31:57] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=3459/5349,fan1=3734/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1807.0GiB
+[monitor 2026-09-13 14:32:13] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=3352/5349,fan1=3618/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1806.9GiB
+[monitor 2026-09-13 14:32:29] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=3141/5349,fan1=3374/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1806.9GiB
+[monitor 2026-09-13 14:32:45] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=2707/5349,fan1=2913/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1806.9GiB
+[monitor 2026-09-13 14:33:01] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=2054/5349,fan1=2209/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1806.2GiB
+[monitor 2026-09-13 14:33:17] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1348/5349,fan1=1456/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1805.5GiB
+[monitor 2026-09-13 14:33:32] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1352/5349,fan1=1460/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1805.4GiB
+[monitor 2026-09-13 14:33:48] health=ok state=idle queue=0 clients=1 live=36814 requests=9 hits=7 cold=2 cached=226927 prefill=151.0t/s decode=31.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1344/5349,fan1=1461/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1804.0GiB
+0913 14:33:49 ds4-server: chat ctx=36814..36826:12 TOOLS prompt start
+0913 14:33:49 ds4-server: chat ctx=36814..36826:12 TOOLS prefill chunk 0/12 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:33:50 ds4-server: chat ctx=36814..36826:12 TOOLS prefill chunk 12/12 (100.0%) chunk=7.96 t/s avg=7.96 t/s 1.508s
+0913 14:33:50 ds4-server: chat ctx=36814..36826:12 TOOLS prompt done 1.508s
+0913 14:33:52 ds4-server: chat ctx=36826..36876:50 gen=50 TOOLS DSML_START decoding chunk=34.92 t/s avg=34.92 t/s 1.432s
+0913 14:33:53 ds4-server: chat ctx=36876..36926:50 gen=100 TOOLS DSML_START decoding chunk=34.92 t/s avg=34.92 t/s 2.863s
+0913 14:33:53 ds4-server: chat ctx=36926..36927:1 gen=101 TOOLS DSML_START DSML_END decoding chunk=35.95 t/s avg=34.93 t/s 2.891s
+0913 14:33:53 ds4-server: tool calls ctx=36814..36826:12 n=1 raw_tool_text=1 ids=[call_0eeb4b69264e84ae65c5f67d55c7d39f] names=[bash]
+0913 14:33:53 ds4-server: tool live checkpoint remembered ctx=36814..36826:12 live=36927 visible=139958
+0913 14:33:53 ds4-server: chat ctx=36814..36826:12 gen=101 TOOLS DSML_START DSML_END finish=tool_calls 4.399s
+0913 14:33:53 ds4-server: chat ctx=36927..37063:136 TOOLS prompt start
+0913 14:33:53 ds4-server: chat ctx=36927..37063:136 TOOLS prefill chunk 0/136 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 14:33:54 ds4-server: chat ctx=36927..37063:136 TOOLS prefill chunk 136/136 (100.0%) chunk=162.43 t/s avg=162.42 t/s 0.837s
+0913 14:33:54 ds4-server: chat ctx=36927..37063:136 TOOLS prompt done 0.837s
+0913 14:33:56 ds4-server: chat ctx=37063..37113:50 gen=50 TOOLS decoding chunk=34.79 t/s avg=34.79 t/s 1.437s
+0913 14:33:57 ds4-server: chat ctx=37113..37163:50 gen=100 TOOLS decoding chunk=35.15 t/s avg=34.97 t/s 2.859s
+0913 14:33:58 ds4-server: chat ctx=37163..37213:50 gen=150 TOOLS decoding chunk=35.28 t/s avg=35.08 t/s 4.277s
+0913 14:34:00 ds4-server: chat ctx=37213..37263:50 gen=200 TOOLS decoding chunk=34.96 t/s avg=35.05 t/s 5.707s
+0913 14:34:01 ds4-server: chat ctx=37263..37313:50 gen=250 TOOLS decoding chunk=34.93 t/s avg=35.02 t/s 7.138s
+0913 14:34:02 ds4-server: chat ctx=37313..37323:10 gen=260 TOOLS decoding chunk=35.23 t/s avg=35.03 t/s 7.422s
+0913 14:34:02 ds4-server: chat ctx=36927..37063:136 gen=260 TOOLS finish=stop 8.260s
+[monitor 2026-09-13 14:34:04] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1352/5349,fan1=1454/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1803.9GiB
+[monitor 2026-09-13 14:34:20] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1353/5349,fan1=1455/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1803.1GiB
+[monitor 2026-09-13 14:34:36] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1348/5349,fan1=1457/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1803.1GiB
+[monitor 2026-09-13 14:34:52] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1350/5349,fan1=1453/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1801.9GiB
+[monitor 2026-09-13 14:35:08] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1350/5349,fan1=1457/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1801.6GiB
+[monitor 2026-09-13 14:35:24] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1348/5349,fan1=1456/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.8GiB
+[monitor 2026-09-13 14:35:40] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1355/5349,fan1=1457/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.5GiB
+[monitor 2026-09-13 14:35:56] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1350/5349,fan1=1463/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.3GiB
+[monitor 2026-09-13 14:36:12] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1351/5349,fan1=1459/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.1GiB
+[monitor 2026-09-13 14:36:28] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1351/5349,fan1=1455/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.0GiB
+[monitor 2026-09-13 14:36:44] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1347/5349,fan1=1462/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1800.0GiB
+[monitor 2026-09-13 14:37:00] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1350/5349,fan1=1454/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1799.9GiB
+[monitor 2026-09-13 14:37:16] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.7% rss=96.9GiB fans=fan0=1351/5349,fan1=1460/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1799.8GiB
+[monitor 2026-09-13 14:37:32] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=1353/5349,fan1=1455/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1798.3GiB
+[monitor 2026-09-13 14:37:48] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=1349/5349,fan1=1455/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1796.0GiB
+[monitor 2026-09-13 14:38:04] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=1359/5349,fan1=1456/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1795.8GiB
+[monitor 2026-09-13 14:38:20] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=1351/5349,fan1=1461/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1795.0GiB
+[monitor 2026-09-13 14:38:36] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=1350/5349,fan1=1460/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1794.5GiB
+[monitor 2026-09-13 14:38:52] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1793.7GiB
+[monitor 2026-09-13 14:39:08] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1793.2GiB
+[monitor 2026-09-13 14:39:24] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1792.9GiB
+[monitor 2026-09-13 14:39:40] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1792.2GiB
+[monitor 2026-09-13 14:39:56] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1792.0GiB
+[monitor 2026-09-13 14:40:12] health=ok state=idle queue=0 clients=1 live=37323 requests=11 hits=9 cold=2 cached=300668 prefill=162.4t/s decode=35.0t/s cpu=0.0% mem=75.5% rss=96.6GiB fans=fan0=0/5349,fan1=0/5777RPM kv=0.4/128.0GiB(0.3%) disk_free=1791.0GiB
+/Users/panda/Projects/open-source/ds4/run-ds4-monitored.sh: line 713: 29148 Killed: 9                  python3 -c '
+import os
+import sys
+
+os.setsid()
+os.chdir(sys.argv[1])
+os.execv(sys.argv[2], sys.argv[2:])
+' "$ROOT_DIR" "$SERVER_BIN" --chdir "$ROOT_DIR" --metal --model "$MODEL" --vision "$VISION_ENCODER" --ctx "$CTX" --tokens "$TOKENS" --warm-weights --power 100 --host "$HOST" --port "$PORT" --kv-disk-dir "$KV_DIR" --kv-disk-space-mb "$KV_BUDGET_MB" --kv-cache-min-tokens "$KV_MIN_TOKENS" --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS" --kv-cache-reject-different-quant
+[monitor 2026-09-13 14:40:27] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-13 14:40:27] fans=auto reason=server-stopped
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+ds4-server exited with status 137

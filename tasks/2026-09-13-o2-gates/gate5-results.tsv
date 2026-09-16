@@ -1,0 +1,64 @@
+o1-1: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (97591747872 bytes inode=342243824)
+o1-1 pass1 short	decode_tps=41.88	prefill_tps=66.1	gen=512	prompt=32	cached=0	wall=12.72s
+o1-1 pass1 mid	decode_tps=39.25	prefill_tps=534.7	gen=256	prompt=2773	cached=0	wall=11.72s
+o1-1 pass1 deep	decode_tps=31.54	prefill_tps=498.4	gen=256	prompt=34003	cached=2048	wall=72.33s
+o1-1 pass2 short	decode_tps=36.11	prefill_tps=91.9	gen=512	prompt=32	cached=0	wall=14.75s
+o1-1 pass2 mid	decode_tps=35.65	prefill_tps=283.5	gen=256	prompt=2773	cached=2048	wall=9.76s
+o1-1 pass2 deep	decode_tps=30.33	prefill_tps=398.1	gen=256	prompt=34003	cached=24576	wall=32.21s
+o1-1 post-run: thr_active=default
+o2-1: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (104839505184 bytes inode=342453964)
+o2-1 pass1 short	decode_tps=40.59	prefill_tps=46.0	gen=512	prompt=32	cached=0	wall=13.32s
+o2-1 pass1 mid	decode_tps=39.46	prefill_tps=464.3	gen=256	prompt=2773	cached=0	wall=12.48s
+o2-1 pass1 deep	decode_tps=31.36	prefill_tps=436.9	gen=256	prompt=34003	cached=2048	wall=81.45s
+o2-1 pass2 short	decode_tps=35.07	prefill_tps=84.8	gen=512	prompt=32	cached=0	wall=15.23s
+o2-1 pass2 mid	decode_tps=32.21	prefill_tps=236.9	gen=256	prompt=2773	cached=2048	wall=11.04s
+o2-1 pass2 deep	decode_tps=26.94	prefill_tps=359.5	gen=256	prompt=34003	cached=24576	wall=36.00s
+o2-1 post-run: thr_active=default
+o1-2: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (97591747872 bytes inode=342243824)
+o1-2 pass1 short	decode_tps=42.59	prefill_tps=16.7	gen=512	prompt=32	cached=0	wall=13.95s
+o1-2 pass1 mid	decode_tps=42.88	prefill_tps=530.2	gen=256	prompt=2773	cached=0	wall=11.21s
+o1-2 pass1 deep	decode_tps=31.61	prefill_tps=497.4	gen=256	prompt=34003	cached=2048	wall=72.42s
+o1-2 pass2 short	decode_tps=35.66	prefill_tps=84.0	gen=512	prompt=32	cached=0	wall=14.93s
+o1-2 pass2 mid	decode_tps=34.96	prefill_tps=269.4	gen=256	prompt=2773	cached=2048	wall=10.03s
+o1-2 pass2 deep	decode_tps=28.01	prefill_tps=383.6	gen=256	prompt=34003	cached=24576	wall=33.82s
+o1-2 post-run: thr_active=default
+o2-2: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (104839505184 bytes inode=342453964)
+o2-2 pass1 short	decode_tps=41.64	prefill_tps=50.9	gen=512	prompt=32	cached=0	wall=12.94s
+o2-2 pass1 mid	decode_tps=38.58	prefill_tps=460.0	gen=256	prompt=2773	cached=0	wall=12.68s
+o2-2 pass1 deep	decode_tps=31.04	prefill_tps=484.8	gen=256	prompt=34003	cached=2048	wall=74.28s
+o2-2 pass2 short	decode_tps=36.01	prefill_tps=76.0	gen=512	prompt=32	cached=0	wall=14.95s
+o2-2 pass2 mid	decode_tps=33.57	prefill_tps=255.2	gen=256	prompt=2773	cached=2048	wall=10.49s
+o2-2 pass2 deep	decode_tps=28.04	prefill_tps=376.7	gen=256	prompt=34003	cached=24576	wall=34.27s
+o2-2 post-run: thr_active=default
+o2-3: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (104839505184 bytes inode=342453964)
+o2-3 pass1 short	decode_tps=40.20	prefill_tps=53.9	gen=512	prompt=32	cached=0	wall=13.34s
+o2-3 pass1 mid	decode_tps=39.64	prefill_tps=487.3	gen=256	prompt=2773	cached=0	wall=12.16s
+o2-3 pass1 deep	decode_tps=27.83	prefill_tps=467.2	gen=256	prompt=34003	cached=2048	wall=77.74s
+o2-3 pass2 short	decode_tps=33.87	prefill_tps=66.1	gen=512	prompt=32	cached=0	wall=15.86s
+o2-3 pass2 mid	decode_tps=32.49	prefill_tps=245.8	gen=256	prompt=2773	cached=2048	wall=10.86s
+o2-3 pass2 deep	decode_tps=27.14	prefill_tps=354.6	gen=256	prompt=34003	cached=24576	wall=36.13s
+o2-3 post-run: thr_active=default
+o1-3: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (97591747872 bytes inode=342243824)
+o1-3 pass1 short	decode_tps=42.01	prefill_tps=16.6	gen=512	prompt=32	cached=0	wall=14.13s
+o1-3 pass1 mid	decode_tps=39.86	prefill_tps=503.4	gen=256	prompt=2773	cached=0	wall=11.94s
+o1-3 pass1 deep	decode_tps=32.79	prefill_tps=493.5	gen=256	prompt=34003	cached=2048	wall=72.66s
+o1-3 pass2 short	decode_tps=35.55	prefill_tps=90.7	gen=512	prompt=32	cached=0	wall=14.97s
+o1-3 pass2 mid	decode_tps=33.59	prefill_tps=262.6	gen=256	prompt=2773	cached=2048	wall=10.41s
+o1-3 pass2 deep	decode_tps=27.88	prefill_tps=379.5	gen=256	prompt=34003	cached=24576	wall=34.15s
+o1-3 post-run: thr_active=default
+o2-4: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (104839505184 bytes inode=342453964)
+o2-4 pass1 short	decode_tps=41.71	prefill_tps=38.0	gen=512	prompt=32	cached=0	wall=13.13s
+o2-4 pass1 mid	decode_tps=40.08	prefill_tps=503.6	gen=256	prompt=2773	cached=0	wall=11.91s
+o2-4 pass1 deep	decode_tps=28.50	prefill_tps=449.9	gen=256	prompt=34003	cached=2048	wall=80.11s
+o2-4 pass2 short	decode_tps=33.39	prefill_tps=26.8	gen=512	prompt=32	cached=0	wall=16.96s
+o2-4 pass2 mid	decode_tps=31.60	prefill_tps=249.4	gen=256	prompt=2773	cached=2048	wall=11.04s
+o2-4 pass2 deep	decode_tps=27.57	prefill_tps=375.0	gen=256	prompt=34003	cached=24576	wall=34.55s
+o2-4 post-run: thr_active=default
+o1-4: model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf (97591747872 bytes inode=342243824)
+o1-4 pass1 short	decode_tps=42.09	prefill_tps=60.8	gen=512	prompt=32	cached=0	wall=12.70s
+o1-4 pass1 mid	decode_tps=39.89	prefill_tps=526.7	gen=256	prompt=2773	cached=0	wall=11.69s
+o1-4 pass1 deep	decode_tps=31.39	prefill_tps=492.9	gen=256	prompt=34003	cached=2048	wall=73.07s
+o1-4 pass2 short	decode_tps=34.01	prefill_tps=93.8	gen=512	prompt=32	cached=0	wall=15.64s
+o1-4 pass2 mid	decode_tps=31.38	prefill_tps=269.7	gen=256	prompt=2773	cached=2048	wall=10.87s
+o1-4 pass2 deep	decode_tps=26.97	prefill_tps=360.6	gen=256	prompt=34003	cached=24576	wall=35.74s
+o1-4 post-run: thr_active=default

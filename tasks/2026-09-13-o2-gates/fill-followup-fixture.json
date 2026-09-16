@@ -1,0 +1,7 @@
+{
+  "prompt_tokens": 261888,
+  "book_bytes": 824000,
+  "padding_tokens": 675,
+  "generated_tokens": 256,
+  "target_total": 262144
+}

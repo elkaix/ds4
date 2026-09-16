@@ -1,0 +1,27 @@
+{
+  "usage": {
+    "prompt_tokens": 261888,
+    "completion_tokens": 256,
+    "total_tokens": 262144,
+    "prompt_tokens_details": {
+      "cached_tokens": 249856,
+      "cache_write_tokens": 12032
+    }
+  },
+  "finish": "length",
+  "swapouts_delta": 0,
+  "pressure_levels": [
+    1
+  ],
+  "samples": 83,
+  "rss_peak_gib": 99.76618957519531,
+  "stream_content_events": 256,
+  "median_gap_ms": 45.79579200071748,
+  "p99_gap_ms": 47.422082992852665,
+  "max_gap_ms": 178.6688749998575,
+  "decode_tps": 21.55,
+  "prefill_tps": 247.72,
+  "server_exit": 0,
+  "wall_seconds": 83.06398145799176,
+  "pass": true
+}

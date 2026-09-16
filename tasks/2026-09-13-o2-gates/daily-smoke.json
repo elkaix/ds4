@@ -1,0 +1,120 @@
+{
+  "health": {
+    "status": "ok",
+    "model": "DeepSeek V4 Flash Vision Experimental",
+    "uptime_s": 31
+  },
+  "models": {
+    "object": "list",
+    "data": [
+      {
+        "id": "deepseek-v4-flash",
+        "object": "model",
+        "created": 1767225600,
+        "owned_by": "ds4.c",
+        "name": "DeepSeek V4 Flash Vision Experimental",
+        "context_length": 262144,
+        "top_provider": {
+          "context_length": 262144,
+          "max_completion_tokens": 32768,
+          "is_moderated": false
+        },
+        "supported_parameters": [
+          "tools",
+          "tool_choice",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "ignore_eos",
+          "stop",
+          "seed",
+          "stream",
+          "reasoning_effort"
+        ]
+      },
+      {
+        "id": "deepseek-v4-pro",
+        "object": "model",
+        "created": 1767225600,
+        "owned_by": "ds4.c",
+        "name": "DeepSeek V4 Flash Vision Experimental",
+        "context_length": 262144,
+        "top_provider": {
+          "context_length": 262144,
+          "max_completion_tokens": 32768,
+          "is_moderated": false
+        },
+        "supported_parameters": [
+          "tools",
+          "tool_choice",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "ignore_eos",
+          "stop",
+          "seed",
+          "stream",
+          "reasoning_effort"
+        ]
+      }
+    ]
+  },
+  "completion": {
+    "id": "chatcmpl-461e1e68a9232ef01e089766",
+    "object": "chat.completion",
+    "created": 1789323575,
+    "model": "deepseek-v4-flash",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "READY"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 13,
+      "completion_tokens": 2,
+      "total_tokens": 15,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 13
+      }
+    }
+  },
+  "stats": {
+    "uptime_s": 31,
+    "busy": false,
+    "queue_depth": 0,
+    "clients": 1,
+    "live_tokens": 15,
+    "ctx_size": 262144,
+    "requests": 1,
+    "queue_rejected": 0,
+    "queue_dropped_disconnected": 0,
+    "prefill_cancelled": 0,
+    "prompt_tokens": 13,
+    "cached_tokens": 0,
+    "generated_tokens": 2,
+    "last_prefill_tps": 18.31,
+    "last_decode_tps": 39.03,
+    "cache": {
+      "hits": 0,
+      "cold": 1,
+      "memory_token": 0,
+      "memory_text": 0,
+      "responses_visible": 0,
+      "responses_tool_output": 0,
+      "anthropic_tool_output": 0,
+      "thinking_visible": 0,
+      "tool_visible": 0,
+      "disk_text": 0
+    }
+  }
+}

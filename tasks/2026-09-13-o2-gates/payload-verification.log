@@ -1,0 +1,7 @@
+verified 200/1328 tensors
+verified 400/1328 tensors
+verified 600/1328 tensors
+verified 800/1328 tensors
+verified 1000/1328 tensors
+verified 1200/1328 tensors
+PAYLOAD_PASS tensors=1328 donor=30 shared_o1=18 seconds=52.79

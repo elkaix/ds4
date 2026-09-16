@@ -1,0 +1,4 @@
+bytes=200000 prompt=63829 gen=256 prefill_tps=417.5 decode_tps=27.83 wall=162s tail='Il padre Cristoforo riferisce che don Rodrigo non ha ammesso apertamente le sue intenzioni, ma ha lasciato intendere con parole ambigue e minacciose che è irrem'
+bytes=808409 prompt=256363 gen=256 prefill_tps=251.0 decode_tps=18.61 wall=791s tail="L'ultimo paragrafo descrive l'arrivo di Lucia nella casa della buona donna, che si prende cura di lei offrendole del cibo e un luogo sicuro. Mentre Lucia si rip"
+GATE6_PROMPT_TOKENS 256363
+GATE7 swapouts_delta=0 min_free_pct=7 max_rss_gib=99.6 samples=191

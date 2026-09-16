@@ -1,0 +1,30 @@
+{
+  "time": "2026-09-13T14:20:08.933306-04:00",
+  "authorization": "User-approved R6 donor and R7 Q2 base deletion after O2b promotion; O1 retained",
+  "free_bytes_before": 1776287559680,
+  "targets": {
+    "base": {
+      "path": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "identity": [
+        286411127,
+        86720111904,
+        1788458468602621917
+      ]
+    },
+    "donor": {
+      "path": "/Users/panda/models/gguf/tmp-vision-uncen-o2-donor-KEEP.gguf",
+      "identity": [
+        342355435,
+        104839505184,
+        1789317683186333325
+      ]
+    }
+  },
+  "deleted": [
+    "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+    "/Users/panda/models/gguf/tmp-vision-uncen-o2-donor-KEEP.gguf"
+  ],
+  "free_bytes_after": 1967847690240,
+  "o1_o2_preserved": true,
+  "deleted_gib": 178.40379577875137
+}

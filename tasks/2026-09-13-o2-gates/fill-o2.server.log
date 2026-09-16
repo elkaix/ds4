@@ -1,0 +1,148 @@
+ds4: warming mapped tensor pages: 97.63 GiB
+ds4: warmed tensor pages in 34.027s (checksum=773822820)
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+ds4: Metal model views created in 4.907 ms, residency requested in 1276.702 ms, warmup 4.546 ms (mapped 99977.67 MiB from offset 5.09 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: Metal model views created in 0.047 ms, residency requested in 1663.056 ms, warmup 2.230 ms (mapped 889.64 MiB from offset 0.02 MiB)
+ds4: Metal mapped mmaped model as 3 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 2.36 GiB (raw 0.36 + compressed 2.01) + buffers 2.00 GiB + resident model 97.63 GiB = 102.00 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=4096 raw_kv_rows=4352 compressed_kv_rows=65538 backend=metal
+0913 13:44:18 ds4-server: context buffers 4471.67 MiB (ctx=262144, backend=metal, prefill_chunk=4096, raw_kv_rows=4352, compressed_kv_rows=65538)
+0913 13:44:18 ds4-server: KV disk cache /Users/panda/.ds4/o2-gates/kv-fill-o2 (budget=8192 MiB, cross-quant=accept, min=2048, cold_max=30000, continued=10000, trim=32, align=2048, hit_half_life=21600s)
+0913 13:44:18 ds4-server: listening on http://127.0.0.1:8009
+0913 13:44:21 ds4-server: chat ctx=0..63829:63829 prompt start
+0913 13:44:21 ds4-server: chat ctx=0..63829:63829 prefill chunk 0/63829 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+ds4: metal indexer topk using stream512
+0913 13:44:30 ds4-server: chat ctx=0..63829:63829 prefill chunk 4096/63829 (6.4%) chunk=423.72 t/s avg=423.72 t/s 9.667s
+0913 13:44:39 ds4-server: chat ctx=0..63829:63829 prefill chunk 8192/63829 (12.8%) chunk=495.99 t/s avg=457.01 t/s 17.925s
+0913 13:44:47 ds4-server: chat ctx=0..63829:63829 prefill chunk 12288/63829 (19.3%) chunk=479.79 t/s avg=464.36 t/s 26.462s
+0913 13:44:47 ds4-server: kv cache stored tokens=12288 trimmed=0 reason=continued key=token-text size=184.22 MiB save=42.5 ms
+0913 13:44:56 ds4-server: chat ctx=0..63829:63829 prefill chunk 16384/63829 (25.7%) chunk=469.95 t/s avg=465.75 t/s 35.178s
+0913 13:45:05 ds4-server: chat ctx=0..63829:63829 prefill chunk 20480/63829 (32.1%) chunk=449.28 t/s avg=462.36 t/s 44.295s
+0913 13:45:14 ds4-server: chat ctx=0..63829:63829 prefill chunk 24576/63829 (38.5%) chunk=465.82 t/s avg=462.93 t/s 53.088s
+0913 13:45:14 ds4-server: kv cache stored tokens=24576 trimmed=0 reason=continued key=token-text size=345.55 MiB save=82.8 ms
+0913 13:45:23 ds4-server: chat ctx=0..63829:63829 prefill chunk 28672/63829 (44.9%) chunk=422.05 t/s avg=456.61 t/s 62.793s
+0913 13:45:33 ds4-server: chat ctx=0..63829:63829 prefill chunk 32768/63829 (51.3%) chunk=423.76 t/s avg=452.23 t/s 72.459s
+0913 13:45:43 ds4-server: chat ctx=0..63829:63829 prefill chunk 36864/63829 (57.8%) chunk=425.01 t/s avg=449.03 t/s 82.096s
+0913 13:45:43 ds4-server: kv cache stored tokens=36864 trimmed=0 reason=continued key=token-text size=506.89 MiB save=92.2 ms
+0913 13:45:52 ds4-server: chat ctx=0..63829:63829 prefill chunk 40960/63829 (64.2%) chunk=420.46 t/s avg=446.00 t/s 91.838s
+0913 13:46:02 ds4-server: chat ctx=0..63829:63829 prefill chunk 45056/63829 (70.6%) chunk=423.45 t/s avg=443.85 t/s 101.511s
+0913 13:46:12 ds4-server: chat ctx=0..63829:63829 prefill chunk 49152/63829 (77.0%) chunk=414.55 t/s avg=441.26 t/s 111.391s
+0913 13:46:12 ds4-server: kv cache stored tokens=49152 trimmed=0 reason=continued key=token-text size=668.22 MiB save=138.6 ms
+0913 13:46:22 ds4-server: chat ctx=0..63829:63829 prefill chunk 53248/63829 (83.4%) chunk=390.91 t/s avg=436.93 t/s 121.869s
+0913 13:46:33 ds4-server: chat ctx=0..63829:63829 prefill chunk 57344/63829 (89.8%) chunk=382.44 t/s avg=432.52 t/s 132.580s
+0913 13:46:45 ds4-server: chat ctx=0..63829:63829 prefill chunk 61440/63829 (96.3%) chunk=355.37 t/s avg=426.35 t/s 144.106s
+0913 13:46:45 ds4-server: kv cache stored tokens=61440 trimmed=0 reason=continued key=token-text size=829.55 MiB save=184.5 ms
+0913 13:46:53 ds4-server: chat ctx=0..63829:63829 prefill chunk 63829/63829 (100.0%) chunk=272.25 t/s avg=417.51 t/s 152.881s
+0913 13:46:53 ds4-server: chat ctx=0..63829:63829 prompt done 152.881s
+0913 13:46:55 ds4-server: chat ctx=63829..63879:50 gen=50 decoding chunk=28.67 t/s avg=28.67 t/s 1.744s
+0913 13:46:57 ds4-server: chat ctx=63879..63929:50 gen=100 decoding chunk=28.35 t/s avg=28.51 t/s 3.508s
+0913 13:46:59 ds4-server: chat ctx=63929..63979:50 gen=150 decoding chunk=28.04 t/s avg=28.35 t/s 5.291s
+0913 13:47:01 ds4-server: chat ctx=63979..64029:50 gen=200 decoding chunk=28.06 t/s avg=28.28 t/s 7.073s
+0913 13:47:02 ds4-server: chat ctx=64029..64079:50 gen=250 decoding chunk=26.20 t/s avg=27.84 t/s 8.981s
+0913 13:47:03 ds4-server: chat ctx=64079..64085:6 gen=256 decoding chunk=27.73 t/s avg=27.83 t/s 9.198s
+0913 13:47:03 ds4-server: chat ctx=0..63829:63829 gen=256 finish=length 162.078s
+0913 13:47:03 ds4-server: live kv cache miss live=64085 prompt=256363 common=63811 vision=match reason=token-mismatch
+0913 13:47:03 ds4-server: kv cache stored tokens=64085 trimmed=0 reason=evict key=token-text size=864.24 MiB save=425.9 ms
+0913 13:47:04 ds4-server: kv cache hit text tokens=61440 text=192786 quant=2 key=token-text load=215.2 ms file=/Users/panda/.ds4/o2-gates/kv-fill-o2/c668aa768d10e5a0a3bb9eac48134cdffc572001.kv
+0913 13:47:04 ds4-server: chat ctx=61440..256363:194923 prompt start
+0913 13:47:04 ds4-server: chat ctx=61440..256363:194923 prefill chunk 0/194923 (0.0%) chunk=0.00 t/s avg=0.00 t/s 0.000s
+0913 13:47:15 ds4-server: chat ctx=61440..256363:194923 prefill chunk 4096/194923 (2.1%) chunk=372.58 t/s avg=372.58 t/s 10.994s
+0913 13:47:15 ds4-server: kv cache stored tokens=65536 trimmed=0 reason=continued key=token-text size=883.33 MiB save=256.5 ms
+0913 13:47:27 ds4-server: chat ctx=61440..256363:194923 prefill chunk 8192/194923 (4.2%) chunk=331.40 t/s avg=350.78 t/s 23.354s
+0913 13:47:39 ds4-server: chat ctx=61440..256363:194923 prefill chunk 12288/194923 (6.3%) chunk=332.35 t/s avg=344.41 t/s 35.678s
+0913 13:47:52 ds4-server: chat ctx=61440..256363:194923 prefill chunk 16384/194923 (8.4%) chunk=318.93 t/s avg=337.67 t/s 48.521s
+0913 13:47:53 ds4-server: kv cache stored tokens=77824 trimmed=0 reason=continued key=token-text size=1044.66 MiB save=293.7 ms
+0913 13:48:05 ds4-server: chat ctx=61440..256363:194923 prefill chunk 20480/194923 (10.5%) chunk=319.73 t/s avg=333.92 t/s 61.332s
+0913 13:48:17 ds4-server: chat ctx=61440..256363:194923 prefill chunk 24576/194923 (12.6%) chunk=330.07 t/s avg=333.27 t/s 73.741s
+0913 13:48:32 ds4-server: chat ctx=61440..256363:194923 prefill chunk 28672/194923 (14.7%) chunk=282.61 t/s avg=324.95 t/s 88.235s
+0913 13:48:32 ds4-server: kv cache stored tokens=90112 trimmed=0 reason=continued key=token-text size=1206.00 MiB save=369.9 ms
+0913 13:48:47 ds4-server: chat ctx=61440..256363:194923 prefill chunk 32768/194923 (16.8%) chunk=271.24 t/s avg=317.10 t/s 103.336s
+0913 13:49:01 ds4-server: chat ctx=61440..256363:194923 prefill chunk 36864/194923 (18.9%) chunk=287.35 t/s avg=313.49 t/s 117.591s
+0913 13:49:16 ds4-server: chat ctx=61440..256363:194923 prefill chunk 40960/194923 (21.0%) chunk=282.15 t/s avg=310.05 t/s 132.108s
+0913 13:49:17 ds4-server: kv cache stored tokens=102400 trimmed=0 reason=continued key=token-text size=1367.33 MiB save=564.9 ms
+0913 13:49:32 ds4-server: chat ctx=61440..256363:194923 prefill chunk 45056/194923 (23.1%) chunk=250.18 t/s avg=303.45 t/s 148.480s
+0913 13:49:47 ds4-server: chat ctx=61440..256363:194923 prefill chunk 49152/194923 (25.2%) chunk=280.13 t/s avg=301.36 t/s 163.102s
+0913 13:50:02 ds4-server: chat ctx=61440..256363:194923 prefill chunk 53248/194923 (27.3%) chunk=273.31 t/s avg=299.00 t/s 178.088s
+0913 13:50:02 ds4-server: kv cache evicted reason=disk-cache-full tokens=12288 hits=0 size=184.22 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/4d08ce6fafcd46275866a32961119be90c4568ed.kv
+0913 13:50:02 ds4-server: kv cache evicted reason=disk-cache-full tokens=24576 hits=0 size=345.55 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/e2cc01d6910f24bc2bbe916f7d8745696a4b5bdc.kv
+0913 13:50:02 ds4-server: kv cache evicted reason=disk-cache-full tokens=36864 hits=0 size=506.89 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/c07653f3dff10df5f57db305c8deb2ef354cc379.kv
+0913 13:50:02 ds4-server: kv cache evicted reason=disk-cache-full tokens=49152 hits=0 size=668.22 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/4ed555c81b5b03cb32b32bbb26fbc1b0b1c24d1b.kv
+0913 13:50:03 ds4-server: kv cache stored tokens=114688 trimmed=0 reason=continued key=token-text size=1528.67 MiB save=449.2 ms
+0913 13:50:20 ds4-server: chat ctx=61440..256363:194923 prefill chunk 57344/194923 (29.4%) chunk=218.63 t/s avg=291.35 t/s 196.823s
+0913 13:50:37 ds4-server: chat ctx=61440..256363:194923 prefill chunk 61440/194923 (31.5%) chunk=254.59 t/s avg=288.57 t/s 212.911s
+0913 13:50:52 ds4-server: chat ctx=61440..256363:194923 prefill chunk 65536/194923 (33.6%) chunk=257.61 t/s avg=286.42 t/s 228.811s
+0913 13:50:53 ds4-server: kv cache evicted reason=disk-cache-full tokens=61440 hits=1 size=829.55 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/c668aa768d10e5a0a3bb9eac48134cdffc572001.kv
+0913 13:50:53 ds4-server: kv cache evicted reason=disk-cache-full tokens=65536 hits=0 size=883.33 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/8f992c635b7cc1ec1fd5dc17d7e60bebfd879ade.kv
+0913 13:50:53 ds4-server: kv cache stored tokens=126976 trimmed=0 reason=continued key=token-text size=1690.00 MiB save=366.5 ms
+0913 13:51:08 ds4-server: chat ctx=61440..256363:194923 prefill chunk 69632/194923 (35.7%) chunk=256.61 t/s avg=284.48 t/s 244.773s
+0913 13:51:23 ds4-server: chat ctx=61440..256363:194923 prefill chunk 73728/194923 (37.8%) chunk=287.83 t/s avg=284.66 t/s 259.004s
+0913 13:51:37 ds4-server: chat ctx=61440..256363:194923 prefill chunk 77824/194923 (39.9%) chunk=287.06 t/s avg=284.79 t/s 273.272s
+0913 13:51:37 ds4-server: kv cache evicted reason=disk-cache-full tokens=77824 hits=0 size=1044.66 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/f567b3e4a08c7dc484abcfc0c76a61400a44d7ee.kv
+0913 13:51:37 ds4-server: kv cache evicted reason=disk-cache-full tokens=90112 hits=0 size=1206.00 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/1976f696473912e41d2daf412e87193db8821913.kv
+0913 13:51:38 ds4-server: kv cache stored tokens=139264 trimmed=0 reason=continued key=token-text size=1851.34 MiB save=339.4 ms
+0913 13:51:53 ds4-server: chat ctx=61440..256363:194923 prefill chunk 81920/194923 (42.0%) chunk=248.40 t/s avg=282.71 t/s 289.762s
+0913 13:52:08 ds4-server: chat ctx=61440..256363:194923 prefill chunk 86016/194923 (44.1%) chunk=278.90 t/s avg=282.53 t/s 304.448s
+0913 13:52:23 ds4-server: chat ctx=61440..256363:194923 prefill chunk 90112/194923 (46.2%) chunk=270.99 t/s avg=281.98 t/s 319.564s
+0913 13:52:24 ds4-server: kv cache evicted reason=disk-cache-full tokens=102400 hits=0 size=1367.33 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/2f578a4ad085e86761b041c1d053eda756dd800c.kv
+0913 13:52:24 ds4-server: kv cache stored tokens=151552 trimmed=0 reason=continued key=token-text size=2012.67 MiB save=408.0 ms
+0913 13:52:39 ds4-server: chat ctx=61440..256363:194923 prefill chunk 94208/194923 (48.3%) chunk=259.59 t/s avg=280.93 t/s 335.342s
+0913 13:52:54 ds4-server: chat ctx=61440..256363:194923 prefill chunk 98304/194923 (50.4%) chunk=273.86 t/s avg=280.63 t/s 350.299s
+0913 13:53:09 ds4-server: chat ctx=61440..256363:194923 prefill chunk 102400/194923 (52.5%) chunk=272.96 t/s avg=280.31 t/s 365.305s
+0913 13:53:09 ds4-server: kv cache evicted reason=disk-cache-full tokens=114688 hits=0 size=1528.67 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/e992bdaf92055bc58c586ae6967baa3ed02298d0.kv
+0913 13:53:09 ds4-server: kv cache evicted reason=disk-cache-full tokens=126976 hits=0 size=1690.00 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/eafdb97b6b99ab7927972b52fa82ac1ed8473aa9.kv
+0913 13:53:10 ds4-server: kv cache stored tokens=163840 trimmed=0 reason=continued key=token-text size=2174.00 MiB save=400.1 ms
+0913 13:53:25 ds4-server: chat ctx=61440..256363:194923 prefill chunk 106496/194923 (54.6%) chunk=254.66 t/s avg=279.23 t/s 381.389s
+0913 13:53:41 ds4-server: chat ctx=61440..256363:194923 prefill chunk 110592/194923 (56.7%) chunk=258.40 t/s avg=278.40 t/s 397.240s
+0913 13:53:57 ds4-server: chat ctx=61440..256363:194923 prefill chunk 114688/194923 (58.8%) chunk=251.77 t/s avg=277.35 t/s 413.509s
+0913 13:53:58 ds4-server: kv cache evicted reason=disk-cache-full tokens=139264 hits=0 size=1851.34 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/aa6ff9826c118fd84a801b959c335cfa3d0841d9.kv
+0913 13:53:58 ds4-server: kv cache stored tokens=176128 trimmed=0 reason=continued key=token-text size=2335.33 MiB save=457.2 ms
+0913 13:54:14 ds4-server: chat ctx=61440..256363:194923 prefill chunk 118784/194923 (60.9%) chunk=242.78 t/s avg=276.00 t/s 430.380s
+0913 13:54:30 ds4-server: chat ctx=61440..256363:194923 prefill chunk 122880/194923 (63.0%) chunk=256.62 t/s avg=275.30 t/s 446.341s
+0913 13:54:47 ds4-server: chat ctx=61440..256363:194923 prefill chunk 126976/194923 (65.1%) chunk=246.85 t/s avg=274.29 t/s 462.934s
+0913 13:54:47 ds4-server: kv cache evicted reason=disk-cache-full tokens=151552 hits=0 size=2012.67 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/74279ab05150fa14ad2a8c4f79a704d3bf3299ab.kv
+0913 13:54:48 ds4-server: kv cache stored tokens=188416 trimmed=0 reason=continued key=token-text size=2496.67 MiB save=560.3 ms
+0913 13:55:04 ds4-server: chat ctx=61440..256363:194923 prefill chunk 131072/194923 (67.2%) chunk=229.05 t/s avg=272.60 t/s 480.817s
+0913 13:55:21 ds4-server: chat ctx=61440..256363:194923 prefill chunk 135168/194923 (69.3%) chunk=246.34 t/s avg=271.72 t/s 497.444s
+0913 13:55:38 ds4-server: chat ctx=61440..256363:194923 prefill chunk 139264/194923 (71.4%) chunk=241.55 t/s avg=270.73 t/s 514.401s
+0913 13:55:39 ds4-server: kv cache evicted reason=disk-cache-full tokens=163840 hits=0 size=2174.00 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/aef9c1aa1cedc668a98f1afd1d47a038b99315e0.kv
+0913 13:55:39 ds4-server: kv cache evicted reason=disk-cache-full tokens=176128 hits=0 size=2335.33 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/811c1661d505258ac3e2c8929f9d8f2fd39b612e.kv
+0913 13:55:39 ds4-server: kv cache stored tokens=200704 trimmed=0 reason=continued key=token-text size=2658.00 MiB save=548.0 ms
+0913 13:55:56 ds4-server: chat ctx=61440..256363:194923 prefill chunk 143360/194923 (73.5%) chunk=225.45 t/s avg=269.19 t/s 532.569s
+0913 13:56:14 ds4-server: chat ctx=61440..256363:194923 prefill chunk 147456/194923 (75.6%) chunk=229.13 t/s avg=267.88 t/s 550.445s
+0913 13:56:32 ds4-server: chat ctx=61440..256363:194923 prefill chunk 151552/194923 (77.7%) chunk=231.33 t/s avg=266.75 t/s 568.152s
+0913 13:56:32 ds4-server: kv cache evicted reason=disk-cache-full tokens=188416 hits=0 size=2496.67 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/af8aafddda14a58a71ba3b6b2966e3af32325294.kv
+0913 13:56:33 ds4-server: kv cache stored tokens=212992 trimmed=0 reason=continued key=token-text size=2819.34 MiB save=582.0 ms
+0913 13:56:51 ds4-server: chat ctx=61440..256363:194923 prefill chunk 155648/194923 (79.9%) chunk=218.54 t/s avg=265.21 t/s 586.894s
+0913 13:57:08 ds4-server: chat ctx=61440..256363:194923 prefill chunk 159744/194923 (82.0%) chunk=229.26 t/s avg=264.14 t/s 604.760s
+0913 13:57:26 ds4-server: chat ctx=61440..256363:194923 prefill chunk 163840/194923 (84.1%) chunk=226.59 t/s avg=263.05 t/s 622.837s
+0913 13:57:27 ds4-server: kv cache evicted reason=disk-cache-full tokens=200704 hits=0 size=2658.00 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/7034732ca0d3b2dce9aa8a84323fa0a11d0e7479.kv
+0913 13:57:28 ds4-server: kv cache stored tokens=225280 trimmed=0 reason=continued key=token-text size=2980.67 MiB save=639.5 ms
+0913 13:57:46 ds4-server: chat ctx=61440..256363:194923 prefill chunk 167936/194923 (86.2%) chunk=205.08 t/s avg=261.25 t/s 642.810s
+0913 13:58:05 ds4-server: chat ctx=61440..256363:194923 prefill chunk 172032/194923 (88.3%) chunk=216.67 t/s avg=259.98 t/s 661.714s
+0913 13:58:24 ds4-server: chat ctx=61440..256363:194923 prefill chunk 176128/194923 (90.4%) chunk=219.47 t/s avg=258.87 t/s 680.377s
+0913 13:58:25 ds4-server: kv cache evicted reason=disk-cache-full tokens=212992 hits=0 size=2819.34 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/c841b8ecd380158ee08c98a33176e067bc127ca4.kv
+0913 13:58:25 ds4-server: kv cache stored tokens=237568 trimmed=0 reason=continued key=token-text size=3142.01 MiB save=672.0 ms
+0913 13:58:44 ds4-server: chat ctx=61440..256363:194923 prefill chunk 180224/194923 (92.5%) chunk=202.56 t/s avg=257.24 t/s 700.598s
+0913 13:59:04 ds4-server: chat ctx=61440..256363:194923 prefill chunk 184320/194923 (94.6%) chunk=208.52 t/s avg=255.91 t/s 720.241s
+0913 13:59:25 ds4-server: chat ctx=61440..256363:194923 prefill chunk 188416/194923 (96.7%) chunk=192.14 t/s avg=254.08 t/s 741.560s
+0913 13:59:26 ds4-server: kv cache evicted reason=disk-cache-full tokens=225280 hits=0 size=2980.67 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/0989c006a54e108379af4a78d320b4f8f434959e.kv
+0913 13:59:27 ds4-server: kv cache stored tokens=249856 trimmed=0 reason=continued key=token-text size=3303.34 MiB save=849.1 ms
+0913 13:59:47 ds4-server: chat ctx=61440..256363:194923 prefill chunk 192512/194923 (98.8%) chunk=190.77 t/s avg=252.30 t/s 763.030s
+0913 14:00:00 ds4-server: chat ctx=61440..256363:194923 prefill chunk 194923/194923 (100.0%) chunk=177.49 t/s avg=250.99 t/s 776.614s
+0913 14:00:00 ds4-server: chat ctx=61440..256363:194923 prompt done 776.615s
+0913 14:00:03 ds4-server: chat ctx=256363..256413:50 gen=50 decoding chunk=18.18 t/s avg=18.18 t/s 2.750s
+0913 14:00:06 ds4-server: chat ctx=256413..256463:50 gen=100 decoding chunk=19.28 t/s avg=18.72 t/s 5.343s
+0913 14:00:08 ds4-server: chat ctx=256463..256513:50 gen=150 decoding chunk=18.96 t/s avg=18.80 t/s 7.979s
+0913 14:00:11 ds4-server: chat ctx=256513..256563:50 gen=200 decoding chunk=18.14 t/s avg=18.63 t/s 10.736s
+0913 14:00:14 ds4-server: chat ctx=256563..256613:50 gen=250 decoding chunk=18.54 t/s avg=18.61 t/s 13.432s
+0913 14:00:14 ds4-server: chat ctx=256613..256619:6 gen=256 decoding chunk=18.69 t/s avg=18.61 t/s 13.753s
+0913 14:00:14 ds4-server: chat ctx=61440..256363:194923 gen=256 finish=length 790.368s
+0913 14:00:14 ds4-server: shutdown requested, draining requests
+0913 14:00:14 ds4-server: persisting current KV cache before shutdown tokens=256619
+0913 14:00:15 ds4-server: kv cache evicted reason=disk-cache-full tokens=237568 hits=0 size=3142.01 MiB file=/Users/panda/.ds4/o2-gates/kv-fill-o2/2faaf507f08b25d92b5c5ac54835c9e0906510c3.kv
+0913 14:00:16 ds4-server: kv cache stored tokens=256619 trimmed=0 reason=shutdown key=token-text size=3392.06 MiB save=841.5 ms
+0913 14:00:16 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=256619

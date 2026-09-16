@@ -1,0 +1,10 @@
+=== base start 05:37:13 model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 80.76 GiB = 81.62 GiB planned
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+tokens=12737 scored=12705 nll=16723.159290411 avg_nll=1.316265981 ppl=3.729469436
+=== base end 05:42:56
+=== o1 start 05:42:56 model=DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB + resident model 90.88 GiB = 91.74 GiB planned
+ds4: memory: KV 0.61 GiB (raw 0.36 + compressed 0.25) + buffers 0.25 GiB = 0.86 GiB context
+tokens=12737 scored=12705 nll=16620.915205347 avg_nll=1.308218434 ppl=3.699576798
+=== o1 end 05:49:37

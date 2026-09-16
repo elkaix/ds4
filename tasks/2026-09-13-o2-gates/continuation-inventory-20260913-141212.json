@@ -1,0 +1,44 @@
+{
+  "time": "20260913-141212",
+  "processes": {
+    "56830": "eza --icons --group-directories-first",
+    "82440": "/Users/panda/.local/share/uv/tools/huggingface-hub/bin/python3 /Users/panda/.local/bin/hf download dealignai/GLM-5.3-Flash-UNCENSORED-FP8 --revision d21b19569d30e6f471c433b11e672b3bbb80552a --local-dir /Users/panda/models/hf/GLM-5.3-Flash-UNCENSORED-FP8"
+  },
+  "files": [
+    {
+      "path": "/Users/panda/Projects/open-source/ds4/ds4flash.gguf",
+      "target": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 86720111904,
+      "inode": 286411127,
+      "links": 1
+    },
+    {
+      "path": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf",
+      "target": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 97591747872,
+      "inode": 342243824,
+      "links": 1
+    },
+    {
+      "path": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf",
+      "target": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-Layers33-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 104839505184,
+      "inode": 342453964,
+      "links": 1
+    },
+    {
+      "path": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "target": "/Users/panda/models/gguf/DeepSeek-V4-Flash-Vision-Uncensored-orcarouter-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf",
+      "bytes": 86720111904,
+      "inode": 286411127,
+      "links": 1
+    },
+    {
+      "path": "/Users/panda/models/gguf/tmp-vision-uncen-o2-donor-KEEP.gguf",
+      "target": "/Users/panda/models/gguf/tmp-vision-uncen-o2-donor-KEEP.gguf",
+      "bytes": 104839505184,
+      "inode": 342355435,
+      "links": 1
+    }
+  ]
+}
