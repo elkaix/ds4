@@ -4,15 +4,20 @@
 # while it runs. Server logs remain attached to this terminal.
 #
 # Usage:
-#   ./run-qwen38-ds4.sh
+#   ./run-qwen38-ds4.sh                 # full 262k ctx, agentic defaults
 #   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
 #   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh          # safer first smoke
+#   QWEN_DS4_BATCHED_SESSION=8 ./run-qwen38-ds4.sh # more concurrent agent sessions
 #   QWEN_DS4_MODEL=~/models/gguf/Qwen3.8-Flash-Next-Q2.gguf ./run-qwen38-ds4.sh
 # Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 #
 # This launcher targets CURRENT main: one self-contained qwen4exp GGUF with
 # original BF16 n-grams (per_layer_token_embd.weight). No --ple sidecar.
 # The ~95 GiB BF16 table stays on disk; the runtime preads selected rows.
+#
+# Agentic profile (defaults): full native ctx 262144, high max output tokens,
+# batched multi-session decode, large tool-call ID memory, CORS for local UIs,
+# long-prompt KV cold saves, continued frontiers for multi-turn tool loops.
 
 set -Eeuo pipefail
 
@@ -33,11 +38,11 @@ NATIVE_CTX=262144
 # Set QWEN_DS4_YARN=0 to allocate the long context without rescaling rope
 # (ds4 then warns, and prompts past 262144 tokens degrade).
 YARN="${QWEN_DS4_YARN:-auto}"
-TOKENS=32768
+TOKENS="${QWEN_DS4_TOKENS:-65536}"  # agentic default max output
 KV_DIR="${QWEN_DS4_KV_DIR:-$HOME/.ds4/server-kv/qwen38-flash-next-uncen-q4kq8-native-bf16}"
 KV_BUDGET_MB=131072
-KV_MIN_TOKENS=2048
-KV_COLD_MAX_TOKENS=65536
+KV_MIN_TOKENS="${QWEN_DS4_KV_MIN_TOKENS:-512}"  # cache short tool turns
+KV_COLD_MAX_TOKENS="${QWEN_DS4_KV_COLD_MAX_TOKENS:-131072}"  # long agent system+tools prompts
 # Continued-frontier snapshot interval. ds4 rounds the interval up to a
 # multiple of --kv-cache-boundary-align-tokens (2048). Defaults keep the
 # prior policy (20480). Frontier disk cost and resume latency are pack/engine
@@ -58,12 +63,21 @@ MTP_TIMING="${QWEN_DS4_MTP_TIMING:-0}"
 MTP_DRAFT="${QWEN_DS4_MTP_DRAFT:-1}"
 MTP_DRAFT_MAX=16
 PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-1024}"
+# Concurrent resident sessions for agentic multi-turn / parallel tool clients.
+# main batches decode-ready sessions when N>1. 1 = single stream.
+BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-4}"
+# Exact tool-call IDs kept in RAM (agent loops generate many IDs).
+TOOL_MEMORY_MAX_IDS="${QWEN_DS4_TOOL_MEMORY_MAX_IDS:-200000}"
+# Browser / local agent UIs often need CORS on 127.0.0.1.
+CORS="${QWEN_DS4_CORS:-1}"
+# Optional request trace for debugging agent tool loops (empty = off).
+TRACE="${QWEN_DS4_TRACE:-}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
 THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
 FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RESTORE_TIMEOUT_SECONDS=5
-FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
+FAN_PROFILE="${FAN_PROFILE:-performance}"  # agentic sustained load; override silent|balanced|max
 FAN_WATCH_INTERVAL_SECONDS=2
 fan_max_owned=false
 fan_watch_pid=""
@@ -72,46 +86,39 @@ usage() {
     cat <<EOF
 Usage: ./run-qwen38-ds4.sh
 
-Starts this worktree's ds4-server (antirez main) with Qwen3.8-Flash-Next
-Uncensored self-contained native BF16 n-grams:
-  Q4_K expert gate/up + Q8_0 expert down + Q8_0 dense, BF16 embeddings,
-  embedded MTP, original BF16 per_layer_token_embd in the same GGUF.
+Full-context agentic launcher for antirez main + Qwen3.8 Uncensored
+native BF16 n-grams (Q4_K gate/up + Q8_0 down + embedded MTP). No --ple.
 
-No --ple. The ~95 GiB BF16 n-gram table stays on disk (pread rows); it is not
-mapped into the Metal working set.
+Defaults tuned for agent / tool-loop workloads:
+  ctx 262144 (full native) · max tokens 65536 · batched-session 4
+  tool-memory-max-ids 200000 · CORS on · KV cold-max 131072 · MTP on
+  fan profile performance · prefill-chunk 1024
 
-Prints health, throughput, process memory, KV disk-cache use and free disk.
-Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
-server runs and return to Apple auto when it stops.
-
-Default ctx is still 262144 (full native window). For a first smoke on main use:
+Smoke (small ctx):
   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh
-Memory at large ctx depends on resident weights (~90 GiB class for this pack)
-plus context state; re-measure swapouts — do not assume the old sidecar numbers.
 
 Environment:
-  MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
-  QWEN_DS4_MODEL=PATH         Override the GGUF (default: Uncensored Q4K/Q8
-                              + native BF16 n-grams pack). Stock donor arm:
-                              Qwen3.8-Flash-Next-Q2.gguf
-                              (pair with QWEN_DS4_KV_DIR -- KV cache is per-pack)
-  QWEN_DS4_KV_DIR=PATH        Override the KV disk-cache directory
-  QWEN_DS4_KV_CONTINUED_INTERVAL=N
-                              Continued KV snapshot interval in tokens (default:
-                              20480; rounded up to a multiple of 2048; 0 disables)
-  QWEN_DS4_PREFILL_CHUNK=N    Graph prefill chunk (default: 1024)
-  QWEN_DS4_CTX=N              Allocated context tokens (default: 262144).
-                              Prefer 8192 for first bring-up on main.
-  QWEN_DS4_YARN=F             YaRN factor for contexts past native. "auto"
-                              (default) derives ctx/262144; 0 disables rescaling.
-  FAN_PROFILE=name            thermalforge watch profile (default: balanced)
-  QWEN_DS4_MTP=0              Disable model-embedded MTP speculation
-  QWEN_DS4_MTP_DRAFT=N        MTP draft width, 1..16 (default: 1). Unmeasured
-                              on main's batched-MTP stack; re-measure before
-                              raising. Historical sidecar figures do not apply.
-  QWEN_DS4_MTP_TIMING=1       Print MTP acceptance/verify timing (diagnostic)
+  MONITOR_INTERVAL_SECONDS=N     Monitor interval (default: 15)
+  QWEN_DS4_MODEL=PATH            GGUF path (default: Uncensored native BF16 pack)
+  QWEN_DS4_CTX=N                 Context tokens (default: 262144)
+  QWEN_DS4_TOKENS=N              Default max output tokens (default: 65536)
+  QWEN_DS4_BATCHED_SESSION=N     Resident sessions to batch (default: 4; 1=off)
+  QWEN_DS4_TOOL_MEMORY_MAX_IDS=N Tool-call ID RAM cache (default: 200000)
+  QWEN_DS4_CORS=0                Disable CORS (default: on)
+  QWEN_DS4_TRACE=FILE            Write prompt/tool trace log (default: off)
+  QWEN_DS4_KV_DIR=PATH           KV disk-cache directory
+  QWEN_DS4_KV_MIN_TOKENS=N       Min tokens to save/load (default: 512)
+  QWEN_DS4_KV_COLD_MAX_TOKENS=N  Cold first-prompt save cap (default: 131072)
+  QWEN_DS4_KV_CONTINUED_INTERVAL=N  Continued frontier interval (default: 20480)
+  QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 1024)
+  QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
+  QWEN_DS4_MTP=0                 Disable MTP
+  QWEN_DS4_MTP_DRAFT=N           MTP draft width 1..16 (default: 1)
+  QWEN_DS4_MTP_TIMING=1          MTP timing logs
+  FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
 EOF
 }
+
 
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
     usage
@@ -137,6 +144,26 @@ if [[ ! $KV_CONTINUED_INTERVAL =~ ^(0|[1-9][0-9]*)$ ]]; then
 fi
 if [[ ! $MTP_DRAFT =~ ^[1-9][0-9]*$ ]] || (( MTP_DRAFT > MTP_DRAFT_MAX )); then
     echo "QWEN_DS4_MTP_DRAFT must be an integer between 1 and $MTP_DRAFT_MAX; got: $MTP_DRAFT" >&2
+    exit 2
+fi
+if [[ ! $TOKENS =~ ^[1-9][0-9]*$ ]]; then
+    echo "QWEN_DS4_TOKENS must be a positive integer; got: $TOKENS" >&2
+    exit 2
+fi
+if [[ ! $BATCHED_SESSION =~ ^[1-9][0-9]*$ ]] || (( BATCHED_SESSION > 64 )); then
+    echo "QWEN_DS4_BATCHED_SESSION must be 1..64; got: $BATCHED_SESSION" >&2
+    exit 2
+fi
+if [[ ! $TOOL_MEMORY_MAX_IDS =~ ^[1-9][0-9]*$ ]]; then
+    echo "QWEN_DS4_TOOL_MEMORY_MAX_IDS must be a positive integer; got: $TOOL_MEMORY_MAX_IDS" >&2
+    exit 2
+fi
+if [[ ! $KV_MIN_TOKENS =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "QWEN_DS4_KV_MIN_TOKENS must be a non-negative integer; got: $KV_MIN_TOKENS" >&2
+    exit 2
+fi
+if [[ ! $KV_COLD_MAX_TOKENS =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "QWEN_DS4_KV_COLD_MAX_TOKENS must be a non-negative integer; got: $KV_COLD_MAX_TOKENS" >&2
     exit 2
 fi
 # ds4 reads the factor from the environment, so compute it here and export it.
@@ -784,14 +811,33 @@ Starting monitored ds4-server (Qwen3.8 Uncensored native BF16 n-grams, Q4_K/Q8_0
   binary:     $binary_state, built $binary_stamp
   model file: $model_stamp
   MTP:        $mtp_state
+  batched:    $BATCHED_SESSION session(s)
+  tools RAM:  $TOOL_MEMORY_MAX_IDS tool-call IDs
+  CORS:       $([ "$CORS" = 0 ] && echo off || echo on)
+  trace:      ${TRACE:-off}
+  profile:    agentic full-ctx
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
   fans:       ThermalForge '$FAN_PROFILE' profile (temperature-driven); Apple auto on stop
   wired limit: ${wired_limit_mb:-unknown} MiB
 
+API:        http://$HOST:$PORT/v1/chat/completions
 Dashboard:  http://$HOST:$PORT/dashboard
+Health:     http://$HOST:$PORT/health
 
 Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
 EOF
+
+AGENT_ARGS=()
+if (( BATCHED_SESSION > 1 )); then
+    AGENT_ARGS+=(--batched-session "$BATCHED_SESSION")
+fi
+AGENT_ARGS+=(--tool-memory-max-ids "$TOOL_MEMORY_MAX_IDS")
+if [[ $CORS != 0 ]]; then
+    AGENT_ARGS+=(--cors)
+fi
+if [[ -n $TRACE ]]; then
+    AGENT_ARGS+=(--trace "$TRACE")
+fi
 
 python3 -c '
 import os
@@ -803,6 +849,7 @@ os.execv(sys.argv[2], sys.argv[2:])
 ' "$QWEN_DIR" "$SERVER_BIN" --metal \
     --model "$MODEL" \
     ${MTP_ARGS[@]+"${MTP_ARGS[@]}"} \
+    ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"} \
     --ctx "$CTX" --tokens "$TOKENS" \
     --prefill-chunk "$PREFILL_CHUNK" \
     --power 100 \
