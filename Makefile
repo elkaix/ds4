@@ -251,6 +251,13 @@ tests/test_deepseek41_fusions.o: tests/test_deepseek41_fusions.c ds4_gpu.h ds4_d
 tests/test_deepseek41_fusions: tests/test_deepseek41_fusions.o $(CORE_OBJS)
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
 
+# Explicit, resident real-model campaign; never part of the default test suite.
+tests/test_deepseek41_live_edges.o: tests/test_deepseek41_live_edges.c ds4.c ds4.h ds4_gpu.h ds4_deepseek41_gpu.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
+
+tests/test_deepseek41_live_edges: tests/test_deepseek41_live_edges.o $(filter-out ds4.o,$(CORE_OBJS))
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+
 .PHONY: test-deepseek41-topk
 test-deepseek41-topk: tests/test_deepseek41_topk
 	MTL_DEBUG_LAYER=1 ./tests/test_deepseek41_topk
@@ -1128,6 +1135,7 @@ tests/test_session_state_gpu.o: ds4_tool_text.h
 
 clean:
 	rm -f tests/test_deepseek41_fusions tests/test_deepseek41_topk
+	rm -f tests/test_deepseek41_live_edges
 	rm -f tests/test_qwen4_ngrams
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
