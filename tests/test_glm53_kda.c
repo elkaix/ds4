@@ -2834,6 +2834,157 @@ int main(void) {
     ds4_gpu_tensor_free(score_weights_gpu);
     ds4_gpu_tensor_free(score_q_gpu);
 
+    enum { DECODE_ROWS = 17, DECODE_HEADS = 32 };
+    float decode_q[DECODE_HEADS * D];
+    float decode_weights[DECODE_HEADS];
+    float decode_cache_f32[DECODE_ROWS * D];
+    uint16_t decode_cache_f16[DECODE_ROWS * D];
+    uint32_t decode_rng = 0xc0ffeeu;
+    for (uint32_t i = 0; i < DECODE_HEADS * D; i++) {
+        decode_rng = decode_rng * 1664525u + 1013904223u;
+        decode_q[i] = ((int)(decode_rng % 2001u) - 1000) * 0.001f;
+    }
+    for (uint32_t i = 0; i < DECODE_HEADS; i++) {
+        decode_rng = decode_rng * 1664525u + 1013904223u;
+        decode_weights[i] = ((int)(decode_rng % 2001u) - 1000) * 0.002f;
+    }
+    for (uint32_t i = 0; i < DECODE_ROWS * D; i++) {
+        decode_rng = decode_rng * 1664525u + 1013904223u;
+        decode_cache_f32[i] = ((int)(decode_rng % 2001u) - 1000) * 0.0015f;
+        decode_cache_f16[i] = f32_to_f16(decode_cache_f32[i]);
+    }
+    ds4_gpu_tensor *decode_q_gpu = ds4_gpu_tensor_alloc(sizeof(decode_q));
+    ds4_gpu_tensor *decode_w_gpu = ds4_gpu_tensor_alloc(sizeof(decode_weights));
+    ds4_gpu_tensor *decode_cache_f32_gpu =
+        ds4_gpu_tensor_alloc(sizeof(decode_cache_f32));
+    ds4_gpu_tensor *decode_cache_f16_gpu =
+        ds4_gpu_tensor_alloc(sizeof(decode_cache_f16));
+    ds4_gpu_tensor *decode_scores_new =
+        ds4_gpu_tensor_alloc((uint64_t)DECODE_ROWS * sizeof(float));
+    ds4_gpu_tensor *decode_scores_old =
+        ds4_gpu_tensor_alloc((uint64_t)DECODE_ROWS * sizeof(float));
+    require_ok(decode_q_gpu && decode_w_gpu && decode_cache_f32_gpu &&
+               decode_cache_f16_gpu && decode_scores_new && decode_scores_old,
+               "decode-rows scorer tensor allocation");
+    require_ok(ds4_gpu_tensor_write(decode_q_gpu, 0, decode_q, sizeof(decode_q)),
+               "decode-rows Q write");
+    require_ok(ds4_gpu_tensor_write(decode_w_gpu, 0, decode_weights,
+                                    sizeof(decode_weights)),
+               "decode-rows weights write");
+    require_ok(ds4_gpu_tensor_write(decode_cache_f32_gpu, 0, decode_cache_f32,
+                                    sizeof(decode_cache_f32)),
+               "decode-rows f32 cache write");
+    require_ok(ds4_gpu_tensor_write(decode_cache_f16_gpu, 0, decode_cache_f16,
+                                    sizeof(decode_cache_f16)),
+               "decode-rows f16 cache write");
+    float decode_new_host[DECODE_ROWS];
+    float decode_old_host[DECODE_ROWS];
+    for (int cache_f16 = 0; cache_f16 < 2; cache_f16++) {
+        ds4_gpu_tensor *cache_gpu =
+            cache_f16 ? decode_cache_f16_gpu : decode_cache_f32_gpu;
+        const char *arm = cache_f16 ? "f16" : "f32";
+        require_ok(setenv("DS4_METAL_DISABLE_GLM_INDEX_DECODE_ROWS", "1", 1) == 0,
+                   "decode-rows disable");
+        require_ok(unsetenv("DS4_METAL_GLM_INDEX_DECODE_ROWS") == 0,
+                   "decode-rows enable clear");
+        require_ok(ds4_gpu_glm_indexer_score_one_tensor(
+                       decode_scores_old, decode_q_gpu, decode_w_gpu, cache_gpu,
+                       DECODE_ROWS, DECODE_HEADS, D, score_scale, cache_f16 != 0),
+                   "decode-rows direct score");
+        require_ok(unsetenv("DS4_METAL_DISABLE_GLM_INDEX_DECODE_ROWS") == 0,
+                   "decode-rows disable clear");
+        require_ok(setenv("DS4_METAL_GLM_INDEX_DECODE_ROWS", "1", 1) == 0,
+                   "decode-rows enable");
+        require_ok(ds4_gpu_glm_indexer_score_one_tensor(
+                       decode_scores_new, decode_q_gpu, decode_w_gpu, cache_gpu,
+                       DECODE_ROWS, DECODE_HEADS, D, score_scale, cache_f16 != 0),
+                   "decode-rows tiled score");
+        require_ok(ds4_gpu_tensor_read(decode_scores_old, 0, decode_old_host,
+                                       sizeof(decode_old_host)),
+                   "decode-rows direct read");
+        require_ok(ds4_gpu_tensor_read(decode_scores_new, 0, decode_new_host,
+                                       sizeof(decode_new_host)),
+                   "decode-rows tiled read");
+        float max_abs = 0.0f;
+        uint32_t n_diff = 0;
+        for (uint32_t row = 0; row < DECODE_ROWS; row++) {
+            const float d = fabsf(decode_new_host[row] - decode_old_host[row]);
+            if (d > max_abs) max_abs = d;
+            if (d != 0.0f) n_diff++;
+        }
+        fprintf(stderr, "GLM decode-rows vs direct %s: n_diff=%u/%u max_abs=%.3g first new=%.9g old=%.9g\n",
+                arm, n_diff, DECODE_ROWS, max_abs,
+                decode_new_host[0], decode_old_host[0]);
+        if (max_abs > 5e-6f) {
+            fprintf(stderr, "GLM decode-rows vs direct %s exceeds 5e-6\n", arm);
+            return 1;
+        }
+    }
+    require_ok(setenv("DS4_METAL_GLM_INDEX_DECODE_ROWS", "1", 1) == 0,
+               "decode-rows enable for topk check");
+    require_ok(setenv("DS4_METAL_GLM_INDEX_CHECK", "1", 1) == 0,
+               "index check enable");
+    require_ok(setenv("DS4_METAL_GLM_INDEX_CHECK_N", "1", 1) == 0,
+               "index check n");
+    require_ok(ds4_gpu_glm_indexer_score_one_tensor(
+                   decode_scores_new, decode_q_gpu, decode_w_gpu,
+                   decode_cache_f16_gpu, DECODE_ROWS, DECODE_HEADS, D,
+                   score_scale, true),
+               "decode-rows score for topk check");
+    enum { DECODE_TOPK = 8 };
+    ds4_gpu_tensor *decode_sel =
+        ds4_gpu_tensor_alloc((uint64_t)DECODE_TOPK * sizeof(uint32_t));
+    ds4_gpu_tensor *decode_sel_direct =
+        ds4_gpu_tensor_alloc((uint64_t)DECODE_TOPK * sizeof(uint32_t));
+    require_ok(decode_sel != NULL && decode_sel_direct != NULL,
+               "decode-rows topk selected alloc");
+    require_ok(ds4_gpu_glm53_indexer_topk_tensor(
+                   decode_sel, decode_scores_new, DECODE_ROWS, 1, DECODE_TOPK),
+               "decode-rows topk check");
+    require_ok(ds4_gpu_glm53_indexer_topk_tensor(
+                   decode_sel_direct, decode_scores_old, DECODE_ROWS, 1,
+                   DECODE_TOPK),
+               "decode-rows topk direct");
+    uint32_t decode_sel_host[DECODE_TOPK];
+    uint32_t decode_sel_direct_host[DECODE_TOPK];
+    require_ok(ds4_gpu_tensor_read(decode_sel, 0, decode_sel_host,
+                                   sizeof(decode_sel_host)),
+               "decode-rows topk read");
+    require_ok(ds4_gpu_tensor_read(decode_sel_direct, 0, decode_sel_direct_host,
+                                   sizeof(decode_sel_direct_host)),
+               "decode-rows topk direct read");
+    for (uint32_t i = 0; i < DECODE_TOPK; i++) {
+        if (decode_sel_host[i] >= DECODE_ROWS) {
+            fprintf(stderr, "decode-rows topk out of range: %u\n",
+                    decode_sel_host[i]);
+            return 1;
+        }
+        for (uint32_t j = 0; j < i; j++) {
+            if (decode_sel_host[i] == decode_sel_host[j]) {
+                fprintf(stderr, "decode-rows topk duplicate %u\n",
+                        decode_sel_host[i]);
+                return 1;
+            }
+        }
+    }
+    require_bytes_equal("decode-rows vs direct topk set+order",
+                        decode_sel_host, decode_sel_direct_host,
+                        sizeof(decode_sel_host));
+    ds4_gpu_tensor_free(decode_sel_direct);
+    ds4_gpu_tensor_free(decode_sel);
+    unsetenv("DS4_METAL_GLM_INDEX_CHECK");
+    unsetenv("DS4_METAL_GLM_INDEX_CHECK_N");
+    unsetenv("DS4_METAL_GLM_INDEX_DECODE_ROWS");
+    unsetenv("DS4_METAL_DISABLE_GLM_INDEX_DECODE_ROWS");
+    ds4_gpu_tensor_free(decode_scores_old);
+    ds4_gpu_tensor_free(decode_scores_new);
+    ds4_gpu_tensor_free(decode_cache_f16_gpu);
+    ds4_gpu_tensor_free(decode_cache_f32_gpu);
+    ds4_gpu_tensor_free(decode_w_gpu);
+    ds4_gpu_tensor_free(decode_q_gpu);
+
+
+
     enum { SELECTED_POOLS = 512, INDEX_TOPK = 2048, SELECT_ROWS = 5,
            SELECT_WIDTH = 2051 };
     uint32_t pool_ids[SELECT_ROWS * SELECTED_POOLS];
