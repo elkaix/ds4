@@ -32,6 +32,10 @@ Q8/BF16 input checks. `make test-glm53-hc-pre-repeat` checks repeated HC
 producer dispatches and equal output with both fallback producer variants.
 These two focused targets are Metal-only and model-free.
 
+`make test-deepseek41-q4-tail` runs the model-free Metal Q4 tail-culling
+fixture with Metal API validation enabled. See the campaign's
+[fixture coverage](../speed-bench/ds41f-m3ultra-perf/README.md#exactness-and-regression-checks).
+
 `make test` also includes model-backed tests. Select the right GGUF and ensure
 that it fits before running it; do not accidentally load a large model on a
 single device during multi-GPU QA. ROCm has `make test-rocm`.

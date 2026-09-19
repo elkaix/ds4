@@ -129,6 +129,10 @@ inherited `DS4_`, `MTL_` and `ASTRA_` controls, records source hashes and comman
 and refuses to overwrite existing evidence. Use a fresh output/name for each
 run. All full-model allocations and evaluated positions must stay at or below
 32,768; the largest prefixes leave room for generation and the sentinel slot.
+The command below uses the existing GGUF's absolute path from
+[manifest.json](manifest.json), so it also works from a separate source worktree
+without copying or downloading the model. Use that path for `-m` when replaying
+the historical commands that use a checkout-relative model path.
 
 ```sh
 make -j8 all metal-decode-schedule-bench metal-prefill-variant-bench
@@ -136,7 +140,7 @@ make test-deepseek41-q4-tail
 python3 speed-bench/ds41f-m3ultra-perf/run.py \
   --out /tmp/ds41f-recheck --name decode-8k -- \
   ./speed-bench/metal_decode_schedule_bench \
-  -m gguf/DeepSeek-V4.1-Flash-Q4.gguf \
+  -m /Users/jw/ds4/gguf/DeepSeek-V4.1-Flash-Q4.gguf \
   --prompt-file speed-bench/promessi_sposi.txt \
   --candidate-env DS4_METAL_DISABLE_V41_RESIDENT_DECODE_QUEUE \
   --prefix-tokens 8192 --ctx 32768 --warmup 16 --tokens 256 --include-selection
