@@ -3042,6 +3042,17 @@ static void ds4_gpu_detect_metal4_features(void) {
             if (default_enable) {
                 g_metal4_tensor_api_compile_supported = ds4_gpu_compile_tensor_probe();
                 g_metal4_tensor_api_enabled = g_metal4_tensor_api_compile_supported;
+                /* LOCAL (M5): the tensor/MPP matmul route fails the
+                 * --metal-tensor-equivalence gate on Apple M5 Max with GLM 5.3
+                 * (logit drift rms~0.48 max_abs~3.1, greedy mismatches from
+                 * step 7). Kill switch so production can run Metal 4 with the
+                 * accelerated matmul route off while keeping everything else. */
+                if (g_metal4_tensor_api_enabled &&
+                    ds4_gpu_env_bool("DS4_METAL_DISABLE_TENSOR_API") > 0) {
+                    g_metal4_tensor_api_enabled = 0;
+                    fprintf(stderr,
+                            "ds4: Metal 4 tensor API disabled by DS4_METAL_DISABLE_TENSOR_API\n");
+                }
                 if (!g_metal4_tensor_api_enabled) {
                     fprintf(stderr, "ds4: Metal 4 tensor API probe failed; using legacy Metal kernels\n");
                 }
