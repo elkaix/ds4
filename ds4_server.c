@@ -10048,6 +10048,15 @@ typedef struct {
     uint64_t checkpoint_save_bytes;
     uint64_t checkpoint_restores;
     uint64_t checkpoint_restore_ns;
+    /* Live-frontier recovery accounting: a request that missed the live
+     * cache (e.g. unfinished-thinking transcript divergence) and fell back
+     * to an older disk checkpoint. replayed_tokens counts prompt tokens
+     * that had to be re-prefilled although they were live moments before;
+     * replay_ns is that request's prefill phase. Hit-rate alone hides these
+     * events because the stale checkpoint still counts as a hit. */
+    uint64_t cache_recoveries;
+    uint64_t replayed_tokens;
+    uint64_t replay_ns;
 } server_stats;
 
 /* One completed request, for the /stats "recent" ring. */
@@ -10066,6 +10075,11 @@ typedef struct {
     uint64_t mtp_cycles, mtp_committed;
     char source[32];
     char finish[24];
+    /* Filled only when this request recovered from an older disk checkpoint
+     * after a live-cache miss; frontier_loss = live frontier discarded. */
+    int frontier_loss_tokens;
+    int replayed_tokens;
+    uint64_t replay_ns;
 } server_req_record;
 
 struct server_slot {
@@ -11812,8 +11826,8 @@ static int thinking_live_visible_prefix_prompt(server *s, server_slot *slot,
  * enough data to diagnose tokenizer-boundary and canonicalization problems.
  */
 
-#define TRACE_CACHE_BEFORE 8
-#define TRACE_CACHE_AFTER  8
+#define TRACE_CACHE_BEFORE 32
+#define TRACE_CACHE_AFTER  32
 #define TRACE_CACHE_WINDOW (TRACE_CACHE_BEFORE + 1 + TRACE_CACHE_AFTER)
 
 typedef struct {
@@ -13492,6 +13506,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         responses_live_visible_prefix_prompt(s, slot, &j->req, old_pos,
                                               &effective_prompt);
     const char *cache_source = cached > 0 ? "responses-visible" : "none";
+    int cache_recovery_loss = 0;
     if (cached > 0) {
         responses_live_match = "visible-prefix";
         if (responses_live_matches_request(s, slot,
@@ -13623,6 +13638,10 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         if (disk_cached > 0) {
             cached = disk_cached;
             cache_source = "disk-text";
+            /* LOCAL: recovery accounting — this request discarded a live
+             * frontier and restored an older checkpoint. */
+            if (old_pos > 0 && old_pos > disk_cached)
+                cache_recovery_loss = old_pos - disk_cached;
             prompt_for_sync = &effective_prompt;
             t_restore_sec = now_sec() - t_restore0;
             pthread_mutex_lock(&s->mu);
@@ -14473,6 +14492,11 @@ decode_again:
         rec.mtp_committed = mtp_now.committed - mtp_at_start.committed;
         snprintf(rec.source, sizeof(rec.source), "%s", cache_source);
         snprintf(rec.finish, sizeof(rec.finish), "%s", finish ? finish : "");
+        if (cache_recovery_loss > 0) {
+            rec.frontier_loss_tokens = cache_recovery_loss;
+            rec.replayed_tokens = prompt_tokens > cached ? prompt_tokens - cached : 0;
+            rec.replay_ns = rec.prefill_ns;
+        }
         pthread_mutex_lock(&s->mu);
         s->stats.generated_tokens += (uint64_t)(completion > 0 ? completion : 0);
         if (completion > 0 && decode_sec > 0.0)
@@ -14480,6 +14504,11 @@ decode_again:
         s->stats.decode_tokens += (uint64_t)(completion > 0 ? completion : 0);
         s->stats.decode_ns += rec.decode_ns;
         s->stats.first_token_ns += rec.first_token_ns;
+        if (cache_recovery_loss > 0) {
+            s->stats.cache_recoveries++;
+            s->stats.replayed_tokens += (uint64_t)rec.replayed_tokens;
+            s->stats.replay_ns += rec.replay_ns;
+        }
         rec.seq = ++s->recent_seq;
         if (s->recent_len < SERVER_RECENT_MAX) s->recent_len++;
         memmove(&s->recent[1], &s->recent[0],
@@ -15220,13 +15249,17 @@ static void format_stats_json(server *s, buf *out) {
         "\"prompt_total_ns\":%llu,\"decode_tokens\":%llu,\"decode_ns\":%llu,"
         "\"first_token_ns\":%llu,\"checkpoint_saves\":%llu,\"checkpoint_save_ns\":%llu,"
         "\"checkpoint_save_bytes\":%llu,\"checkpoint_restores\":%llu,"
-        "\"checkpoint_restore_ns\":%llu}",
+        "\"checkpoint_restore_ns\":%llu,"
+        "\"cache_recoveries\":%llu,\"replayed_tokens\":%llu,"
+        "\"replay_ns\":%llu}",
         (unsigned long long)st.prefill_fresh_tokens, (unsigned long long)st.prefill_compute_ns,
         (unsigned long long)st.prompt_total_ns, (unsigned long long)st.decode_tokens,
         (unsigned long long)st.decode_ns, (unsigned long long)st.first_token_ns,
         (unsigned long long)st.checkpoint_saves, (unsigned long long)st.checkpoint_save_ns,
         (unsigned long long)st.checkpoint_save_bytes, (unsigned long long)st.checkpoint_restores,
-        (unsigned long long)st.checkpoint_restore_ns);
+        (unsigned long long)st.checkpoint_restore_ns,
+        (unsigned long long)st.cache_recoveries, (unsigned long long)st.replayed_tokens,
+        (unsigned long long)st.replay_ns);
     buf_printf(out,
         ",\"mtp\":{\"enabled\":%s,\"active\":%s,\"max_ctx\":%u,\"pos\":%d,"
         "\"cycles\":%llu,\"accepted\":%llu,\"committed\":%llu,\"rows_cycles\":%llu,"
@@ -15250,7 +15283,8 @@ static void format_stats_json(server *s, buf *out) {
             "\"lookup_ns\":%llu,\"restore_ns\":%llu,\"cold_ns\":%llu,\"prefill_ns\":%llu,"
             "\"store_ns\":%llu,\"prompt_ns\":%llu,\"first_token_ns\":%llu,"
             "\"decode_tokens\":%d,\"decode_ns\":%llu,\"mtp_cycles\":%llu,"
-            "\"mtp_committed\":%llu,\"source\":\"%s\",\"finish\":\"%s\"}",
+            "\"mtp_committed\":%llu,\"source\":\"%s\",\"finish\":\"%s\","
+            "\"frontier_loss_tokens\":%d,\"replayed_tokens\":%d,\"replay_ns\":%llu}",
             i ? "," : "", (unsigned long long)r->seq, r->at_s, r->kind, r->pos,
             r->prompt_tokens, r->cached_tokens, r->prompt_tokens - r->cached_tokens,
             (unsigned long long)r->lookup_ns, (unsigned long long)r->restore_ns,
@@ -15258,7 +15292,9 @@ static void format_stats_json(server *s, buf *out) {
             (unsigned long long)r->store_ns, (unsigned long long)r->prompt_ns,
             (unsigned long long)r->first_token_ns, r->decode_tokens,
             (unsigned long long)r->decode_ns, (unsigned long long)r->mtp_cycles,
-            (unsigned long long)r->mtp_committed, r->source, r->finish);
+            (unsigned long long)r->mtp_committed, r->source, r->finish,
+            r->frontier_loss_tokens, r->replayed_tokens,
+            (unsigned long long)r->replay_ns);
     }
     buf_puts(out, "]}");
     free(recent);
@@ -22976,6 +23012,9 @@ static void test_stats_json_recent_and_totals(void) {
     s.stats.checkpoint_save_bytes = 4096;
     s.stats.checkpoint_restores = 1;
     s.stats.checkpoint_restore_ns = 5000000ull;
+    s.stats.cache_recoveries = 1;
+    s.stats.replayed_tokens = 26413;
+    s.stats.replay_ns = 109350000000ull;
     s.stats.last_prefill_tps = 500.0;
     s.stats.last_decode_tps = 50.0;
     s.stats.cache_hits = 1;
@@ -22998,6 +23037,9 @@ static void test_stats_json_recent_and_totals(void) {
     a.mtp_committed = 12;
     snprintf(a.source, sizeof(a.source), "%s", "memory-token");
     snprintf(a.finish, sizeof(a.finish), "%s", "stop");
+    a.frontier_loss_tokens = 26443;
+    a.replayed_tokens = 26413;
+    a.replay_ns = 109350000000ull;
 
     b.seq = 1;
     b.at_s = 5.0;
@@ -23045,6 +23087,10 @@ static void test_stats_json_recent_and_totals(void) {
     TEST_ASSERT(strstr(json, "\"checkpoint_save_bytes\":4096") != NULL);
     TEST_ASSERT(strstr(json, "\"checkpoint_restores\":1") != NULL);
     TEST_ASSERT(strstr(json, "\"checkpoint_restore_ns\":5000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"cache_recoveries\":1") != NULL);
+    TEST_ASSERT(strstr(json, "\"replayed_tokens\":26413") != NULL);
+    TEST_ASSERT(strstr(json, "\"replay_ns\":109350000000") != NULL);
+    TEST_ASSERT(strstr(json, "\"frontier_loss_tokens\":26443") != NULL);
     TEST_ASSERT(strstr(json, "\"mtp\":") != NULL);
     TEST_ASSERT(strstr(json, "\"ple\":") != NULL);
     TEST_ASSERT(strstr(json, "\"recent\":[") != NULL);
