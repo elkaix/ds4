@@ -37,6 +37,11 @@ export interface Totals {
   checkpoint_save_bytes: number;
   checkpoint_restores: number;
   checkpoint_restore_ns: number;
+  /** live-frontier recoveries after a cache miss (advisor metric): count,
+   * tokens re-prefilled that were live moments before, wall time spent */
+  cache_recoveries: number;
+  replayed_tokens: number;
+  replay_ns: number;
 }
 
 /** Speculative-decode (multi-token prediction) state + cumulative cycle counters. */
@@ -89,6 +94,10 @@ export interface RecentRequest {
   mtp_committed: number;
   source: string;
   finish: string;
+  /** >0 only when this request restored an older checkpoint after a live miss */
+  frontier_loss_tokens: number;
+  replayed_tokens: number;
+  replay_ns: number;
 }
 
 export interface Stats {
