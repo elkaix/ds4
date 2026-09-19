@@ -1,0 +1,1 @@
+{"seq":85,"time":16757.773,"api":"chat","stream":true,"body_bytes":764560,"body_fnv1a64":"747fd1c1d8c31329","prompt_text_bytes":726994,"prompt_text_fnv1a64":"2cc88f4d63f99f1d","prompt_tokens":182992,"cached_tokens":182541,"cache_source":"memory-text","max_tokens":32768,"temperature":1.0000,"top_p":1.0000,"top_k":0,"min_p":0.0500,"seed":0,"has_tools":true,"images":0}

@@ -1,0 +1,9 @@
+b3f48f9eabf30940bacaa5723869498e8d830b56 no-mistakes(review): Repeat fallback HC producers during GLM decode profiling
+d3aa74861bb87b16a0b5add37ab9523d7c61e346 no-mistakes(review): Fix recovery state, checkpoint scans, and duplicate expansion [cherry-picked 09b6aaf, engine files only]
+b8c77c9cf342c9b384e73b8d27cbad4ff6eaa465 no-mistakes(review): Fix checkpoint replay and nonfinite Metal edge cases [cherry-picked bdb743a, engine files only; ds4_server.c part dropped]
+3b3e540fd5e316a43ccf8826520c7f5c5ced61a3 no-mistakes(review): Fix prefill safety, cap sizing, and CUDA repeats
+3bbd508903afd358b8312f85136fb2a8f6b3e36a metal: isolate exact M3 Ultra router, DSA and mixed KDA experiments
+9321ece0b084ef4bf0ee216810306f7ce3373f03 metal: tile GLM Flash prefill without changing output arithmetic
+f9d7b8946f21c0caa62f8002a888f737af96a914 metal: stage exact GLM sparse decode and top-eight routing
+16e48a2959f897b24aac36a757fde9d3ee956bab metal: fuse GLM BF16 HC and KDA decode with exact reductions
+57fbd67fd16ead7b4d1aa5d96e519dabca88da5d glm: add validation wiring and decode profiling controls

@@ -1,0 +1,6 @@
+bin /Users/panda/Projects/open-source/ds4-glm53/ds4-bench
+sha 24ab3d0e265659dd
+head 43cac006fb827f8c7240c5deaca3498c0f2565b7
+A score_one_direct (DECODE_ROWS unset, CHECK unset)
+B DS4_METAL_GLM_INDEX_DECODE_ROWS=1 CHECK unset
+GEN=256 GAP=45 Metal4=off

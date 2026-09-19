@@ -1,0 +1,6 @@
+== 00:37:59 A/B prefill confirm
+A prefill [261.48, 262.22] med 261.85  gen med 29.94
+B prefill [262.26, 262.23] med 262.25  gen med 34.94
+paired prefill % [0.3, 0.0] mean 0.15
+paired gen % [17.11, 16.29]
+== 00:40:49 done

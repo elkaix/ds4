@@ -1,0 +1,29 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.847 ms, residency requested in 677.470 ms, warmup 4.190 ms (mapped 97858.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.02 GiB (raw 0.00 + compressed 0.02) + buffers 2.92 GiB + resident model 95.56 GiB = 98.51 GiB planned
+ds4: memory detail: ctx=2081 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=2081 backend=metal
+ds4-bench: context buffers 3012.22 MiB (ctx=2081, backend=metal, prefill_chunk=2048, raw_kv_rows=0, compressed_kv_rows=2081)
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=2081 logical_ctx=2081 kv_layers=45 indexer_layers=11 f16 0.02 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=4.07 MiB
+       11.13 real         0.23 user         1.12 sys
+           300253184  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               22013  page reclaims
+                 295  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                3408  involuntary context switches
+         20862899121  instructions retired
+          4922672190  cycles elapsed
+          3891004472  peak memory footprint

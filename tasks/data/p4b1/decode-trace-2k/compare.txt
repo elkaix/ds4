@@ -1,0 +1,10 @@
+tokens A=256 B=256
+tokens identical
+  compared 64/256 steps; worst_abs=0 at step -1
+  compared 128/256 steps; worst_abs=0 at step -1
+  compared 192/256 steps; worst_abs=0 at step -1
+  compared 256/256 steps; worst_abs=0 at step -1
+frames=256 vocab=154880
+n_diff_elements=0 n_nan_mismatches=0
+worst_abs=0 worst_step=-1
+DECODE_TRACE_PASS byte-identical F32 frames + tokens

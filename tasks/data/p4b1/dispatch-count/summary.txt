@@ -1,0 +1,8 @@
+== 00:11:04 dispatch-count GEN=256
+A bd66c402070042bf0a79ad6ece8242de4c93680c 094bfeff306d82a9
+B b3f48f9eabf30940bacaa5723869498e8d830b56 cf631271a40fbb73
+ds4-dispatch: glm53_exact_sparse=0 split_group8_checked=0 split_group8_unchecked=0 generic_indexed=5632
+ds4-dispatch: glm53_exact_sparse=5632 split_group8_checked=0 split_group8_unchecked=0 generic_indexed=0
+ds4-dispatch: glm53_exact_sparse=0 split_group8_checked=0 split_group8_unchecked=0 generic_indexed=5632
+ds4-dispatch: glm53_exact_sparse=5632 split_group8_checked=0 split_group8_unchecked=0 generic_indexed=0
+== 00:18:48 done

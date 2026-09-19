@@ -1,0 +1,3 @@
+label                         n  pref_med  gen_med  first_ms
+default                       2    261.28    34.81    28.297
+flash_off                     2    262.17    30.01    32.993

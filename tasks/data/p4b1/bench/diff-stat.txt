@@ -1,0 +1,20 @@
+ .gitignore                       |    5 +
+ Makefile                         |   35 +-
+ ds4.c                            | 1138 +++++++++++++++++++----
+ ds4_gpu.h                        |  158 ++++
+ ds4_metal.m                      | 1391 ++++++++++++++++++++++++++--
+ metal/argsort.metal              |  332 +++++++
+ metal/dense.metal                |   17 +-
+ metal/dsv4_hc.metal              |  179 +++-
+ metal/dsv4_misc.metal            |  792 +++++++++++++++-
+ metal/glm53_bf16.metal           |  233 ++++-
+ metal/glm53_kda.metal            |  315 ++++++-
+ metal/moe.metal                  |    4 +
+ tests/ds4_test.c                 |   32 +-
+ tests/test_glm53_hc_pre_repeat.c |  125 +++
+ tests/test_glm53_kda.c           | 1885 +++++++++++++++++++++++++++++++++++++-
+ tests/test_glm53_q8_inputs.c     |   51 ++
+ tests/test_glm53_router_shared.c |  127 +++
+ tests/test_glm53_topk_fast.c     |   70 ++
+ tests/test_session_state.c       |   38 +
+ 19 files changed, 6606 insertions(+), 321 deletions(-)
