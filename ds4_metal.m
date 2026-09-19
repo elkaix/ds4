@@ -422,6 +422,13 @@ static id<MTLComputePipelineState> g_hc_weighted_sum_pipeline;
 static id<MTLComputePipelineState> g_output_hc_weights4_pipeline;
 static uint32_t g_test_flags;
 static uint32_t g_test_glm53_prefill_dispatches;
+static uint32_t g_test_v41_q4_tail_dispatches;
+
+uint32_t ds4_gpu_test_v41_q4_tail_take_dispatches(void) {
+    const uint32_t result = g_test_v41_q4_tail_dispatches;
+    g_test_v41_q4_tail_dispatches = 0;
+    return result;
+}
 
 uint32_t ds4_gpu_test_glm53_prefill_take_dispatches(void) {
     const uint32_t result = g_test_glm53_prefill_dispatches;
@@ -2905,6 +2912,10 @@ int ds4_gpu_device_is_m5_apple_silicon(void) {
     return strncmp(g_metal_device_name, "Apple M5", 8) == 0 &&
            (g_metal_device_name[8] == '\0' ||
             g_metal_device_name[8] == ' ');
+}
+
+int ds4_gpu_device_is_m3_ultra(void) {
+    return strcmp(g_metal_device_name, "Apple M3 Ultra") == 0;
 }
 
 static bool ds4_gpu_ported_m5_decode_feature_enabled(
@@ -44175,6 +44186,18 @@ int ds4_gpu_routed_moe_batch_tensor(
             getenv("DS4_METAL_DISABLE_MOE_MM_ID_PAIR_SWIGLU") == NULL &&
             getenv("DS4_METAL_MOE_WRITE_CLAMPED_ACT") == NULL &&
             getenv("DS4_METAL_GRAPH_DUMP_PREFIX") == NULL;
+        /* Preserve staging and every barrier; only skip MMA for the unused
+         * second half of a final expert tile. Both projections retain their
+         * accumulation order. Admit the resident Q4 shape measured on M3 Ultra. */
+        const bool use_v41_q4_tail_cull = use_mm_id_pair_swiglu &&
+            !g_ssd_streaming_mode && g_tp_split_world == 1 &&
+            gate_type == DS4_METAL_TENSOR_Q4_K && down_type == DS4_METAL_TENSOR_Q4_K &&
+            ((ds4_gpu_device_is_m3_ultra() && n_total_expert == 384u &&
+              expert_in_dim == 5120u && expert_mid_dim == 2304u && out_dim == 5120u) ||
+             (g_test_flags & DS4_GPU_TEST_V41_Q4_TAIL_CULL)) &&
+            !getenv("DS4_METAL_DISABLE_V41_Q4_TAIL_CULL");
+        if (use_v41_q4_tail_cull && (g_test_flags & DS4_GPU_TEST_V41_Q4_TAIL_CULL))
+            g_test_v41_q4_tail_dispatches++;
         /*
          * The MXFP4 32x32 specialization uses two SIMDgroups and 8 KiB of
          * threadgroup memory, and exactly culls SIMDgroup 1 on at-most-16-row
@@ -44287,7 +44310,9 @@ int ds4_gpu_routed_moe_batch_tensor(
                     ds4_gpu_mul_mm_id_map0_name(n_expert));
             gate_mm_pipeline = ds4_gpu_routed_mm_pipeline(gate_type);
             up_mm_pipeline = ds4_gpu_routed_mm_pipeline(gate_type);
-            down_mm_pipeline = use_mxfp4_mm_id_down_half_lut ?
+            down_mm_pipeline = use_v41_q4_tail_cull ?
+                ds4_gpu_get_mul_mm_id_pipeline("kernel_mul_mm_id_q4_K_f16_tail_cull", false) :
+                use_mxfp4_mm_id_down_half_lut ?
                 ds4_gpu_get_mul_mm_id_pipeline(
                     use_mxfp4_mm_id_down_tail_simdgroup_cull ?
                         "kernel_mul_mm_id_mxfp4_f16_half_lut_tail_cull" :
@@ -44393,7 +44418,8 @@ int ds4_gpu_routed_moe_batch_tensor(
                 pair_swiglu_mm_pipeline =
                     ds4_gpu_get_pipeline(
                         gate_type == DS4_METAL_TENSOR_Q4_K ?
-                            "kernel_mul_mm_id_q4_K_pair_swiglu_f16" :
+                            (use_v41_q4_tail_cull ? "kernel_mul_mm_id_q4_K_pair_swiglu_f16_tail_cull" :
+                             "kernel_mul_mm_id_q4_K_pair_swiglu_f16") :
                         gate_type == DS4_METAL_TENSOR_MXFP4 ?
                             (use_mxfp4_mm_id_pair_swiglu_compact_tile ?
                                 (use_mxfp4_mm_id_pair_half_scale ?
