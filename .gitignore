@@ -94,3 +94,6 @@ __pycache__/
 /tests/test_glm53_topk_fast
 /tests/test_glm53_q8_inputs
 /tests/test_glm53_hc_pre_repeat
+
+/tests/test_deepseek41_fusions
+/tests/test_deepseek41_topk
