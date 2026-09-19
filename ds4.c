@@ -41335,8 +41335,16 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
      * layer mapped, using the same admitted reserve as layer-major prefill. */
     const bool layer_resident = g->streaming && g->quality;
     if (layer_resident && !ds4_gpu_end_commands()) ok = false;
-    const bool queue_layers = g->tp_world == 2 && !g->imatrix &&
-        !getenv("DS4_METAL_DISABLE_V41_TP_DECODE_QUEUE");
+    const bool queue_layers =
+#ifdef __APPLE__
+        (g->tp_world == 1 && !g->streaming && !g->imatrix &&
+         !g->image_count && !g->quality && ds4_gpu_device_is_m3_ultra() &&
+         w->layer[0].ffn_gate_exps->type == DS4_TENSOR_Q4_K &&
+         w->layer[0].ffn_down_exps->type == DS4_TENSOR_Q4_K &&
+         !getenv("DS4_METAL_DISABLE_V41_RESIDENT_DECODE_QUEUE")) ||
+#endif
+        (g->tp_world == 2 && !g->imatrix &&
+         !getenv("DS4_METAL_DISABLE_V41_TP_DECODE_QUEUE"));
     for (uint32_t il = 0; ok && il < DS4_N_LAYER; il++) {
         const ds4_layer_weights *l = &w->layer[il];
         if (layer_resident)
@@ -41352,9 +41360,9 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
             ok = ds41_graph_layer(g, m, l, il, token);
 #endif
         }
-        /* TP gates already submit ordered, bounded command buffers. Drain
-         * before overwriting the first Engram table's shared input at layer
-         * 14, and before publishing the completed token to the CPU. */
+        /* Resident Q4 on M3 Ultra shares TP's exact queue boundaries. Drain
+         * before layer 14 overwrites the first Engram table's shared input,
+         * and before publishing the completed token to the CPU. */
         const bool drain = !queue_layers || il == 13 || il + 1u == DS4_N_LAYER;
         if (drain && !ds4_gpu_end_commands()) ok = false;
         if (g->tp_world == 2 && ds4_gpu_tp_failed()) ok = false;
