@@ -1,8 +1,108 @@
-# Plan v3 — faster decode, MTP and turn latency for long-running coding sessions
+# Plan v5 — highest decode on this hybrid / M5 Max (authoritative)
 
-Date: 2026-09-14 (v3 after second review). Branch `glm53-pr920` (HEAD 0a77fb0 + uncommitted
-Metal-4/indexer edits). Model: GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2
-(95.6 GiB resident), M5 Max 128 GB.
+Date: 2026-09-14 (v5). Model: `GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2`
+(95.6 GiB resident), M5 Max 128 GB. Branch `glm53-p4a` (`775c162`) already
+contains the constructed #964 engine; that merge is **not** a performance
+adoption (P4b1 HOLD). P4b1 canonical record: `tasks/data/p4b1/NOTES.md`.
+
+**P4b1 is not closed and not correctness-qualified.** 2K steady decode is
+unresolved. Prefill −14% is a regression signal. Frontier logits are not
+decode exactness. Do not spend the next week on 8-pair 200K Protocol B.
+
+Highest decode on this box is a different question from “did constructed #964
+beat its historical base?” Split the tracks.
+
+```
+Track P4b1 (frozen 964base / 964eng, Metal4-off, MTP off)
+  0. 2K decode F32 traces A vs B — DONE PASS (256 frames, byte-identical)
+  0b. #1051 reachability — DONE PASS at 2K and 32K (exact/generic as
+      predicted; split_group8_*=0 both arms). Frozen timing binaries intact.
+  1. P4b1-A3 prefill isolation (in flight on ds4-bench.p4b1-frozen)
+  2. KEEP / PARTIAL-ROLLBACK / REVERT-to-pre964
+  3. 32K Protocol B (6–8 pairs). 100K/200K after 32K is stable.
+
+Track decode-max (live tree, or the surviving P4b1 treatment)
+  1. In-process MTP on/off at 32K then 100K (Protocol A).
+  2. Metal4 on vs off on the same binary.
+  3. After the engine is frozen: KDA bytes (quality-gated), then routed
+     sum8, then indexer / sparse MTP verifier only if MTP still wins.
+```
+
+PR #1051 is an **important defensive correctness fix** for a bad
+`selected_rows_valid=true` contract. It is **not** a P4b1-invalidating
+gate unless a dispatch trace shows the frozen arms actually enter
+unchecked split-group8. Source already says they should not: A requires
+`DS4_N_ROT==64` (GLM-5.3 Flash is 0); B's `bd72d25` exact no-RoPE path
+runs first and marks split-group8 `!g->glm53` if it ever fell through.
+Keep frozen P4b1 numbers. Track #1051 for rebases / future sparse-kernel
+changes only. Do not restore queue/sync → dispatch attribution →
+KDA/DSA/HC as a speed roadmap.
+
+Do not start KDA quantization until the engine is frozen (P4b1 KEEP or
+REVERT). Do not port more of current PR `0a90819` onto P4a until traces +
+prefill isolation land.
+
+### What is settled (do not reopen without new evidence)
+
+- PR #964 corrected final: **+27.0% generation, +18.0% prefill** on resident
+  Q4_K / M3 Ultra 80c 512 GB. Earlier >30% result superseded after the HC FMA
+  fix. PR warns results do not transfer to every Metal device or quant.
+  https://github.com/antirez/ds4/pull/964
+- Independent M5 Max 40c / 128 GB official Q2: decode **+16.5 / +21.2 / +17.6
+  / +17.7%**, median **+17.6%**; prefill median **−1.9%**. Observed "roughly
+  half the Ultra gain" is verified. Occupancy as the cause is a **hypothesis**,
+  not established causality.
+- Local tree already carries the #964 engine (`pr964-engine`). Dispatch/glue
+  fusion and KDA/DSA/HC kernel work in #964 are not new local workstreams.
+- Queue/sync: **closed as a primary optimization target under current
+  evidence** (F24, 94% GPU busy, no end-to-end win). Not a proof that
+  synchronization cannot be optimized; it is not where time goes while KDA
+  is 24% and routed MoE 17% of the 200K MTP-off cycle (F31).
+- Width-3 MTP closed at ~0.95×. Discarded draft head shipped (+2.26% @ 2K,
+  +1.79% @ 65K, text-identical).
+- MTP-off decode is context-flat: 27.34 → 25.99 t/s from 3K to 200K (−4.9%,
+  F32). The 33.01 → 22.48 MTP-on collapse is a **speculation-economics**
+  problem, not a 200K trunk-scaling problem.
+- S55 (55 t/s sustained through 200K) is not supported by any measured path.
+
+### Local constructed-#964 2K Protocol B — HOLD
+
+See `tasks/data/p4b1/NOTES.md`. Frozen `964base` vs constructed `964eng`, MTP
+off, Metal4-off, n=4, 2K only.
+
+Primary evidence (paired decode %): **+10.0, −7.6, −1.1, +13.6**. Mean of
+paired +3.72%; ratio of medians +4.6%. Exploratory bootstrap CI includes 0.
+Prefill paired mean −13.93%, all four pairs negative. `gen_first_ms` is first
+decode step after prefill, exploratory −6.57%, not TTFT.
+
+Frontier logits A↔B byte-identical at measured frontiers = pre-generation
+boundary equivalence only. Decode-step F32 traces not run.
+
+### Candidate levers (gated)
+
+- **P4b1-C / P4b1-A3 first**, not 100K/200K. Cheap, and they decide whether
+  constructed B stays.
+- **Decode-max A2** (MTP in-process) is the highest-value *speed* experiment
+  and can run on the live tree without waiting for 8-pair Protocol B. MTP
+  economics are hardware- and workload-dependent: PR #920 +19.25% whole-stack
+  on M4 Max Q2 vs its exact upstream base; another GLM measurement on M3 Ultra
+  about −20% dense / −45% indexed
+  (https://github.com/antirez/ds4/issues/920). Gate MTP when `C/S ≥ 1+a`.
+  Do **not** call 22.48 → ~26 t/s available until this lands.
+- **Metal4 on vs off** is a separate max-speed estimand. P4b1 is Metal4-off
+  by design.
+- **KDA bytes** (`kda_v` / `kda_output` Q8_0 → Q4_K) is a **weight change**.
+  Quality gate: logit deltas + agent/coding suite. Not started until the
+  engine is frozen.
+- Routed sum8 follows KDA. Indexer / sparse row verifier only if MTP still
+  wins after A2.
+
+Rollback for the #964 engine merge remains `archive/glm53-p4a-pre964`
+(`1fa5580`, branch `glm53-p4a-pre964`).
+
+---
+
+# Plan v3 — historical (2026-09-14)
 
 v3 changes vs v2: PR #964 split into engine-only perf A/B (P4b1) and full
 integration (P4b2); Protocol B arms use cloned KV directories, never a shared one;
@@ -12,6 +112,11 @@ P3; correctness required at 100K and 200K before adopting #964; checkpoint polic
 has both a cost bound and a durability bound; explicit rollback points.
 
 ## Decision 2026-09-14 — #964 adopted, no further adoption gate
+
+**Superseded by v4.** The 2K partial A/B did not establish a hybrid-quant win
+(CI includes 0). The engine merge stays in the tree as the working baseline
+so A1 can measure it; the 100K/200K Protocol B gate is **reinstated**, not
+retired.
 
 P4b1 partial data (2K, n=3 per arm, first attempt) showed the #964 engine at
 +7% steady decode and ~11% lower first-token latency on the current hybrid
@@ -24,15 +129,15 @@ machine; use 32K+ numbers). #964 was brought in as one 3-way merge of
 Rollback point: pre-#964 P4a engine, tag `archive/glm53-p4a-pre964`
 (commit 1fa5580, branch `glm53-p4a-pre964`).
 
-Order from here:
+Order from here (historical v3; see v4 for the live order):
 
 ```
 #964 baseline -> plain long-context decode profiling -> turn-latency work
 -> resident routed-MoE / KDA / indexer optimization -> MTP verifier economics
 ```
 
-Phases P4b1/P4b2 below are historical; P0-style profiling on the #964 tree
-comes next, then P2, then the resident optimization work, then P3.
+Phases P4b1/P4b2 below are historical. Live order is A1 → A2 → A3 → KDA →
+sum8 → indexer/MTP.
 
 v2 changes vs v1: tree freeze first; correctness cherry-picks before any tuning;
 upstream PR #964 evaluated before custom MTP work; MTP go/no-go derived from
@@ -286,11 +391,13 @@ P-1  freeze          -> gate: git clean, baseline-v2.json written
 P0   instrument      -> gate: recorder + replay repeatable within 3%; baseline captured
 P4a  correctness     -> gate: all gates green; harness re-baselined
                         rollback: frozen pre-P4a commit b69fd2c
-P4b1 #964 engine A/B -> ADOPTED 2026-09-14 on 2K partial data; no further gate
+P4b1 #964 engine A/B -> OPEN (v4). 2K n=4 is not a win (mean paired +3.7%,
+                        median ratio +4.6%, CI crosses 0). Gate: Protocol B
+                        at 32K/100K/200K, MTP off. Prefill −13.9% is A3.
                         rollback: tag archive/glm53-p4a-pre964 (P4a engine)
-P4b2 #964 integrate  -> done as one merge with P4b1 (engine + our server work);
-                        gate: build + session/replay/MTP-equivalence suites green
-P1   config          -> gate: ceiling + checkpoint policy chosen from data
+P4b2 #964 integrate  -> engine merge is in the working tree so A1 can measure
+                        it; not a performance adoption. Gate remains A1.
+P1   config          -> after A2. Gate: ceiling + checkpoint policy from data
 P2   latency         -> gate: T2, T4 met; T3 only if it recurs
                         rollback: sync checkpoint + old prefix path stay feature-flagged
 P2.5 ROI             -> insufficient -> STOP and ship P2 baseline
