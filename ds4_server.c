@@ -14267,6 +14267,16 @@ decode_again:
                                     &last_decode_log_t,
                                     &last_decode_log_completion);
                 next_decode_log += 50;
+                /* Publish a running decode rate so /stats consumers (monitor
+                 * line, dashboard 5m EMA) see throughput mid-generation, not
+                 * only after the request completes. Mirrors the prompt-done
+                 * prefill update above. */
+                double live_decode_sec = now_sec() - decode_t0;
+                if (completion > 0 && live_decode_sec > 0.0) {
+                    pthread_mutex_lock(&s->mu);
+                    s->stats.last_decode_tps = (double)completion / live_decode_sec;
+                    pthread_mutex_unlock(&s->mu);
+                }
             }
 
             if (hit_stop) {
