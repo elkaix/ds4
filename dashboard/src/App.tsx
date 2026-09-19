@@ -22,6 +22,7 @@ const ZERO_TOTALS: Totals = {
   prefill_fresh_tokens: 0, prefill_compute_ns: 0, prompt_total_ns: 0, decode_tokens: 0, decode_ns: 0,
   first_token_ns: 0, checkpoint_saves: 0, checkpoint_save_ns: 0, checkpoint_save_bytes: 0,
   checkpoint_restores: 0, checkpoint_restore_ns: 0,
+  cache_recoveries: 0, replayed_tokens: 0, replay_ns: 0,
 };
 const ZERO_MTP: MtpCounters = {
   cycles: 0, accepted: 0, committed: 0, rows_cycles: 0, batch_cycles: 0,
@@ -450,6 +451,10 @@ export function App() {
                 <StatRow icon="database" label="Saves" value={num(T?.checkpoint_saves ?? 0)} />
                 <StatRow icon="clock" label="Avg save duration" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
                 <StatRow icon="cube" label="Restores" value={num(T?.checkpoint_restores ?? 0)} />
+                <StatRow icon="clock" label="Avg restore duration" value={ms(safeDiv(T?.checkpoint_restore_ns, T?.checkpoint_restores))} />
+                <StatRow icon="warn" label="Cache recoveries" value={T && T.cache_recoveries > 0 ? `${num(T.cache_recoveries)} (live KV lost)` : "0"} />
+                <StatRow icon="clock" label="Replay time" value={T && T.replay_ns > 0 ? fixed(T.replay_ns / 1e9, 1) + "s" : "0s"} />
+                <StatRow icon="doc" label="Replayed tokens" value={num(T?.replayed_tokens ?? 0)} />
                 <StatRow icon="doc" label="Data written" value={mb(T?.checkpoint_save_bytes)} />
                 <StatRow icon="database" label="KV SSD" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : "off"} />
               </InfoCard>
@@ -563,6 +568,12 @@ export function App() {
                               <div><dt>Fresh prefill</dt><dd>{ms(r.prefill_ns)}</dd></div>
                               <div><dt>KV save time</dt><dd>{ms(r.store_ns)}</dd></div>
                               <div><dt>Source</dt><dd>{shortSource(r.source)}</dd></div>
+                              {r.frontier_loss_tokens > 0 && (
+                                <>
+                                  <div><dt>Frontier loss</dt><dd>{num(r.frontier_loss_tokens)} tok</dd></div>
+                                  <div><dt>Replayed</dt><dd>{num(r.replayed_tokens)} tok / {fixed(r.replay_ns / 1e9, 1)}s</dd></div>
+                                </>
+                              )}
                               <div><dt>MTP cycles</dt><dd>{num(r.mtp_cycles)}</dd></div>
                               <div><dt>MTP committed</dt><dd>{num(r.mtp_committed)}</dd></div>
                             </dl>
@@ -872,7 +883,8 @@ type IconName =
   | "queue"
   | "clock"
   | "shield"
-  | "arrow";
+  | "arrow"
+  | "warn";
 
 function Icon({ name, success = false }: { name: IconName; success?: boolean | undefined }) {
   if (name === "dot") {
@@ -912,6 +924,7 @@ function Icon({ name, success = false }: { name: IconName; success?: boolean | u
     clock: <><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></>,
     shield: <><path d="M12 3 19 6v5c0 4.6-2.5 7.8-7 10-4.5-2.2-7-5.4-7-10V6z"/></>,
     arrow: <><path d="M7 17 17 7"/><path d="M9 7h8v8"/></>,
+    warn: <><path d="M12 4 2.5 20h19z"/><path d="M12 10v4"/><path d="M12 17.5h.01"/></>,
   };
 
   return <svg {...common}>{paths[name]}</svg>;
