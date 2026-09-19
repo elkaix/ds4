@@ -10052,6 +10052,12 @@ typedef struct {
     uint64_t cache_recoveries;
     uint64_t replayed_tokens;
     uint64_t replay_ns;
+    /* Persistent KV store health. checkpoint_saves/ns/bytes above count
+     * successful real writes; these make failed writes visible instead of
+     * leaving them observable only via disk space and scattered logs. */
+    uint64_t kv_store_attempts;
+    uint64_t kv_store_failures;
+    char last_kv_store_error[160];
 } server_stats;
 
 /* One completed request, for the /stats "recent" ring. */
@@ -11275,6 +11281,35 @@ static bool byte_prefix_match(const char *text, size_t text_len,
     return ds4_kvstore_byte_prefix_match(text, text_len, prefix, prefix_len);
 }
 
+/* LOCAL: on a failed text-prefix continuation, record the first differing
+ * byte plus escaped context from both sides in the --trace file.  Token-ID
+ * windows cannot explain TEXT-level divergence (client re-rendering of tool
+ * calls, template wrappers, JSON re-serialization); this can. */
+static void trace_write_escaped_bytes(FILE *fp, const char *p, size_t len);
+static void trace_text_prefix_mismatch(server *s, const char *what,
+                                       const char *text, size_t text_len,
+                                       const char *prefix, size_t prefix_len) {
+    if (!s || !s->trace || !what || !text || !prefix) return;
+    const size_t n = prefix_len < text_len ? prefix_len : text_len;
+    size_t off = 0;
+    while (off < n && text[off] == prefix[off]) off++;
+    const size_t ctx = 200;
+    const size_t ts = off > ctx ? off - ctx : 0;
+    const size_t te = off + ctx < text_len ? off + ctx : text_len;
+    const size_t ps = off > ctx ? off - ctx : 0;
+    const size_t pe = off + ctx < prefix_len ? off + ctx : prefix_len;
+    fprintf(s->trace,
+            "\n--- %s text-prefix mismatch ---\n"
+            "first_diff_byte: %llu\ntext_len: %zu prefix_len: %zu\n",
+            what, (unsigned long long)off, text_len, prefix_len);
+    fprintf(s->trace, "text[%zu..%zu]: ", ts, te);
+    trace_write_escaped_bytes(s->trace, text + ts, te - ts);
+    fputc('\n', s->trace);
+    fprintf(s->trace, "prefix[%zu..%zu]: ", ps, pe);
+    trace_write_escaped_bytes(s->trace, prefix + ps, pe - ps);
+    fputc('\n', s->trace);
+}
+
 
 static void tokens_copy_prefix(ds4_tokens *dst, const ds4_tokens *src, int n) {
     ds4_kvstore_tokens_copy_prefix(dst, src, n);
@@ -11391,6 +11426,17 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
     /* Charge the save to the request and the server totals.  Runs from the
      * prefill progress callback too, so no server.mu here. */
     slot->req_store_ns += store_ns;
+    __atomic_add_fetch(&s->stats.kv_store_attempts, 1, __ATOMIC_RELAXED);
+    if (!ok) {
+        __atomic_add_fetch(&s->stats.kv_store_failures, 1, __ATOMIC_RELAXED);
+        pthread_mutex_lock(&s->mu);
+        snprintf(s->stats.last_kv_store_error,
+                 sizeof(s->stats.last_kv_store_error), "%s", err[0] ? err : "unknown");
+        pthread_mutex_unlock(&s->mu);
+        server_log(DS4_LOG_WARNING,
+                   "ds4-server: kv store failed tokens=%d reason=%s: %s",
+                   store_len, reason ? reason : "?", err[0] ? err : "unknown");
+    }
     /* ds4_kvstore_store_live_prefix_text returns true for skipped stores too
      * (below min tokens, prefix already on disk); only a real write counts. */
     if (ok && store_bytes > 0) {
@@ -11642,6 +11688,8 @@ static int live_text_prefix_prompt(server *s, server_slot *slot,
     if (!byte_prefix_match(req->prompt_text, prompt_text_len,
                            live_text, live_text_len))
     {
+        trace_text_prefix_mismatch(s, "memory-text", req->prompt_text,
+                                   prompt_text_len, live_text, live_text_len);
         free(live_text);
         return 0;
     }
@@ -11794,6 +11842,14 @@ static int thinking_live_visible_prefix_prompt(server *s, server_slot *slot,
                                 slot->thinking_live.visible_text,
                                 slot->thinking_live.visible_len);
     if (ok) visible_len = slot->thinking_live.visible_len;
+    else if (s->trace && slot->thinking_live.valid &&
+             slot->thinking_live.visible_text &&
+             slot->thinking_live.live_tokens == live_pos)
+    {
+        trace_text_prefix_mismatch(s, "thinking-visible", key, prompt_len,
+                                   slot->thinking_live.visible_text,
+                                   slot->thinking_live.visible_len);
+    }
     pthread_mutex_unlock(&s->tool_mu);
     free(key);
     if (!ok) return 0;
@@ -15246,7 +15302,9 @@ static void format_stats_json(server *s, buf *out) {
         "\"checkpoint_save_bytes\":%llu,\"checkpoint_restores\":%llu,"
         "\"checkpoint_restore_ns\":%llu,"
         "\"cache_recoveries\":%llu,\"replayed_tokens\":%llu,"
-        "\"replay_ns\":%llu}",
+        "\"replay_ns\":%llu,"
+        "\"kv_store_attempts\":%llu,\"kv_store_failures\":%llu,"
+        "\"last_kv_store_error\":",
         (unsigned long long)st.prefill_fresh_tokens, (unsigned long long)st.prefill_compute_ns,
         (unsigned long long)st.prompt_total_ns, (unsigned long long)st.decode_tokens,
         (unsigned long long)st.decode_ns, (unsigned long long)st.first_token_ns,
@@ -15254,7 +15312,11 @@ static void format_stats_json(server *s, buf *out) {
         (unsigned long long)st.checkpoint_save_bytes, (unsigned long long)st.checkpoint_restores,
         (unsigned long long)st.checkpoint_restore_ns,
         (unsigned long long)st.cache_recoveries, (unsigned long long)st.replayed_tokens,
-        (unsigned long long)st.replay_ns);
+        (unsigned long long)st.replay_ns,
+        (unsigned long long)st.kv_store_attempts,
+        (unsigned long long)st.kv_store_failures);
+    json_escape(out, s->stats.last_kv_store_error);
+    buf_puts(out, "}");
     buf_printf(out,
         ",\"mtp\":{\"enabled\":%s,\"active\":%s,\"max_ctx\":%u,\"pos\":%d,"
         "\"cycles\":%llu,\"accepted\":%llu,\"committed\":%llu,\"rows_cycles\":%llu,"
@@ -22941,6 +23003,9 @@ static void test_stats_json_recent_and_totals(void) {
     TEST_ASSERT(strstr(json, "\"checkpoint_restores\":1") != NULL);
     TEST_ASSERT(strstr(json, "\"checkpoint_restore_ns\":5000000") != NULL);
     TEST_ASSERT(strstr(json, "\"cache_recoveries\":1") != NULL);
+    TEST_ASSERT(strstr(json, "\"kv_store_attempts\":") != NULL);
+    TEST_ASSERT(strstr(json, "\"kv_store_failures\":") != NULL);
+    TEST_ASSERT(strstr(json, "\"last_kv_store_error\":") != NULL);
     TEST_ASSERT(strstr(json, "\"replayed_tokens\":26413") != NULL);
     TEST_ASSERT(strstr(json, "\"replay_ns\":109350000000") != NULL);
     TEST_ASSERT(strstr(json, "\"frontier_loss_tokens\":26443") != NULL);
