@@ -392,7 +392,6 @@ export function App() {
               </InfoCard>
 
               <InfoCard id="sec-anomalies" title="Anomalies" actionIcon="shield">
-                <HealthRow label="Queue rejected" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
                 <HealthRow label="Dropped on disconnect" value="0" />
                 <HealthRow label="Prefill cancelled" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
                 <HealthRow label="Swap growth" value={gibDelta(swapDelta)} warn={swapDelta != null && swapDelta > 50} />
