@@ -39,6 +39,17 @@ KV_ALIGN_TOKENS=2048
 # (PR #1090 lineage, glm53-m5-prod) is plain decode while the long-context
 # campaign re-measures where speculation pays. Set GLM_DS4_MTP=1 to enable.
 MTP="${GLM_DS4_MTP:-0}"
+# Metal 4 tensor/MPP matmul route, OFF by default: it FAILS the
+# --metal-tensor-equivalence gate on this M5 Max with GLM 5.3 (2026-09-19:
+# logits rms drift 0.41-0.48, max_abs 3.14, greedy mismatches from step 7;
+# rerun: ds4_test --metal-tensor-equivalence with DS4_TEST_MODEL/GLM vectors).
+# #1090 defaults it ON for M5 via compile probe only — no equivalence check.
+# GLM53 fused kernels (gate lift 0e1d68e) are unaffected: --metal-kernels and
+# --glm53-continued-prefill pass with the route off. Set GLM_DS4_ALLOW_TENSOR_ROUTE=1
+# to run it deliberately.
+if [[ "${GLM_DS4_ALLOW_TENSOR_ROUTE:-0}" != 1 ]]; then
+    export DS4_METAL_DISABLE_TENSOR_API=1
+fi
 # Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
 # perturbs the decode rate it measures, so leave it off for benchmarks.
 MTP_TIMING="${GLM_DS4_MTP_TIMING:-0}"
@@ -757,6 +768,7 @@ os.execv(sys.argv[2], sys.argv[2:])
     --power 100 \
     --host "$HOST" --port "$PORT" \
     --kv-disk-dir "$KV_DIR" --kv-disk-space-mb "$KV_BUDGET_MB" \
+    --kv-cache-reject-different-quant \
     --kv-cache-min-tokens "$KV_MIN_TOKENS" \
     --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS" \
     --kv-cache-continued-interval-tokens "$KV_CONTINUED_INTERVAL" &
