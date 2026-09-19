@@ -494,7 +494,13 @@ def process_stats():
     return "-", "-", 0
 
 
-def fan_snapshot():
+def macmon_snapshot():
+    """One macmon sample -> (fans string, gpu telemetry string).
+
+    GPU freq/power/temp feed the slow-window discriminator (route vs
+    thermal): slow decode + stable clock -> MoE/kernel, slow decode +
+    lower clock -> thermal/power.
+    """
     try:
         result = subprocess.run(
             [macmon, "pipe", "--samples", "1", "--interval", "250"],
@@ -505,19 +511,33 @@ def fan_snapshot():
         )
         lines = [line for line in result.stdout.splitlines() if line.strip()]
         payload = json.loads(lines[-1]) if result.returncode == 0 and lines else {}
-        fans = payload.get("fans") if isinstance(payload, dict) else None
-        if not isinstance(fans, list) or not fans:
-            return "-"
-        values = []
-        for fan in fans:
-            actual = int(fan["rpm"])
-            maximum = int(fan["max_rpm"])
-            if maximum <= 0:
-                return "-"
-            values.append("{}={}/{}".format(fan.get("name", "fan?"), actual, maximum))
-        return ",".join(values) + "RPM"
+        if not isinstance(payload, dict):
+            return "-", "-"
+        fans = payload.get("fans")
+        fan_str = "-"
+        if isinstance(fans, list) and fans:
+            values = []
+            for fan in fans:
+                actual = int(fan["rpm"])
+                maximum = int(fan["max_rpm"])
+                if maximum <= 0:
+                    values = []
+                    break
+                values.append("{}={}/{}".format(fan.get("name", "fan?"), actual, maximum))
+            if values:
+                fan_str = ",".join(values) + "RPM"
+        temp = payload.get("temp", {})
+        gpu_temp = temp.get("gpu_temp_avg") if isinstance(temp, dict) else None
+        gpu_parts = []
+        for key, fmt in (("gpu_freq_mhz", "{:.0f}MHz"), ("gpu_power", "{:.1f}W")):
+            value = payload.get(key)
+            if isinstance(value, (int, float)):
+                gpu_parts.append(fmt.format(value))
+        if isinstance(gpu_temp, (int, float)):
+            gpu_parts.append("{:.1f}C".format(gpu_temp))
+        return fan_str, "/".join(gpu_parts) if gpu_parts else "-"
     except (IndexError, KeyError, OSError, TypeError, ValueError, subprocess.SubprocessError):
-        return "-"
+        return "-", "-"
 
 
 def cache_size():
@@ -635,7 +655,7 @@ while server_alive():
     cpu_percent, memory_percent, rss_kib = process_stats()
     footprint_gib = float(stats.get("footprint_mb", 0.0)) / 1024 if isinstance(stats, dict) else 0.0
     swap_gib = float(stats.get("swap_used_mb", 0.0)) / 1024 if isinstance(stats, dict) else 0.0
-    fan_status = fan_snapshot()
+    fan_status, gpu_status = macmon_snapshot()
     used_bytes = cache_size()
     used_gib = used_bytes / (1024 ** 3)
     budget_gib = budget_bytes / (1024 ** 3)
@@ -650,7 +670,7 @@ while server_alive():
     emit(
         f"[monitor {timestamp}] health={health_status} stats={stats_status} {summary} "
         f"cpu={cpu_percent}% footprint={footprint_gib:.1f}GiB swap={swap_gib:.2f}GiB rss={rss_kib / 1048576:.1f}GiB "
-        f"fans={fan_status} "
+        f"fans={fan_status} gpu={gpu_status} "
         f"kv={used_gib:.1f}/{budget_gib:.1f}GiB({cache_percent:.1f}%) "
         f"disk_free={free_gib:.1f}GiB{warning}"
     )
