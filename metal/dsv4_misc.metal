@@ -2032,6 +2032,73 @@ kernel void kernel_glm_indexer_score_one_direct(
     }
 }
 
+/* Decode-shaped GLM indexer: one threadgroup scores 8 pooled rows in
+ * parallel (one simdgroup per row). Q (32x128) is staged once in
+ * threadgroup memory; each simdgroup streams its own 128-d key. Per-row
+ * math matches kernel_glm_indexer_score_one_direct (simd_sum of float4
+ * dots, relu, weighted sum). */
+kernel void kernel_glm_indexer_score_one_decode_rows(
+        constant ds4_metal_args_glm_indexer_score_one & args,
+        device const char *q,
+        device const float *weights,
+        device const char *indexer_key_cache,
+        device float *scores,
+        threadgroup float *shared [[threadgroup(0)]],
+        uint tg [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    const uint ROW_TILE = 8u;
+    const uint row = tg * ROW_TILE + (uint)sg;
+    if (args.n_head != 32u || args.head_dim != 128u) {
+        return;
+    }
+
+    threadgroup float *qtg = shared;
+    device const float *q_f32 = (device const float *)q;
+    for (uint i = tid; i < 32u * 128u; i += 256u) {
+        qtg[i] = q_f32[i];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    const bool valid = row < args.n_rows;
+    const uint k_base = (uint)lane * 4u;
+    float4 k4 = float4(0.0f);
+    if (valid) {
+        const uint64_t row_off = (uint64_t)row * 128u;
+        k4 = float4(glm_cache_load_f32_or_f16(indexer_key_cache, row_off + k_base,
+                                              args.cache_f16),
+                    glm_cache_load_f32_or_f16(indexer_key_cache, row_off + k_base + 1u,
+                                              args.cache_f16),
+                    glm_cache_load_f32_or_f16(indexer_key_cache, row_off + k_base + 2u,
+                                              args.cache_f16),
+                    glm_cache_load_f32_or_f16(indexer_key_cache, row_off + k_base + 3u,
+                                              args.cache_f16));
+    }
+
+    float acc = 0.0f;
+    for (uint head0 = 0; head0 < 32u; head0 += 4u) {
+        float p0 = 0.0f, p1 = 0.0f, p2 = 0.0f, p3 = 0.0f;
+        for (uint h = 0; h < 4u; h++) {
+            threadgroup const float4 *q4 =
+                (threadgroup const float4 *)(qtg + (head0 + h) * 128u);
+            const float s = simd_sum(dot(q4[lane], k4));
+            const float term = max(s * args.scale, 0.0f) * weights[head0 + h];
+            if (h == 0u) p0 = term;
+            else if (h == 1u) p1 = term;
+            else if (h == 2u) p2 = term;
+            else p3 = term;
+        }
+        acc += p0;
+        acc += p1;
+        acc += p2;
+        acc += p3;
+    }
+    if (lane == 0 && valid) {
+        scores[row] = acc;
+    }
+}
+
 kernel void kernel_glm_indexer_scores_batch(
         constant ds4_metal_args_glm_indexer_scores_batch & args,
         device const char *q,
