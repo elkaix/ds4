@@ -1,7 +1,7 @@
 # GLM strategy transfer to DeepSeek V4.1 Flash
 
-Follow-up to the first M3 Ultra campaign. The reference for every gain on this
-page is `3c16a1d50b9e8d155f484fa0f1f4cd9540a8d11b`, which already includes
+Follow-up to the first M3 Ultra campaign. The reference for the combined results
+on this page is `3c16a1d50b9e8d155f484fa0f1f4cd9540a8d11b`, which already includes
 resident decode queueing and Q4 expert-tile culling. The original GGUF, weight
 precision, compiler math settings and 32,768-token allocation limit are retained.
 
@@ -97,6 +97,36 @@ fixture, `make all`, and CPU-only object build also pass. CUDA and remote TP
 hardware tests were not run; the new helper call sites are Apple-only and the
 resident optimizations exclude TP and SSD ownership.
 
+### Resident live-edge check
+
+The explicit `tests/test_deepseek41_live_edges` fixture extends those GPU
+oracles through resident model sessions. It restores the same near-32K seed
+for rollback/default replay and compares live boundary inputs, full downstream
+logits, greedy tokens and whole serialized snapshots. Test-only interposition
+injects router ties and zero probabilities, HC zero/cancellation inputs, shared
+zero inputs, and selector ties, nonfinite scores and candidate overflow. It
+checks actual fused dispatches, histogram acceptance and exact GPU fallback,
+plus stale-selector recovery and graph error propagation with snapshot rejection
+and recovery after restoration.
+
+Quality and SSD ownership refusal checks toggle admission only at the resident
+dispatch boundary; they do not run full quality, SSD or TP sessions. The fixture
+does not modify the production backend, shaders or GGUF. Its completed run,
+branch counters, comparisons, source identity and limits are recorded in
+[live-edge-validation.json](records/live-edge-validation.json). Instrumentation
+timings are not performance evidence; the uninstrumented sweep above remains
+the throughput measurement.
+
+Run from this checkout with the existing local Q4 GGUF, one huge model process
+at a time. This fixture has a fixed 32,768-token context and is deliberately
+outside `make test`:
+
+```sh
+make tests/test_deepseek41_live_edges
+MTL_DEBUG_LAYER=1 ./tests/test_deepseek41_live_edges \
+  /path/to/DeepSeek-V4.1-Flash-Q4.gguf speed-bench/promessi_sposi.txt
+```
+
 ## Evidence and reproduction
 
 The component benchmark is `speed-bench/metal_decode_schedule_bench`, using
@@ -104,6 +134,17 @@ The component benchmark is `speed-bench/metal_decode_schedule_bench`, using
 in the timed step. `../run.py` records the complete command, tuning overrides,
 source hashes and process status. Timing runs have no stage profiler or logit
 capture instrumentation. Full-logit comparisons happen outside timed steps.
+
+The retained stages are automatic in their admitted paths. To reproduce an
+original stage, set its diagnostic rollback control to `1`; unset it for the
+optimized default. These controls are exactness oracles, not precision options:
+
+| Stage | Rollback control |
+| --- | --- |
+| Router | `DS4_METAL_DISABLE_V41_ROUTER_FUSION` |
+| HC collapse and normalization | `DS4_METAL_DISABLE_V41_HC_NORM` |
+| Shared expert gate/up and SwiGLU | `DS4_METAL_DISABLE_V41_SHARED_FUSION` |
+| Histogram top-k | `DS4_METAL_DISABLE_V41_TOPK_FAST` |
 
 Local working evidence: `/tmp/ds41f-glm-transfer-20260919/`.
 Frozen reference checkout: `/tmp/ds41f-transfer-base-3c16a1d/`.

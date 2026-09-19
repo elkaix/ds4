@@ -477,7 +477,7 @@ kernel void kernel_mul_mv_q8_0_f32_pair(
 // projections, still writes gate/up for diagnostics, and derives `mid` in the
 // same lane that owns the reduced output row.  The point is not to fuse two
 // independent weight streams into one matmul; it is to remove the separate
-// activation pass and its reread of the two 2048-wide rows.
+// activation pass and its reread of the two projected rows.
 static inline float ds4_shared_bf16(float x) {
     uint bits = as_type<uint>(x);
     if ((bits & 0x7f800000u) != 0x7f800000u) bits += 0x7fffu + ((bits >> 16u) & 1u);
