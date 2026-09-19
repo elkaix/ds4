@@ -266,10 +266,13 @@ enum {
     DS4_GPU_TEST_GLM53_PREFILL = 1u << 7,
     DS4_GPU_TEST_GLM53_KDA_LAST_BLOCK_FIRST = 1u << 8,
     DS4_GPU_TEST_V41_Q4_TAIL_CULL = 1u << 9,
+    DS4_GPU_TEST_V41_FUSIONS = 1u << 10,
 };
 void ds4_gpu_test_set_flags(uint32_t flags);
 /* Count V4.1 Q4 tail-cull calls only while its test flag is enabled. */
 uint32_t ds4_gpu_test_v41_q4_tail_take_dispatches(void);
+uint32_t ds4_gpu_test_v41_fusions_take_dispatches(void);
+
 enum {
     DS4_GPU_GLM53_PREFILL_QK_LOW = 1u << 0,
     DS4_GPU_GLM53_PREFILL_INDEXED_ATTN = 1u << 1,

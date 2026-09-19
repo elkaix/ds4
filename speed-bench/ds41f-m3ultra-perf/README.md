@@ -1,5 +1,8 @@
 # DeepSeek V4.1 Flash Q4 on M3 Ultra
 
+The subsequent [GLM strategy transfer campaign](glm-transfer/README.md) evaluates
+five more attempts and adds **8.1–8.4% faster decode** over the results below.
+
 Two of five attempts were retained: queued resident decode and Q4 expert-tile
 culling. The final combined sweep shows **26.8–28.4% faster decode** and
 **2.1–12.3% faster incremental prefill**, depending on context. All tested

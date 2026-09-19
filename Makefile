@@ -239,6 +239,26 @@ tests/test_deepseek41_metal: tests/test_deepseek41_metal.o $(CORE_OBJS)
 test-deepseek41-metal: tests/test_deepseek41_metal
 	./tests/test_deepseek41_metal
 
+tests/test_deepseek41_topk.o: tests/test_deepseek41_topk.c ds4_gpu.h ds4_deepseek41_gpu.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/test_deepseek41_topk: tests/test_deepseek41_topk.o $(CORE_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+
+tests/test_deepseek41_fusions.o: tests/test_deepseek41_fusions.c ds4_gpu.h ds4_deepseek41_gpu.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
+
+tests/test_deepseek41_fusions: tests/test_deepseek41_fusions.o $(CORE_OBJS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+
+.PHONY: test-deepseek41-topk
+test-deepseek41-topk: tests/test_deepseek41_topk
+	MTL_DEBUG_LAYER=1 ./tests/test_deepseek41_topk
+
+.PHONY: test-deepseek41-fusions
+test-deepseek41-fusions: tests/test_deepseek41_fusions
+	MTL_DEBUG_LAYER=1 ./tests/test_deepseek41_fusions
+
 tests/test_deepseek41_q4_tail.o: tests/test_deepseek41_q4_tail.c ds4_gpu.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -c -o $@ $<
 
@@ -1100,6 +1120,7 @@ ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o tests/test_session_state.o \
 tests/test_session_state_gpu.o: ds4_tool_text.h
 
 clean:
+	rm -f tests/test_deepseek41_fusions tests/test_deepseek41_topk
 	rm -f tests/test_qwen4_ngrams
 	rm -f tests/test_qwen4_ngram_state
 	rm -f tests/test_web_recovery
