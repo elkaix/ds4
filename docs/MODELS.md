@@ -86,6 +86,9 @@ The download comes in two parts; the script joins and verifies them automaticall
 Allow another 37 GiB of free disk space while joining. Rerun the command to resume an
 interrupted download or join.
 
+For the M3 Ultra Q4 optimizations and their diagnostic rollback controls, see
+the [retained implementation and scope](../speed-bench/ds41f-m3ultra-perf/README.md#retained-implementation-and-scope).
+
 Large SSD prefills process layers in wide batches. Metal overlaps computation
 with the next layer's reads; CUDA stages experts into its bounded device cache.
 Short appends keep using the expert cache.
