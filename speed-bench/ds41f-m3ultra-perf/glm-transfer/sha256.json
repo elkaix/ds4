@@ -1,5 +1,5 @@
 {
-  "README.md": "799e1a3135be83ee367cd211e6ec3d3d4449258bac21f0983566fa25a20ec570",
+  "README.md": "65bcd791e6504aba91ce33f61f5582ba4f298b3849b349b60984ff0b8ab7dbb9",
   "combined-results.json": "215d8512b03388308ec5aff56b6e86f60078d558a91cb2f53e058832568e482f",
   "experiments/projection-fixture.c": "00902c757abea48951e41db1e7ff70f582f815cb69990ff136a89294b22e648f",
   "experiments/projection.patch": "290d2b5bede8ffce97a567133aaf193fb67958faba13fb460130fcb8351157be",
@@ -44,6 +44,7 @@
   "records/hc-oracle-v2.log": "d4617649803e9dae08801d489131af035d8189b649c5f2b88346539e58ecea44",
   "records/hc-oracle.json": "3f05cf76c5c504f2537f2c844d5576b83099fe12b46bb34e758a022b5aebcfb9",
   "records/hc-oracle.log": "7c7b201bac3583712cc4aaab3c75e6d2a97b164e1051acae7e82762d59847591",
+  "records/live-edge-validation.json": "2e4e5d6ac989e9e0087b0fdb2e41495fcfad32907eed247addd6d4e09706230a",
   "records/memory-after.txt": "0eed108cb28cd03e52feb11a389d76c72ccd0a4b80070dcee9fde0a0d391f4da",
   "records/memory-before.txt": "0eed108cb28cd03e52feb11a389d76c72ccd0a4b80070dcee9fde0a0d391f4da",
   "records/p-decode-8192.json": "dcc8112f8da29a54fc5350852ae82bef5a7fc4b1f4c26756188793b7f950a899",
