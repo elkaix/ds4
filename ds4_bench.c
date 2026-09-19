@@ -459,6 +459,66 @@ static void json_write_string(FILE *fp, const char *s) {
     fputc('"', fp);
 }
 
+/* Optional per-decode-step F32 dump for A/B exactness.
+ * DS4_BENCH_DUMP_GEN_LOGITS_DIR=<dir> writes:
+ *   step_NNNNNN.f32   raw little-endian float32[vocab] before each eval
+ *   tokens.txt        one chosen token id per line
+ * This is not frontier-logit equivalence; it is the decode-frame gate. */
+static int write_gen_step_logits_f32(
+        ds4_engine  *engine,
+        ds4_session *session,
+        int          step,
+        int          token) {
+    const char *dir = getenv("DS4_BENCH_DUMP_GEN_LOGITS_DIR");
+    if (!dir || !dir[0]) return 0;
+
+    const int vocab = ds4_engine_vocab_size(engine);
+    float *logits = malloc((size_t)vocab * sizeof(logits[0]));
+    if (!logits) {
+        fprintf(stderr, "ds4-bench: out of memory dumping gen logits\n");
+        return 1;
+    }
+    if (ds4_session_copy_logits(session, logits, vocab) != vocab) {
+        fprintf(stderr, "ds4-bench: failed to copy gen logits at step %d\n", step);
+        free(logits);
+        return 1;
+    }
+
+    char path[PATH_MAX];
+    int n = snprintf(path, sizeof(path), "%s/step_%06d.f32", dir, step);
+    if (n <= 0 || (size_t)n >= sizeof(path)) {
+        fprintf(stderr, "ds4-bench: gen logits path too long\n");
+        free(logits);
+        return 1;
+    }
+    FILE *fp = fopen(path, "wb");
+    if (!fp) {
+        fprintf(stderr, "ds4-bench: failed to open %s: %s\n", path, strerror(errno));
+        free(logits);
+        return 1;
+    }
+    const size_t want = (size_t)vocab;
+    if (fwrite(logits, sizeof(logits[0]), want, fp) != want || fclose(fp) != 0) {
+        fprintf(stderr, "ds4-bench: failed to write %s\n", path);
+        free(logits);
+        return 1;
+    }
+    free(logits);
+
+    n = snprintf(path, sizeof(path), "%s/tokens.txt", dir);
+    if (n <= 0 || (size_t)n >= sizeof(path)) return 1;
+    fp = fopen(path, step == 0 ? "wb" : "ab");
+    if (!fp) {
+        fprintf(stderr, "ds4-bench: failed to open %s: %s\n", path, strerror(errno));
+        return 1;
+    }
+    if (fprintf(fp, "%d\n", token) < 0 || fclose(fp) != 0) {
+        fprintf(stderr, "ds4-bench: failed to write %s\n", path);
+        return 1;
+    }
+    return 0;
+}
+
 static int write_frontier_logits_json(
         const bench_config *cfg,
         ds4_engine         *engine,
@@ -906,6 +966,10 @@ int main(int argc, char **argv) {
                 : ds4_session_argmax_excluding(session, eos);
             if (token < 0) {
                 fprintf(stderr, "ds4-bench: failed to choose non-EOS token at frontier %d\n", frontier);
+                rc = 1;
+                break;
+            }
+            if (write_gen_step_logits_f32(engine, session, gen_done, token) != 0) {
                 rc = 1;
                 break;
             }
