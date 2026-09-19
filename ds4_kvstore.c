@@ -748,8 +748,15 @@ int ds4_kvstore_continued_store_target(const ds4_kvstore *kc, int live_tokens) {
     const int step = kv_cache_continued_step(kc);
     if (step <= 0) return 0;
     if (live_tokens < kc->opt.min_tokens) return 0;
-    if (live_tokens % step != 0) return 0;
-    if (live_tokens <= kc->continued_last_store_tokens) return 0;
+    /* Cumulative-frontier cadence: persist once the live frontier has
+     * advanced at least `step` tokens past the last persisted frontier,
+     * summed across requests. The previous exact-multiple gate required a
+     * store opportunity to land exactly on a multiple of `step`, so agent
+     * workloads advancing through many small turns could cross the whole
+     * interval without ever hitting it, leaving the newest disk checkpoint
+     * tens of thousands of tokens behind the live state (observed: 32,880
+     * checkpoint vs 59,323 live frontier, 26,443 tokens unpersisted). */
+    if (live_tokens - kc->continued_last_store_tokens < step) return 0;
     return live_tokens;
 }
 
