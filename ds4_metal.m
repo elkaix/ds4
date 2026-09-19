@@ -26,6 +26,31 @@
 #include "ds4_gpu.h"
 #include "ds4_image.h"
 
+/* DS4_GLM_DISPATCH_COUNT=1: atexit dump of GLM decode attention kernel choice.
+ * Does not change dispatch; used to prove #1051 split-group8 reachability. */
+static uint64_t g_glm_disp_exact;
+static uint64_t g_glm_disp_sg8_checked;
+static uint64_t g_glm_disp_sg8_unchecked;
+static uint64_t g_glm_disp_generic;
+static void glm_dispatch_count_dump(void) {
+    if (getenv("DS4_GLM_DISPATCH_COUNT") == NULL) return;
+    fprintf(stderr,
+            "ds4-dispatch: glm53_exact_sparse=%llu split_group8_checked=%llu "
+            "split_group8_unchecked=%llu generic_indexed=%llu\n",
+            (unsigned long long)g_glm_disp_exact,
+            (unsigned long long)g_glm_disp_sg8_checked,
+            (unsigned long long)g_glm_disp_sg8_unchecked,
+            (unsigned long long)g_glm_disp_generic);
+}
+static void glm_dispatch_count_bump(uint64_t *slot) {
+    static int once;
+    if (!once) {
+        once = 1;
+        if (getenv("DS4_GLM_DISPATCH_COUNT") != NULL) atexit(glm_dispatch_count_dump);
+    }
+    if (getenv("DS4_GLM_DISPATCH_COUNT") != NULL) (*slot)++;
+}
+
 /*
  * Objective-C Metal glue for the C engine.
  *
@@ -36615,6 +36640,7 @@ int ds4_gpu_glm_attention_indexed_decode_typed_tensor(
         float                 beta_fast,
         float                 beta_slow) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
+    glm_dispatch_count_bump(&g_glm_disp_generic);
     const uint32_t qk_dim = qk_nope + qk_rope;
     if (!heads || !q || !qk_low || !kv_lora_cache || !k_rope_cache ||
         !model_map || !selected ||
@@ -36812,6 +36838,8 @@ int ds4_gpu_glm_attention_indexed_decode_split_group8_typed_tensor(
         float                 beta_fast,
         float                 beta_slow) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
+    glm_dispatch_count_bump(selected_rows_valid ? &g_glm_disp_sg8_unchecked
+                                               : &g_glm_disp_sg8_checked);
     const uint32_t qk_dim = qk_nope + qk_rope;
     const uint32_t needed_blocks =
         block_rows != 0u ? (n_selected + block_rows - 1u) / block_rows : 0u;
