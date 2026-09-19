@@ -6339,6 +6339,26 @@ static void trim_const_span(const char **start, const char **end) {
     while (*end > *start && isspace((unsigned char)(*end)[-1])) (*end)--;
 }
 
+/* GLM wire tool names are plain identifiers (bash, read, mcp__gitnexus, ...).
+ * Prose that merely quotes "<tool_call>" parses with the following prose
+ * line as the name; those names contain whitespace, quotes, backticks or
+ * unicode. Rejecting them here keeps the message from being restructured
+ * into a bogus tool call + client error turn that live-KV text fallbacks
+ * can never re-match (trace-proven 2026-09-19, token 79691 event 6). */
+static bool glm_wire_tool_name_plausible(const char *name) {
+    size_t n = strlen(name);
+    if (n == 0 || n > 128) return false;
+    for (const char *c = name; *c; c++) {
+        unsigned char ch = (unsigned char)*c;
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' ||
+            ch == '-' || ch == ':' || ch == '@' || ch == '/')
+            continue;
+        return false;
+    }
+    return true;
+}
+
 static bool parse_glm_generated_message_ex(const char *text,
                                            bool require_thinking_closed,
                                            char **content_out,
@@ -6398,6 +6418,22 @@ static bool parse_glm_generated_message_ex(const char *text,
         trim_const_span(&name_start, &name_end);
         if (name_end <= name_start) return false;
         char *name = xstrndup(name_start, (size_t)(name_end - name_start));
+        if (!glm_wire_tool_name_plausible(name)) {
+            free(name);
+            if (calls->len == 0) {
+                /* First block is prose quoting the wire format: keep the
+                 * whole message as text, no calls, nothing restructured. */
+                if (recovered_unclosed_tool)
+                    ds4_local_unterminated_reasoning(text, content_out, reasoning_out);
+                else
+                    split_reasoning_content(text, strlen(text),
+                                            content_out, reasoning_out);
+                return true;
+            }
+            /* A later block quoting the format after a real call: report
+             * parse failure so the caller's no-call/repair path runs. */
+            return false;
+        }
         p = name_end;
 
         buf args = {0};
@@ -19207,6 +19243,47 @@ static void test_parse_glm_tool_call_message(void) {
     tool_calls_free(&calls);
 }
 
+static void test_parse_glm_prose_tool_call_not_restructured(void) {
+    /* Production bytes (trace 2026-09-19, event 6 at first_mismatch 79691):
+     * the model quoted the wire format inside review prose; the parser took
+     * the prose line as the tool name, Pi executed it ("Tool ... not found"),
+     * and the restructured next prompt could not prefix-match live KV. */
+    const char *generated =
+        "</think>P1? It corrupts tool-call replay for conversations containing "
+        "literal delimiters. `grep 'find_next_glm_tool_run'" 
+        "'` on the branch's `ds4_server.c` returns nothing.\n\n"
+        "<tool_call>'` on the branch's `ds4_server.c` returns nothing \u2014 "
+        "the literal-quoting tests are gone</tool_call>";
+    char *content = NULL;
+    char *reasoning = NULL;
+    tool_calls calls = {0};
+
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, generated, true,
+        &content, &reasoning, &calls));
+    TEST_ASSERT(calls.len == 0);
+    TEST_ASSERT(content && strstr(content, "<tool_call>") != NULL);
+    TEST_ASSERT(strstr(content, "literal-quoting tests are gone") != NULL);
+
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+
+    /* Multi-block: a real call followed by a prose quote reports parse
+     * failure instead of emitting a bogus second call. */
+    const char *mixed =
+        "</think>running it\n\n"
+        "<tool_call>bash<arg_key>command</arg_key><arg_value>ls</arg_value></tool_call>\n\n"
+        "then I said <tool_call>this is just prose, not a call</tool_call> done";
+    tool_calls calls2 = {0};
+    TEST_ASSERT(!parse_generated_message_ex_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, mixed, true,
+        &content, &reasoning, &calls2));
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls2);
+}
+
 static void test_dsml_parser_recovers_loose_nested_parameters(void) {
     const char *generated =
         "review done\n\n"
@@ -23275,6 +23352,7 @@ static void ds4_server_unit_tests_run(void) {
     test_streaming_holds_partial_utf8();
     test_parse_short_dsml_and_canonical_suffix();
     test_parse_glm_tool_call_message();
+    test_parse_glm_prose_tool_call_not_restructured();
     test_dsml_parser_recovers_loose_nested_parameters();
     test_dsml_repair_produces_parseable_calls();
     test_tool_parse_failure_returns_recoverable_finish();
