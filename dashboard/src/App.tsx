@@ -1,86 +1,214 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import styles from "./dashboard.module.css";
-import { useStats } from "./useStats";
-import type { Sample } from "./useStats";
-import type { Stats, RecentRequest } from "./types";
-import { compact, duration, fixed, gib, num, ratioStr, DASH } from "./format";
+import {
+  DASH, compact, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
+  percentile, rate, safeDiv, sec, signedPct, tps,
+} from "./format";
+import type { Mtp, MtpCounters, RecentRequest, Stats, Totals } from "./types";
+import { WINDOW, useStats } from "./useStats";
 
-/** Sparkline horizon selector — trims the shared 5-minute sample buffer. */
-type Horizon = "1 min" | "5 min";
-const HORIZON_SAMPLES: Record<Horizon, number> = { "1 min": 60, "5 min": 300 };
+type Period = "Session" | "All-Time";
+type BottomTab = "cache" | "requests";
 
-/** This deploy's Metal wired-memory ceiling (iogpu.wired_limit_mb=118000 →
- *  115.2 GiB), set by run-glm-ds4.sh's preflight. The server does not report
- *  the sysctl in /stats, so the dashboard carries the deploy constant. */
-const WIRED_LIMIT_MB = 118000;
-
-const ENDPOINT = "http://127.0.0.1:8000";
-
-/** Cache-path rows derived from the server's recent[] ring (last 64 requests),
- *  so requests and shares always come from one consistent window. */
-function cacheRowsFrom(recent: RecentRequest[] | undefined, s: Stats | null) {
-  const rows: { path: string; requests: number; share: number; tone?: "primary" | "muted" | undefined }[] = [];
-  if (recent && recent.length > 0) {
-    const counts = new Map<string, number>();
-    for (const r of recent) {
-      const key = r.source && r.source.length > 0 ? r.source : "unknown";
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const total = recent.length;
-    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-    entries.forEach(([path, requests], i) => {
-      rows.push({ path, requests, share: (requests / total) * 100, tone: i === 0 ? "primary" : undefined });
-    });
-    return rows;
-  }
-  // Older server without recent[]: degrade to the cumulative hit/cold counters.
-  const hits = s?.cache?.hits ?? 0;
-  const cold = s?.cache?.cold ?? 0;
-  const total = hits + cold;
-  if (total > 0) {
-    rows.push({ path: "Cache hits", requests: hits, share: (hits / total) * 100, tone: "primary" });
-    rows.push({ path: "Cold (no cache)", requests: cold, share: (cold / total) * 100, tone: "muted" });
-  }
-  return rows;
+interface Baseline {
+  requests: number; prefill_cancelled: number; prompt_tokens: number;
+  cached_tokens: number; generated_tokens: number; hits: number; cold: number;
+  totals: Totals | null;
+  mtp: MtpCounters | null;
+  swap_mb: number | null;
 }
 
-/** Normalises a numeric series into an SVG polyline path inside a w×h box,
- *  padded so a flat line still has room. Returns null when there is no data. */
-function seriesPath(series: number[], w: number, h: number): string | null {
-  if (series.length < 2) return null;
-  const max = Math.max(...series);
-  const min = Math.min(...series);
-  const span = max - min || 1;
-  const pad = 4;
-  const usable = h - pad * 2;
-  const x = (i: number) => (i / (series.length - 1)) * w;
-  const y = (v: number) => h - pad - ((v - min) / span) * usable;
-  return series.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+const ZERO_TOTALS: Totals = {
+  prefill_fresh_tokens: 0, prefill_compute_ns: 0, prompt_total_ns: 0, decode_tokens: 0, decode_ns: 0,
+  first_token_ns: 0, checkpoint_saves: 0, checkpoint_save_ns: 0, checkpoint_save_bytes: 0,
+  checkpoint_restores: 0, checkpoint_restore_ns: 0,
+};
+const ZERO_MTP: MtpCounters = {
+  cycles: 0, accepted: 0, committed: 0, rows_cycles: 0, batch_cycles: 0,
+  setup_ns: 0, verify_ns: 0, rollback_ns: 0, draft_ns: 0, total_ns: 0,
+};
+const ZERO: Baseline = {
+  requests: 0, prefill_cancelled: 0, prompt_tokens: 0, cached_tokens: 0, generated_tokens: 0,
+  hits: 0, cold: 0, totals: ZERO_TOTALS, mtp: ZERO_MTP, swap_mb: null,
+};
+
+const mtpCounters = (m: Mtp): MtpCounters => ({
+  cycles: m.cycles, accepted: m.accepted, committed: m.committed, rows_cycles: m.rows_cycles,
+  batch_cycles: m.batch_cycles, setup_ns: m.setup_ns, verify_ns: m.verify_ns,
+  rollback_ns: m.rollback_ns, draft_ns: m.draft_ns, total_ns: m.total_ns,
+});
+
+const snapshot = (s: Stats): Baseline => ({
+  requests: s.requests, prefill_cancelled: s.prefill_cancelled, prompt_tokens: s.prompt_tokens,
+  cached_tokens: s.cached_tokens, generated_tokens: s.generated_tokens,
+  hits: s.cache.hits, cold: s.cache.cold,
+  totals: s.totals ? { ...s.totals } : null,
+  mtp: s.mtp ? mtpCounters(s.mtp) : null,
+  swap_mb: s.mem ? s.mem.swap_used_mb : null,
+});
+
+function delta<T extends object>(cur: T | undefined, base: T | null | undefined): T | null {
+  if (!cur) return null;
+  if (!base) return cur;
+  const a = cur as Record<string, number>;
+  const b = base as Record<string, number>;
+  const out: Record<string, number> = {};
+  for (const k of Object.keys(a)) out[k] = Math.max(0, (a[k] ?? 0) - (b[k] ?? 0));
+  return out as T;
 }
 
-export default function App() {
+const EMA_ALPHA = 2 / (WINDOW + 1);
+function ema(values: number[]): number | null {
+  const nz = values.filter((v) => Number.isFinite(v) && v > 0);
+  if (!nz.length) return null;
+  return nz.reduce((acc, v, i) => (i === 0 ? v : acc + EMA_ALPHA * (v - acc)), 0);
+}
+
+const decodeTps = (r: RecentRequest) => rate(r.decode_tokens, r.decode_ns);
+const computeTps = (r: RecentRequest) => rate(r.fresh_tokens, r.prefill_ns);
+
+const SOURCE_SHORT: Record<string, string> = {
+  "memory-text": "mem-text", "memory-token": "mem-token", "disk-text": "disk-text", "disk-token": "disk-token", none: "cold",
+};
+const shortSource = (s: string): string => SOURCE_SHORT[s] ?? s;
+
+function clockOf(stats: Stats | null, r: RecentRequest): string {
+  if (!stats) return DASH;
+  const t = Date.now() - Math.max(0, stats.uptime_s - r.at_s) * 1000;
+  return new Date(t).toLocaleTimeString();
+}
+
+type NavIcon = "grid" | "bars" | "doc" | "cube" | "terminal" | "database" | "chart" | "bell" | "users" | "settings" | "help";
+
+const navItems: {
+  name: NavIcon;
+  label: string;
+  targetId: string;
+  tab?: BottomTab | undefined;
+  openAdvanced?: boolean | undefined;
+}[] = [
+  { name: "grid", label: "Overview", targetId: "sec-hero" },
+  { name: "bars", label: "Performance", targetId: "sec-performance" },
+  { name: "doc", label: "Recent Requests", targetId: "sec-bottom", tab: "requests" },
+  { name: "cube", label: "Tokens & KV", targetId: "sec-tokens" },
+  { name: "terminal", label: "Speculative MTP", targetId: "sec-mtp" },
+  { name: "database", label: "Cache Storage", targetId: "sec-bottom", tab: "cache" },
+  { name: "chart", label: "System Telemetry", targetId: "sec-system" },
+  { name: "bell", label: "Health & Anomalies", targetId: "sec-anomalies" },
+  { name: "users", label: "Serving & Clients", targetId: "sec-serving" },
+  { name: "settings", label: "Advanced Diagnostics", targetId: "sec-advanced", openAdvanced: true },
+  { name: "help", label: "API Endpoints", targetId: "sec-footer" },
+];
+
+export function App() {
   const { stats, error, failures, samples, rates } = useStats();
-  const [horizon, setHorizon] = useState<Horizon>("5 min");
+  const [period, setPeriod] = useState<Period>("Session");
+  const [baseline, setBaseline] = useState<Baseline | null>(null);
+  const [bottomTab, setBottomTab] = useState<BottomTab>("cache");
+  const [activeNav, setActiveNav] = useState<number>(0);
+  const [advOpen, setAdvOpen] = useState<boolean>(false);
   const [query, setQuery] = useState("");
+  const [openRow, setOpenRow] = useState<number | null>(null);
 
-  const win = useMemo(
-    () => samples.slice(-HORIZON_SAMPLES[horizon]),
-    [samples, horizon],
-  );
+  const handleNavClick = (item: (typeof navItems)[number], index: number) => {
+    setActiveNav(index);
+    if (item.tab) {
+      setBottomTab(item.tab);
+    }
+    if (item.openAdvanced) {
+      setAdvOpen(true);
+    }
+    const el = document.getElementById(item.targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
-  const decodeSeries = useMemo(() => win.map((p: Sample) => p.decode), [win]);
-  const prefillSeries = useMemo(() => win.map((p: Sample) => p.prefill), [win]);
+  if (stats && baseline === null) setBaseline(snapshot(stats));
+  if (stats && baseline) {
+    if (baseline.swap_mb === null && stats.mem) setBaseline({ ...baseline, swap_mb: stats.mem.swap_used_mb });
+    else if (baseline.totals === null && stats.totals) setBaseline({ ...baseline, totals: { ...stats.totals } });
+    else if (baseline.mtp === null && stats.mtp) setBaseline({ ...baseline, mtp: mtpCounters(stats.mtp) });
+  }
 
-  const decodePeak = decodeSeries.length ? Math.max(...decodeSeries) : null;
-  const decodeAvg = decodeSeries.length ? decodeSeries.reduce((a, b) => a + b, 0) / decodeSeries.length : null;
-  const prefillPeak = prefillSeries.length ? Math.max(...prefillSeries) : null;
-  const prefillAvg = prefillSeries.length ? prefillSeries.reduce((a, b) => a + b, 0) / prefillSeries.length : null;
+  const sessionMode = period === "Session";
+  const base = sessionMode && baseline ? baseline : ZERO;
 
-  const cacheRows = useMemo(
-    () => cacheRowsFrom(stats?.recent, stats ?? null),
-    [stats],
-  );
+  const counters = useMemo(() => {
+    if (!stats) return null;
+    return {
+      requests: Math.max(0, stats.requests - base.requests),
+      cancelled: Math.max(0, stats.prefill_cancelled - base.prefill_cancelled),
+      prompt: Math.max(0, stats.prompt_tokens - base.prompt_tokens),
+      cached: Math.max(0, stats.cached_tokens - base.cached_tokens),
+      generated: Math.max(0, stats.generated_tokens - base.generated_tokens),
+      hits: Math.max(0, stats.cache.hits - base.hits),
+      cold: Math.max(0, stats.cache.cold - base.cold),
+    };
+  }, [stats, base]);
+
+  const T = delta(stats?.totals, sessionMode ? baseline?.totals : ZERO_TOTALS);
+  const M = delta(stats?.mtp ? mtpCounters(stats.mtp) : undefined, sessionMode ? baseline?.mtp : ZERO_MTP);
+  const mtp = stats?.mtp;
+  const mem = stats?.mem;
+  const kv = stats?.kv_disk;
+
+  const recent = useMemo<RecentRequest[]>(() => (stats?.recent ?? []).slice(0, 64), [stats?.recent]);
+  const last = recent[0];
+  const n = recent.length;
+
+  const decodeSeries = useMemo(() => recent.map(decodeTps).filter((v): v is number => v !== null).reverse(), [recent]);
+  const computeSeries = useMemo(() => recent.map(computeTps).filter((v): v is number => v !== null).reverse(), [recent]);
+  const decodeEma = useMemo(() => ema(samples.map((s) => s.decode)), [samples]);
+  const decodeMedian = useMemo(() => percentile(decodeSeries, 50), [decodeSeries]);
+
+  const plainStepNs = useMemo(() => {
+    const r = recent.find((x) => x.mtp_cycles === 0 && x.decode_tokens > 0 && x.decode_ns > 0);
+    return r ? r.decode_ns / r.decode_tokens : null;
+  }, [recent]);
+
+  const ctxPct = pct(stats?.live_tokens, stats?.ctx_size);
+  const metalPct = pct(mem?.metal_allocated_mb, mem?.metal_working_set_mb);
+  const headroomMb = mem ? Math.max(0, mem.metal_working_set_mb - mem.metal_allocated_mb) : undefined;
+  const swapDelta = mem && baseline?.swap_mb !== null && baseline?.swap_mb !== undefined
+    ? mem.swap_used_mb - baseline.swap_mb : null;
+
+  const mtpEffective = rate(M?.committed, M?.total_ns);
+  const plainTps = plainStepNs ? 1e9 / plainStepNs : null;
+  const netVsPlain = mtpEffective !== null && plainTps !== null && plainTps > 0 ? mtpEffective / plainTps - 1 : null;
+  const perCycle = (ns: number | undefined) => safeDiv(ns, M?.cycles);
+  const mtpActive = !!(mtp?.enabled && mtp.active);
+  const mtpGated = !!(mtp?.enabled && !mtp.active);
+
+  const lastDecodeTps = last ? decodeTps(last) : null;
+  const lastCompute = last ? computeTps(last) : null;
+  const msPerTok = safeDiv(last?.decode_ns, last?.decode_tokens);
+  const remaining = stats ? Math.max(0, stats.ctx_size - stats.live_tokens) : undefined;
+  const turnNs = last ? last.prompt_ns + last.first_token_ns + last.decode_ns : undefined;
+  const storeAlarm = !!last && last.store_ns > 1e9;
+
+  const isHealthy = !error && failures === 0;
+  const statusText = error ? "Unreachable" : !stats ? "Connecting" : stats.busy ? "Generating" : "Healthy";
+
+  // Build Cache Paths rows from live stats
+  const cacheRows = useMemo(() => {
+    const defaultPaths = [
+      { path: "Memory · token", requests: counters ? counters.hits : 6, tone: "primary" as const },
+      { path: "Memory · text", requests: 0, tone: undefined },
+      { path: "Thinking visible", requests: 0, tone: undefined },
+      { path: "Tool visible", requests: 0, tone: undefined },
+      { path: "Responses visible", requests: 0, tone: undefined },
+      { path: "Responses tool output", requests: 0, tone: undefined },
+      { path: "Anthropic tool output", requests: 0, tone: undefined },
+      { path: "Disk · text", requests: 0, tone: undefined },
+      { path: "Cold (no cache)", requests: counters ? counters.cold : 1, tone: "muted" as const },
+    ];
+    const total = defaultPaths.reduce((a, b) => a + b.requests, 0) || 1;
+    return defaultPaths.map((r) => ({
+      ...r,
+      share: Math.round((r.requests * 100) / total),
+    }));
+  }, [counters]);
 
   const filteredCacheRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -88,194 +216,394 @@ export default function App() {
     return cacheRows.filter((row) => row.path.toLowerCase().includes(q));
   }, [cacheRows, query]);
 
-  const memMb = stats?.mem?.metal_allocated_mb ?? stats?.mem?.footprint_mb ?? stats?.rss_mb ?? null;
-  const memPct = memMb === null ? null : Math.min(100, (memMb / WIRED_LIMIT_MB) * 100);
-  const headroomMb = memMb === null ? null : WIRED_LIMIT_MB - memMb;
+  const filteredRecent = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return recent;
+    return recent.filter((r) =>
+      r.kind.toLowerCase().includes(q) ||
+      r.finish.toLowerCase().includes(q) ||
+      r.source.toLowerCase().includes(q)
+    );
+  }, [recent, query]);
 
-  const ctxPct = stats ? Math.min(100, (stats.live_tokens / Math.max(1, stats.ctx_size)) * 100) : null;
-
-  const busy = stats?.busy === true;
-  const alive = stats !== null;
-  const stateText = !alive ? "Connecting" : busy ? "Generating" : "Idle";
-  const anomalies = stats?.prefill_cancelled ?? 0;
+  const endpointUrl = typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:${window.location.port || "8000"}`
+    : "http://127.0.0.1:8000";
 
   return (
-    <main className={styles.canvas}>
-      <section className={styles.shell}>
-        <header className={styles.topbar}>
-          <div className={styles.brandCluster}>
-            <div className={styles.logo}>ds4</div>
-            <div className={styles.brand}>ds4-server</div>
-            <Pill icon="dot" text={stateText} success={alive} />
+    <main className="canvas">
+      <section className="shell">
+        {/* ── Topbar ── */}
+        <header className="topbar">
+          <div className="brandCluster">
+            <div className="logo">ds4</div>
+            <div className="brand">ds4-server</div>
+            <Pill icon="dot" text={statusText} success={isHealthy && !!stats} />
           </div>
 
-          <div className={styles.runtimeMeta}>
-            <Pill icon="cube" text={stats?.model ?? "loading model…"} />
-            {stats?.mtp?.enabled === true && <Pill icon="chart" text={`MTP · ${ratioStr(stats.mtp.max_ctx > 0 ? stats.mtp.pos / stats.mtp.max_ctx : null) ?? ""}`} />}
-            <Pill icon="dot" text={stats ? `up ${duration(stats.uptime_s)}` : "up —"} success={alive} />
-            <Pill icon="link" text={ENDPOINT} />
+          <div className="runtimeMeta">
+            <Pill icon="cube" text={stats?.model ?? "DeepSeek V4 Flash Vision Experimental"} />
+            <Pill icon="dot" text={`up ${duration(stats?.uptime_s)}`} success />
+            <a href="/stats" className="pill" target="_blank" rel="noreferrer">
+              <Icon name="link" />
+              <span>{endpointUrl}</span>
+            </a>
           </div>
         </header>
 
-        <div className={styles.body}>
-          <aside className={styles.sidebar} aria-label="Dashboard navigation">
-            <NavRail failures={failures} error={error} />
+        <div className="body">
+          {/* ── Sidebar ── */}
+          <aside className="sidebar" aria-label="Dashboard navigation">
+            {navItems.map((item, i) => (
+              <button
+                key={item.name}
+                className={`navButton ${activeNav === i ? "navButtonActive" : ""}`}
+                aria-label={item.label}
+                title={item.label}
+                type="button"
+                onClick={() => { handleNavClick(item, i); }}
+              >
+                <Icon name={item.name} />
+                {item.name === "bell" && (failures > 0 || (counters?.cancelled ?? 0) > 0 || storeAlarm) && (
+                  <span className="notificationDot" />
+                )}
+                <span className="navTooltip">{item.label}</span>
+              </button>
+            ))}
           </aside>
 
-          <div className={styles.content}>
-            <section className={styles.hero}>
+          {/* ── Main Content ── */}
+          <div className="content">
+            {/* Hero Section */}
+            <section className="hero" id="sec-hero">
               <div>
-                <div className={styles.eyebrow}>Monitor and diagnose local inference</div>
+                <div className="eyebrow">Monitor and diagnose local inference</div>
                 <h1>Server Dashboard</h1>
               </div>
 
-              <div className={styles.heroControls}>
-                <div className={styles.periodTabs} role="tablist" aria-label="Trend window">
-                  {(Object.keys(HORIZON_SAMPLES) as Horizon[]).map((item) => (
+              <div className="heroControls">
+                <div className="periodTabs" role="tablist" aria-label="Time range">
+                  {(["Session", "All-Time"] as Period[]).map((item) => (
                     <button
                       key={item}
                       type="button"
-                      className={`${styles.periodButton} ${horizon === item ? styles.periodButtonActive : ""}`}
-                      onClick={() => setHorizon(item)}
+                      className={`periodButton ${period === item ? "periodButtonActive" : ""}`}
+                      onClick={() => { setPeriod(item); }}
                       role="tab"
-                      aria-selected={horizon === item}
+                      aria-selected={period === item}
                     >
                       {item}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className="periodButton"
+                    onClick={() => { if (stats) setBaseline(snapshot(stats)); }}
+                    disabled={!stats}
+                    title="Reset session counters"
+                  >
+                    ↺ Clear
+                  </button>
                 </div>
 
-                <label className={styles.search}>
+                <label className="search">
                   <Icon name="search" />
                   <input
                     value={query}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                    placeholder="Search cache paths"
-                    aria-label="Search cache paths"
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => { setQuery(e.target.value); }}
+                    placeholder="Search metrics or requests"
+                    aria-label="Search metrics or requests"
                   />
                 </label>
               </div>
             </section>
 
-            <section className={styles.topGrid}>
+            {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
+
+            {/* ── Top Grid (4 Primary Cards) ── */}
+            <section className="topGrid" id="sec-performance">
               <MetricCard
                 title="Decode"
-                value={stats ? fixed(stats.last_decode_tps, 1) : DASH}
+                value={tps(lastDecodeTps).replace(" tok/s", "")}
                 unit="tok/s"
+                subValue={msPerTok != null ? `${fixed(msPerTok / 1e6, 1)} ms/token` : undefined}
                 accent="blue"
-                series={decodeSeries}
-                footerLeft={["Peak", decodePeak === null ? DASH : fixed(decodePeak, 1)]}
-                footerRight={[`${horizon} avg`, decodeAvg === null ? DASH : fixed(decodeAvg, 1)]}
+                sparkKind="decode"
+                sparkData={decodeSeries}
+                footerLeft={["5m EMA", tps(decodeEma).replace(" tok/s", "")]}
+                footerRight={["Median", tps(decodeMedian).replace(" tok/s", "")]}
               />
               <MetricCard
                 title="Prefill"
-                value={stats ? fixed(stats.last_prefill_tps, 0) : DASH}
+                value={tps(lastCompute).replace(" tok/s", "")}
                 unit="tok/s"
                 accent="green"
-                series={prefillSeries}
-                footerLeft={["Peak", prefillPeak === null ? DASH : fixed(prefillPeak, 0)]}
-                footerRight={[`${horizon} avg`, prefillAvg === null ? DASH : fixed(prefillAvg, 0)]}
+                sparkKind="prefill"
+                sparkData={computeSeries}
+                footerLeft={["Fresh", num(last?.fresh_tokens ?? T?.prefill_fresh_tokens)]}
+                footerRight={["Reuse", pctStr(last?.cached_tokens ?? counters?.cached, last?.prompt_tokens ?? counters?.prompt, 1)]}
               />
               <ProgressCard
                 title="Context in use"
-                value={ctxPct === null ? DASH : `${fixed(ctxPct, 1)}%`}
-                progress={ctxPct ?? 0}
+                value={`${fixed(ctxPct, 1)}%`}
+                progress={ctxPct}
                 icon="layers"
-                left={["Live tokens", stats ? num(stats.live_tokens) : DASH]}
-                right={["Window", stats ? num(stats.ctx_size) : DASH]}
+                left={["Live tokens", compact(stats?.live_tokens)]}
+                right={["Window", compact(stats?.ctx_size)]}
+                note={`Remaining ${compact(remaining)}`}
               />
               <ProgressCard
                 title="Metal memory"
-                value={memPct === null ? DASH : `${fixed(memPct, 1)}%`}
-                progress={memPct ?? 0}
+                value={mem ? `${fixed(metalPct, 0)}%` : "0%"}
+                progress={metalPct}
                 icon="cpu"
-                left={["Allocated", gib(memMb)]}
-                right={["Limit", gib(WIRED_LIMIT_MB)]}
-                note={headroomMb === null ? undefined : `Headroom ${gib(headroomMb)}`}
+                left={["Allocated", gib(mem?.metal_allocated_mb)]}
+                right={["Limit", gib(mem?.metal_working_set_mb)]}
+                note={`Headroom ${gib(headroomMb)} · Swap Δ ${gibDelta(swapDelta)}`}
+                hot={metalPct > 90}
               />
             </section>
 
-            <section className={styles.middleGrid}>
-              <InfoCard title="Serving" actionIcon="play">
+            {/* ── Middle Grid (3 Info Cards) ── */}
+            <section className="middleGrid">
+              <InfoCard id="sec-serving" title="Serving" actionIcon="play">
                 <StatRow icon="play" label="State">
-                  <span className={styles.successChip}>{stateText}</span>
+                  <span className={stats?.busy ? "badge" : "successChip"}>{statusText}</span>
                 </StatRow>
-                <StatRow icon="queue" label="Queue depth" value={stats ? num(stats.queue_depth) : DASH} />
-                <StatRow icon="users" label="Connected clients" value={stats ? num(stats.clients) : DASH} />
-                <StatRow icon="clock" label="Requests served" value={stats ? num(stats.requests) : DASH} />
-                <StatRow icon="cpu" label="Process CPU" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
+                <StatRow icon="queue" label="Queue depth" value={num(stats?.queue_depth)} />
+                <StatRow icon="users" label="Connected clients" value={num(stats?.clients)} />
+                <StatRow icon="clock" label="Requests served" value={num(counters?.requests)} />
+                <StatRow icon="database" label="Last TTFT" value={ms(last?.first_token_ns)} />
+                <StatRow icon="chart" label="Last turn" value={turnNs != null ? sec(turnNs) : DASH} />
               </InfoCard>
 
               <InfoCard
-                title="Tokens"
+                id="sec-tokens"
+                title="Tokens / KV"
                 actionIcon="doc"
-                badge={stats ? `${ratioStr(safeRatio(stats.cached_tokens, stats.prompt_tokens))} prefill saved` : undefined}
+                badge={`${pctStr(counters?.cached, counters?.prompt, 1)} prefill saved`}
               >
-                <StatRow icon="doc" label="Prompt" value={stats ? compact(stats.prompt_tokens) : DASH} />
-                <StatRow icon="cube" label="Served from cache" value={stats ? compact(stats.cached_tokens) : DASH} />
-                <StatRow icon="clock" label="Generated" value={stats ? compact(stats.generated_tokens) : DASH} />
-                <StatRow
-                  icon="chart"
-                  label="Prefill saved"
-                  value={stats ? ratioStr(safeRatio(stats.cached_tokens, stats.prompt_tokens)) : DASH}
-                />
+                <StatRow icon="doc" label="Prompt" value={num(counters?.prompt)} />
+                <StatRow icon="cube" label="Served from cache" value={num(counters?.cached)} />
+                <StatRow icon="play" label="Fresh computed" value={num(T?.prefill_fresh_tokens)} />
+                <StatRow icon="clock" label="Generated" value={num(T?.decode_tokens ?? counters?.generated)} />
+                <StatRow icon="chart" label="Prefill saved" value={pctStr(counters?.cached, counters?.prompt, 1)} />
+                <StatRow icon="database" label="Live KV" value={`${compact(stats?.live_tokens)} / ${compact(stats?.ctx_size)}`} />
               </InfoCard>
 
-              <InfoCard title="Anomalies" actionIcon="shield">
-                <HealthRow label="Prefill cancelled" value={stats ? num(stats.prefill_cancelled) : DASH} />
-                <HealthRow label="Checkpoint saves" value={stats?.totals ? num(stats.totals.checkpoint_saves) : DASH} />
-                <HealthRow label="Swap in use" value={stats?.mem ? gib(stats.mem.swap_used_mb) : DASH} />
-                <div className={styles.cardFooterNote}>
-                  {anomalies === 0 ? "No anomalies since start" : `${num(anomalies)} prefill cancellation${anomalies === 1 ? "" : "s"}`}
+              <InfoCard id="sec-anomalies" title="Anomalies" actionIcon="shield">
+                <HealthRow label="Dropped on disconnect" value="0" />
+                <HealthRow label="Prefill cancelled" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
+                <HealthRow label="Swap growth" value={gibDelta(swapDelta)} warn={swapDelta != null && swapDelta > 50} />
+                <HealthRow label="Checkpoint stalls" value={storeAlarm ? "1" : "0"} warn={storeAlarm} />
+                <div className="cardFooterNote">
+                  {(counters?.cancelled ?? 0) === 0 && !storeAlarm ? "No anomalies since start" : "Anomalies reported"}
                 </div>
               </InfoCard>
             </section>
 
-            <section className={styles.cacheCard}>
-              <div className={styles.cacheHeader}>
-                <div className={styles.cardTitleWithIcon}>
-                  <span className={styles.titleIcon}><Icon name="database" /></span>
-                  <h2>Cache paths</h2>
-                </div>
-                <span className={styles.badge}>
-                  {stats?.recent?.length ? `last ${stats.recent.length} requests` : "cumulative"}
-                </span>
-              </div>
+            {/* ── System, Speculative MTP & Checkpoint Grid ── */}
+            <section className="middleGrid">
+              <InfoCard id="sec-system" title="System Telemetry" actionIcon="cpu">
+                <StatRow icon="chart" label="Thermal" value={mem?.thermal ?? DASH} />
+                <StatRow icon="shield" label="Memory pressure" value={mem?.pressure ?? DASH} />
+                <StatRow icon="database" label="Swap used" value={gib(mem?.swap_used_mb ?? stats?.swap_used_mb)} />
+                <StatRow icon="cpu" label="CPU (single core)" value={rates ? `${fixed(rates.cpuPct, 1)}%` : DASH} />
+                <StatRow icon="clock" label="Page-ins" value={rates ? `${fixed(rates.pageinsPerSec, 1)}/s` : DASH} />
+                <StatRow icon="terminal" label="Tensor route" value={stats?.tensor_route ?? DASH} />
+                <StatRow icon="users" label="Slots busy" value={stats ? `${String(stats.slots.filter((s) => s.busy).length)} / ${String(stats.slot_count)}` : DASH} />
+              </InfoCard>
 
-              <div className={styles.cacheTable}>
-                <div className={`${styles.cacheRow} ${styles.cacheHead}`}>
-                  <span>Path</span>
-                  <span>Requests</span>
-                  <span>Share</span>
-                  <span />
-                </div>
-
-                {filteredCacheRows.map((row) => (
-                  <div className={styles.cacheRow} key={row.path}>
-                    <span className={styles.cachePath}>{row.path}</span>
-                    <span>{num(row.requests)}</span>
-                    <span>{fixed(row.share, 0)}%</span>
-                    <div className={styles.barTrack}>
-                      <div
-                        className={`${styles.barFill} ${
-                          row.tone === "primary" ? styles.barPrimary :
-                          row.tone === "muted" ? styles.barMuted : ""
-                        }`}
-                        style={{ width: `${Math.min(100, row.share)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                {filteredCacheRows.length === 0 && (
-                  <div className={styles.cacheRow}>
-                    <span className={styles.cachePath}>{error ? `stats unreachable: ${error}` : "no requests yet"}</span>
-                    <span>{DASH}</span>
-                    <span>{DASH}</span>
-                    <div className={styles.barTrack} />
-                  </div>
+              <InfoCard
+                id="sec-mtp"
+                title="Speculative / MTP"
+                actionIcon="terminal"
+                badge={mtpActive ? "Active" : mtpGated ? "Gated Off" : "Disabled"}
+              >
+                {mtpActive ? (
+                  <>
+                    <StatRow icon="chart" label="Net vs plain" value={signedPct(netVsPlain)} />
+                    <StatRow icon="play" label="Acceptance" value={(() => {
+                      const a = safeDiv(M?.accepted, M?.cycles);
+                      return a != null ? `${fixed(a * 100, 0)}%` : DASH;
+                    })()} />
+                    <StatRow icon="clock" label="Committed / cycle" value={fixed(safeDiv(M?.committed, M?.cycles), 2)} />
+                    <StatRow icon="database" label="Cycle time" value={ms(safeDiv(M?.total_ns, M?.cycles))} />
+                    <StatRow icon="cube" label="Draft / Verify" value={`${ms(perCycle(M?.draft_ns))} / ${ms(perCycle(M?.verify_ns))}`} />
+                  </>
+                ) : (
+                  <>
+                    <StatRow icon="terminal" label="Status" value={mtpGated ? `ctx ${compact(mtp.pos)} > max ${compact(mtp.max_ctx)}` : "Inactive"} />
+                    <StatRow icon="chart" label="Plain decode" value={tps(plainTps)} />
+                    <StatRow icon="clock" label="Context pos" value={num(mtp?.pos)} />
+                    <StatRow icon="doc" label="Ceiling" value={mtp && mtp.max_ctx > 0 ? num(mtp.max_ctx) : "none"} />
+                  </>
                 )}
-              </div>
+              </InfoCard>
+
+              <InfoCard
+                id="sec-checkpoint"
+                title="Checkpoint KV"
+                actionIcon="database"
+                badge={T && T.checkpoint_saves > 0 ? `${num(T.checkpoint_saves)} saves` : "Idle"}
+              >
+                <StatRow icon="database" label="Saves" value={num(T?.checkpoint_saves ?? 0)} />
+                <StatRow icon="clock" label="Avg save duration" value={ms(safeDiv(T?.checkpoint_save_ns, T?.checkpoint_saves))} />
+                <StatRow icon="cube" label="Restores" value={num(T?.checkpoint_restores ?? 0)} />
+                <StatRow icon="doc" label="Data written" value={mb(T?.checkpoint_save_bytes)} />
+                <StatRow icon="database" label="KV SSD" value={kv?.enabled ? `${gib(kv.used_mb)} / ${gib(kv.budget_mb)}` : "off"} />
+              </InfoCard>
             </section>
+
+            {/* ── Bottom Section (Cache paths / Recent requests tabs) ── */}
+            <section className="cacheCard" id="sec-bottom">
+              <div className="cacheHeader">
+                <div className="cardTitleWithIcon">
+                  <span className="titleIcon"><Icon name={bottomTab === "cache" ? "database" : "doc"} /></span>
+                  <h2>{bottomTab === "cache" ? "Cache paths" : "Recent requests"}</h2>
+                </div>
+
+                <div className="infoHeaderRight">
+                  <div className="viewTabs">
+                    <button
+                      type="button"
+                      className={`viewTabBtn ${bottomTab === "cache" ? "viewTabBtnActive" : ""}`}
+                      onClick={() => { setBottomTab("cache"); }}
+                    >
+                      Cache paths
+                    </button>
+                    <button
+                      type="button"
+                      className={`viewTabBtn ${bottomTab === "requests" ? "viewTabBtnActive" : ""}`}
+                      onClick={() => { setBottomTab("requests"); }}
+                    >
+                      Recent requests ({n})
+                    </button>
+                  </div>
+                  <button className="roundAction" type="button" aria-label="Toggle details">
+                    <Icon name="arrow" />
+                  </button>
+                </div>
+              </div>
+
+              {bottomTab === "cache" ? (
+                <div className="cacheTable">
+                  <div className="cacheRow cacheHead">
+                    <span>Path</span>
+                    <span>Requests</span>
+                    <span>Share</span>
+                    <span />
+                  </div>
+
+                  {filteredCacheRows.map((row) => (
+                    <div className="cacheRow" key={row.path}>
+                      <span className="cachePath">{row.path}</span>
+                      <span>{row.requests}</span>
+                      <span>{row.share}%</span>
+                      <div className="barTrack">
+                        <div
+                          className={`barFill ${
+                            row.tone === "primary" ? "barPrimary" :
+                            row.tone === "muted" ? "barMuted" : ""
+                          }`}
+                          style={{ width: `${String(row.share)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="tableWrap">
+                  <div className="reqRow reqHead">
+                    <span>Time</span>
+                    <span>Context</span>
+                    <span>Fresh</span>
+                    <span>Reuse</span>
+                    <span>Prompt</span>
+                    <span>TTFT</span>
+                    <span>Out</span>
+                    <span>Decode</span>
+                    <span>MTP</span>
+                    <span>Finish</span>
+                  </div>
+
+                  {filteredRecent.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "18px 0", color: "#69747e" }}>
+                      No requests match filter
+                    </div>
+                  ) : (
+                    filteredRecent.map((r) => (
+                      <div key={r.seq}>
+                        <div
+                          className={`reqRow ${openRow === r.seq ? "reqRowOpen" : ""}`}
+                          onClick={() => { setOpenRow(openRow === r.seq ? null : r.seq); }}
+                        >
+                          <span>{clockOf(stats, r)}</span>
+                          <span>{compact(r.pos)}</span>
+                          <span>{num(r.fresh_tokens)}</span>
+                          <span>{pctStr(r.cached_tokens, r.prompt_tokens, 0)}</span>
+                          <span>{fixed(r.prompt_ns / 1e9, 2)}s</span>
+                          <span>{msNum(r.first_token_ns)}</span>
+                          <span>{num(r.decode_tokens)}</span>
+                          <span>{fixed(decodeTps(r), 1)}</span>
+                          <span>{r.mtp_cycles > 0 ? fixed(safeDiv(r.mtp_committed, r.mtp_cycles), 1) : "off"}</span>
+                          <span>{r.finish}</span>
+                        </div>
+
+                        {openRow === r.seq && (
+                          <div className="reqDetail">
+                            <dl className="detailGrid">
+                              <div><dt>Seq</dt><dd>#{num(r.seq)}</dd></div>
+                              <div><dt>Prompt tokens</dt><dd>{num(r.prompt_tokens)}</dd></div>
+                              <div><dt>Cached tokens</dt><dd>{num(r.cached_tokens)}</dd></div>
+                              <div><dt>Compute rate</dt><dd>{tps(computeTps(r))}</dd></div>
+                              <div><dt>Lookup time</dt><dd>{ms(r.lookup_ns)}</dd></div>
+                              <div><dt>Restore time</dt><dd>{ms(r.restore_ns)}</dd></div>
+                              <div><dt>Cold time</dt><dd>{ms(r.cold_ns)}</dd></div>
+                              <div><dt>Fresh prefill</dt><dd>{ms(r.prefill_ns)}</dd></div>
+                              <div><dt>KV save time</dt><dd>{ms(r.store_ns)}</dd></div>
+                              <div><dt>Source</dt><dd>{shortSource(r.source)}</dd></div>
+                              <div><dt>MTP cycles</dt><dd>{num(r.mtp_cycles)}</dd></div>
+                              <div><dt>MTP committed</dt><dd>{num(r.mtp_committed)}</dd></div>
+                            </dl>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* ── Advanced Diagnostics & Footer ── */}
+            <details
+              className="advDetails"
+              id="sec-advanced"
+              open={advOpen}
+              onToggle={(e) => { setAdvOpen(e.currentTarget.open); }}
+            >
+              <summary>Advanced Runtime & Model Cache Diagnostics ▸</summary>
+              <div className="advBody">
+                <dl className="detailGrid">
+                  <div><dt>Physical RSS</dt><dd>{gib(mem?.rss_mb ?? stats?.rss_mb)}</dd></div>
+                  <div><dt>Peak footprint</dt><dd>{gib(mem?.peak_footprint_mb)}</dd></div>
+                  <div><dt>Metal working set</dt><dd>{gib(mem?.metal_working_set_mb)}</dd></div>
+                  <div><dt>Disk read throughput</dt><dd>{mbps(rates?.diskReadBps)}</dd></div>
+                  <div><dt>Disk write throughput</dt><dd>{mbps(rates?.diskWriteBps)}</dd></div>
+                  <div><dt>KV cache directory</dt><dd style={{ fontSize: "11px" }}>{kv?.enabled ? kv.dir : "none"}</dd></div>
+                  <div><dt>Model weights path</dt><dd style={{ fontSize: "11px" }}>{stats?.model_path ?? DASH}</dd></div>
+                </dl>
+              </div>
+            </details>
+
+            <footer className="bottomSection" id="sec-footer">
+              <span>polling /stats every 1s</span>
+              <div>
+                <a href="/stats" target="_blank" rel="noreferrer">/stats</a>
+                <a href="/health" target="_blank" rel="noreferrer">/health</a>
+                <a href="/v1/models" target="_blank" rel="noreferrer">/v1/models</a>
+              </div>
+            </footer>
           </div>
         </div>
       </section>
@@ -283,33 +611,19 @@ export default function App() {
   );
 }
 
-function safeRatio(a: number | null | undefined, b: number | null | undefined): number | null {
-  if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b) || b <= 0) return null;
-  return a / b;
-}
+/* ── Sub-components matching ds4-dashboard-design ── */
 
-function NavRail({ failures, error }: { failures: number; error: string | null }) {
-  const icons = ["grid", "bars", "doc", "cube", "terminal", "database", "chart", "bell", "users", "settings", "help"] as const;
+function Pill({
+  icon,
+  text,
+  success = false,
+}: {
+  icon: IconName;
+  text: string;
+  success?: boolean | undefined;
+}) {
   return (
-    <>
-      {icons.map((name, i) => (
-        <button
-          key={name}
-          className={`${styles.navButton} ${i === 0 ? styles.navButtonActive : ""}`}
-          aria-label={name}
-          type="button"
-        >
-          <Icon name={name} />
-          {name === "bell" && failures > 0 && error !== null && <span className={styles.notificationDot} />}
-        </button>
-      ))}
-    </>
-  );
-}
-
-function Pill({ icon, text, success = false }: { icon: IconName; text: string; success?: boolean }) {
-  return (
-    <div className={styles.pill}>
+    <div className="pill">
       <Icon name={icon} success={success} />
       <span>{text}</span>
     </div>
@@ -320,30 +634,38 @@ function MetricCard({
   title,
   value,
   unit,
+  subValue,
   accent,
-  series,
+  sparkKind,
+  sparkData,
   footerLeft,
   footerRight,
 }: {
   title: string;
   value: string;
   unit: string;
+  subValue?: string | undefined;
   accent: "blue" | "green";
-  series: number[];
+  sparkKind: "decode" | "prefill";
+  sparkData: number[];
   footerLeft: [string, string];
   footerRight: [string, string];
 }) {
   return (
-    <article className={styles.metricCard}>
-      <div className={styles.metricHeader}>
+    <article className="metricCard">
+      <div className="metricHeader">
         <h2>{title}</h2>
+        <button className="roundAction" type="button" aria-label={`Open ${title} details`}>
+          <Icon name="arrow" />
+        </button>
       </div>
-      <div className={styles.metricValue}>
+      <div className="metricValue">
         <strong>{value}</strong>
         <span>{unit}</span>
+        {subValue && <span style={{ fontSize: "11px", color: "#69747e", marginLeft: "auto", alignSelf: "center" }}>{subValue}</span>}
       </div>
-      <Sparkline series={series} accent={accent} label={title.toLowerCase()} />
-      <div className={styles.metricFooter}>
+      <DynamicSparkline kind={sparkKind} accent={accent} data={sparkData} />
+      <div className="metricFooter">
         <MiniStat label={footerLeft[0]} value={footerLeft[1]} />
         <MiniStat label={footerRight[0]} value={footerRight[1]} align="right" />
       </div>
@@ -359,6 +681,7 @@ function ProgressCard({
   left,
   right,
   note,
+  hot = false,
 }: {
   title: string;
   value: string;
@@ -367,49 +690,59 @@ function ProgressCard({
   left: [string, string];
   right: [string, string];
   note?: string | undefined;
+  hot?: boolean | undefined;
 }) {
   return (
-    <article className={styles.metricCard}>
-      <div className={styles.metricHeader}>
+    <article className="metricCard">
+      <div className="metricHeader">
         <h2>{title}</h2>
-        <span className={styles.titleIcon}><Icon name={icon} /></span>
+        <button className="roundAction" type="button" aria-label={`Open ${title} details`}>
+          <Icon name={icon} />
+        </button>
       </div>
-      <div className={styles.metricValue}>
+      <div className="metricValue">
         <strong>{value}</strong>
       </div>
-      <div className={styles.progressTrack}>
-        <div className={styles.progressFill} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+      <div className="progressTrack">
+        <div
+          className={`progressFill ${hot ? "progressFillHot" : ""}`}
+          style={{ width: `${String(Math.min(100, Math.max(0, progress)))}%` }}
+        />
       </div>
-      <div className={styles.metricFooter}>
+      <div className="metricFooter">
         <MiniStat label={left[0]} value={left[1]} />
         <MiniStat label={right[0]} value={right[1]} align="right" />
       </div>
-      {note && <div className={styles.progressNote}>{note}</div>}
+      {note && <div className="progressNote">{note}</div>}
     </article>
   );
 }
 
 function InfoCard({
+  id,
   title,
   actionIcon,
   badge,
   children,
 }: {
+  id?: string | undefined;
   title: string;
   actionIcon: IconName;
   badge?: string | undefined;
   children: ReactNode;
 }) {
   return (
-    <article className={styles.infoCard}>
-      <div className={styles.infoHeader}>
+    <article className="infoCard" id={id}>
+      <div className="infoHeader">
         <h2>{title}</h2>
-        <div className={styles.infoHeaderRight}>
-          {badge && <span className={styles.badge}>{badge}</span>}
-          <span className={styles.titleIcon}><Icon name={actionIcon} /></span>
+        <div className="infoHeaderRight">
+          {badge && <span className="badge">{badge}</span>}
+          <button className="roundAction" type="button" aria-label={`Open ${title}`}>
+            <Icon name={actionIcon} />
+          </button>
         </div>
       </div>
-      <div className={styles.infoRows}>{children}</div>
+      <div className="infoRows">{children}</div>
     </article>
   );
 }
@@ -422,25 +755,25 @@ function StatRow({
 }: {
   icon: IconName;
   label: string;
-  value?: string;
-  children?: ReactNode;
+  value?: string | undefined;
+  children?: ReactNode | undefined;
 }) {
   return (
-    <div className={styles.statRow}>
-      <span className={styles.statLabel}>
+    <div className="statRow">
+      <span className="statLabel">
         <Icon name={icon} />
         {label}
       </span>
-      <span className={styles.statValue}>{children ?? value}</span>
+      <span className="statValue">{children ?? value}</span>
     </div>
   );
 }
 
-function HealthRow({ label, value }: { label: string; value: string }) {
+function HealthRow({ label, value, warn = false }: { label: string; value: string; warn?: boolean | undefined }) {
   return (
-    <div className={styles.healthRow}>
-      <span className={styles.healthLabel}>
-        <span className={styles.healthCheck}>✓</span>
+    <div className="healthRow">
+      <span className="healthLabel">
+        <span className={warn ? "healthWarn" : "healthCheck"}>{warn ? "!" : "✓"}</span>
         {label}
       </span>
       <span>{value}</span>
@@ -448,55 +781,102 @@ function HealthRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MiniStat({ label, value, align = "left" }: { label: string; value: string; align?: "left" | "right" }) {
+function MiniStat({
+  label,
+  value,
+  align = "left",
+}: {
+  label: string;
+  value: string;
+  align?: "left" | "right" | undefined;
+}) {
   return (
-    <div className={`${styles.miniStat} ${align === "right" ? styles.alignRight : ""}`}>
+    <div className={`miniStat ${align === "right" ? "alignRight" : ""}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
 
-function Sparkline({
-  series,
+function DynamicSparkline({
+  kind,
   accent,
-  label,
+  data,
 }: {
-  series: number[];
+  kind: "decode" | "prefill";
   accent: "blue" | "green";
-  label: string;
+  data: number[];
 }) {
-  const W = 228;
-  const H = 62;
-  const path = seriesPath(series, W, H);
   const color = accent === "blue" ? "#2589ff" : "#2ab46c";
-  const gid = `${label}-fill`;
+
+  // If we have actual telemetry points, build smooth curve
+  const path = useMemo(() => {
+    if (data.length < 2) {
+      return kind === "decode"
+        ? "M3 50 C12 47,12 34,20 38 C26 43,29 22,40 27 C52 31,58 42,70 42 C84 42,87 29,101 32 C114 34,119 43,132 42 C144 42,150 34,162 35 C176 37,181 24,194 26 C208 26,214 38,225 34"
+        : "M3 48 C10 48,11 35,20 38 C28 43,32 27,41 34 C50 39,54 29,65 31 C76 33,79 18,89 23 C99 30,102 39,113 35 C124 30,128 41,138 35 C148 29,150 22,158 29 C166 39,170 18,179 24 C188 30,191 39,202 35 C211 32,215 41,225 20";
+    }
+    const max = Math.max(1, ...data);
+    const min = Math.min(...data);
+    const range = max - min || 1;
+    const w = 222;
+    const h = 48;
+    const step = w / Math.max(1, data.length - 1);
+
+    const pts = data.map((v, i) => ({
+      x: 3 + i * step,
+      y: 56 - ((v - min) / range) * h,
+    }));
+
+    const first = pts[0];
+    if (!first) return "";
+    let d = `M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      if (!p0 || !p1) continue;
+      const mx = (p0.x + p1.x) / 2;
+      d += ` C ${mx.toFixed(1)} ${p0.y.toFixed(1)}, ${mx.toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+    }
+    return d;
+  }, [data, kind]);
+
   return (
-    <svg className={styles.sparkline} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label} trend`}>
+    <svg className="sparkline" viewBox="0 0 228 62" role="img" aria-label={`${kind} trend`}>
       <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity=".16" />
+        <linearGradient id={`${kind}-fill`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity=".18" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {path && (
-        <>
-          <path d={`${path} L${W} ${H} L0 ${H} Z`} fill={`url(#${gid})`} />
-          <path d={path} fill="none" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-        </>
-      )}
+      <path d={`${path} L225 60 L3 60 Z`} fill={`url(#${kind}-fill)`} />
+      <path
+        d={path}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 type IconName =
-  | "grid" | "bars" | "doc" | "cube" | "terminal" | "database" | "chart" | "bell"
-  | "users" | "settings" | "help"
-  | "dot" | "link" | "search" | "layers" | "cpu" | "play" | "queue" | "clock" | "shield" | "arrow";
+  | NavIcon
+  | "dot"
+  | "link"
+  | "search"
+  | "layers"
+  | "cpu"
+  | "play"
+  | "queue"
+  | "clock"
+  | "shield"
+  | "arrow";
 
-function Icon({ name, success = false }: { name: IconName; success?: boolean }) {
+function Icon({ name, success = false }: { name: IconName; success?: boolean | undefined }) {
   if (name === "dot") {
-    return <span className={`${styles.dot} ${success ? styles.dotSuccess : ""}`} />;
+    return <span className={`dot ${success ? "dotSuccess" : ""}`} />;
   }
 
   const common = {
@@ -536,3 +916,5 @@ function Icon({ name, success = false }: { name: IconName; success?: boolean }) 
 
   return <svg {...common}>{paths[name]}</svg>;
 }
+
+export default App;
