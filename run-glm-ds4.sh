@@ -311,6 +311,42 @@ EOF
 fi
 
 mkdir -p "$KV_DIR"
+
+# Launcher instance lock: closes the lsof→bind→start TOCTOU window between
+# concurrent launcher starts, and stops two wrappers from racing the same
+# port/KV dir. mkdir is atomic on APFS; a stale lock (crashed launcher) is
+# detected by PID liveness and reclaimed.
+LOCK_DIR="$HOME/.ds4/locks/ds4-$PORT"
+mkdir -p "$HOME/.ds4/locks"
+acquire_launcher_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" > "$LOCK_DIR/pid"
+        return 0
+    fi
+    local lock_pid
+    lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+        # Stale lock from a dead launcher: reclaim it once.
+        rm -rf "$LOCK_DIR"
+        if mkdir "$LOCK_DIR" 2>/dev/null; then
+            printf '%s\n' "$$" > "$LOCK_DIR/pid"
+            return 0
+        fi
+    fi
+    echo "Another launcher instance holds $LOCK_DIR (pid ${lock_pid:-unknown})." >&2
+    echo "Stop it first, or remove the lock directory if it is stale." >&2
+    return 1
+}
+acquire_launcher_lock
+release_launcher_lock() {
+    [[ -f "$LOCK_DIR/pid" ]] || return 0
+    local lock_pid
+    lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [[ "$lock_pid" == "$$" ]]; then
+        rm -rf "$LOCK_DIR"
+    fi
+}
+
 set +e
 listener=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>&1)
 listener_status=$?
@@ -371,6 +407,8 @@ cleanup() {
 
     trap - EXIT
     trap '' HUP INT TERM
+
+    release_launcher_lock
 
     # Restore fans first: stopping the server can take tens of seconds, and if
     # this shell is killed mid-shutdown the fans must already be back to auto.
