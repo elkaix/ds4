@@ -47,7 +47,9 @@ MTP="${GLM_DS4_MTP:-0}"
 # GLM53 fused kernels (gate lift 0e1d68e) are unaffected: --metal-kernels and
 # --glm53-continued-prefill pass with the route off. Set GLM_DS4_ALLOW_TENSOR_ROUTE=1
 # to run it deliberately.
-if [[ "${GLM_DS4_ALLOW_TENSOR_ROUTE:-0}" != 1 ]]; then
+if [[ "${GLM_DS4_ALLOW_TENSOR_ROUTE:-0}" == 1 ]]; then
+    unset DS4_METAL_DISABLE_TENSOR_API
+else
     export DS4_METAL_DISABLE_TENSOR_API=1
 fi
 # Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
