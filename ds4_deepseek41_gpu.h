@@ -101,6 +101,21 @@ int ds4_gpu_dsv41_indexer_scores_packed(ds4_gpu_tensor *scores,
                                       uint32_t source_rows, uint32_t rows,
                                       uint32_t start, uint32_t ratio,
                                       uint32_t packed_rows, uint32_t offset);
+#ifdef __APPLE__
+/* Fixed-shape resident M3 Ultra helpers. HC/shared return 1 when encoded,
+ * 0 when unsupported, and -1 on failure; top-k includes its exact fallback. */
+int ds4_gpu_dsv41_indexer_topk(ds4_gpu_tensor *selected,
+    const ds4_gpu_tensor *scores, uint32_t width, uint32_t top_k);
+int ds4_gpu_dsv41_shared(ds4_gpu_tensor *gate, ds4_gpu_tensor *up, ds4_gpu_tensor *mid,
+    const ds4_gpu_tensor *x, const void *model_map, uint64_t model_size,
+    uint64_t gate_offset, uint64_t up_offset, float clamp);
+/* V4.1 decode collapse with the preceding mixer, BF16 boundaries and RMSNorm.
+ * Returns 1 when encoded, 0 when unsupported, -1 on encoding failure. */
+int ds4_gpu_dsv41_hc_norm(ds4_gpu_tensor *collapsed, ds4_gpu_tensor *norm,
+    const ds4_gpu_tensor *residual, const ds4_gpu_tensor *pre,
+    const void *model_map, uint64_t model_size, uint64_t weight_offset, float eps);
+#endif
+
 /* Exact row-sort ordering with independent causal widths; at least 1024
  * visible keys per row. Output stride is 512 indices. */
 int ds4_gpu_dsv41_indexer_topk_batch(ds4_gpu_tensor *selected,

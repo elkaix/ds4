@@ -291,3 +291,100 @@ kernel void kernel_dsv41_indexer_scores_packed(
     }
 }
 #endif
+
+// Fuse the reference 384-expert router without changing its sorting network,
+// active-lane sum or the stored F32 boundaries between normalization stages.
+kernel void kernel_dsv41_router(
+        constant float &scale, device const float *logits,
+        device const float *bias, device float *probs,
+        device int *selected, device float *weights,
+        uint row [[threadgroup_position_in_grid]],
+        uint tid [[thread_index_in_threadgroup]]) {
+    threadgroup int ids[512];
+    threadgroup volatile float scores[512];
+    threadgroup volatile float scratch[40];
+    ids[tid] = int(tid);
+    if (tid < 384u) {
+        const float x = logits[row * 384u + tid];
+        // Match the reference softplus, including its small-exp polynomial.
+        const float ex = exp(x);
+        const float em = min(ex, 0.03125f);
+        const float poly = em*(1.0f - em*(0.5f - em*(1.0f/3.0f - 0.25f*em)));
+        scores[tid] = select(select(log(1.0f + ex), poly, ex < 0.03125f), x, x > 20.0f);
+        const float p = sqrt(scores[tid]);
+        probs[row * 384u + tid] = p;
+        scores[tid] = p + bias[tid];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+    // Match kernel_argsort_f32_i32_desc, including padding and unordered ties.
+    for (uint k = 2; k <= 512u; k <<= 1u) {
+        for (uint j = k >> 1u; j; j >>= 1u) {
+            const uint other = tid ^ j;
+            if (other > tid) {
+                const int a = ids[tid], b = ids[other];
+                const bool swap = (tid & k) == 0u ?
+                    (a >= 384 || (b < 384 && scores[a] < scores[b])) :
+                    (b >= 384 || (a < 384 && scores[a] > scores[b]));
+                if (swap) { ids[tid] = b; ids[other] = a; }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    }
+    float p = 0.0f, sum = 0.0f;
+    if (tid < 6u) {
+        selected[row * 6u + tid] = ids[tid];
+        p = probs[row * 384u + uint(ids[tid])];
+        scratch[tid] = 0.0f;
+        sum += p;
+        sum = simd_sum(sum);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid == 0u) scratch[0] = sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid < 6u) {
+        sum = scratch[tid];
+        sum = simd_sum(sum);
+        if (tid == 0u) scratch[32] = clamp(sum, 6.103515625e-5f, INFINITY);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid < 6u) scratch[33u + tid] = p / scratch[32];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid < 6u) weights[row * 6u + tid] = scratch[33u + tid] * scale;
+}
+
+// Collapse consumes the previous mixer. Preserve the four ordered FMAs, both
+// BF16 stores and the weighted RMSNorm's original 1024-thread reduction.
+kernel void kernel_dsv41_hc_norm(
+        constant float &eps, device const float *residual,
+        device const float *pre, device const float4 *weight,
+        device float4 *collapsed, device float4 *normalized,
+        uint tid [[thread_index_in_threadgroup]],
+        ushort lane [[thread_index_in_simdgroup]],
+        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    threadgroup float4 values[1280];
+    threadgroup float sums[32];
+    float sum = 0.0f;
+    for (uint i = tid; i < 1280u; i += 1024u) {
+        float4 v;
+        for (uint c = 0; c < 4; c++) {
+            volatile float acc = 0.0f;
+            for (uint h = 0; h < 4; h++) acc += residual[h * 5120u + i * 4u + c] * pre[h];
+            v[c] = dsv41_bf16(acc);
+        }
+        values[i] = v;
+        collapsed[i] = v;
+        sum += dot(v, v);
+    }
+    sum = simd_sum(sum);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (lane == 0) sums[sg] = sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    sum = simd_sum(sums[lane]);
+    const float mean = sum / 5120.0f;
+    const float scale = 1.0f / sqrt(mean + eps);
+    for (uint i = tid; i < 1280u; i += 1024u) {
+        volatile float4 v = (values[i] * scale) * weight[i];
+        normalized[i] = float4(dsv41_bf16(v.x), dsv41_bf16(v.y),
+                               dsv41_bf16(v.z), dsv41_bf16(v.w));
+    }
+}

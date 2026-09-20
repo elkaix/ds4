@@ -243,6 +243,7 @@ void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled);
 #ifdef __APPLE__
 int ds4_gpu_device_is_pre_m5_apple_silicon(void);
 int ds4_gpu_device_is_m5_apple_silicon(void);
+int ds4_gpu_device_is_m3_ultra(void);
 int ds4_gpu_set_decode_pipeline_fast_lookup(int enabled);
 /* Strict test oracle for the fixed decode mul_mv pipeline lookup cache. */
 int ds4_gpu_test_decode_pipeline_fast_lookup(void);
@@ -264,8 +265,14 @@ enum {
      * to finish before block 0 to test incoming-state ownership. */
     DS4_GPU_TEST_GLM53_PREFILL = 1u << 7,
     DS4_GPU_TEST_GLM53_KDA_LAST_BLOCK_FIRST = 1u << 8,
+    DS4_GPU_TEST_V41_Q4_TAIL_CULL = 1u << 9,
+    DS4_GPU_TEST_V41_FUSIONS = 1u << 10,
 };
 void ds4_gpu_test_set_flags(uint32_t flags);
+/* Count V4.1 Q4 tail-cull calls only while its test flag is enabled. */
+uint32_t ds4_gpu_test_v41_q4_tail_take_dispatches(void);
+uint32_t ds4_gpu_test_v41_fusions_take_dispatches(void);
+
 enum {
     DS4_GPU_GLM53_PREFILL_QK_LOW = 1u << 0,
     DS4_GPU_GLM53_PREFILL_INDEXED_ATTN = 1u << 1,
