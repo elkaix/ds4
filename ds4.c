@@ -45080,6 +45080,8 @@ typedef struct ds4_glm_gpu_graph {
     ds4_gpu_tensor *kda_out;
     ds4_gpu_tensor *layer_kda_conv_state[DS4_MAX_LAYER];
     ds4_gpu_tensor *layer_kda_recurrent_state[DS4_MAX_LAYER];
+    ds4_gpu_tensor *router_shared_mid;
+    ds4_gpu_tensor *router_completion;
     ds4_gpu_tensor *router_logits;
     ds4_gpu_tensor *router_probs;
     ds4_gpu_tensor *router_selected;
@@ -45901,19 +45903,12 @@ static uint32_t glm_graph_indexed_decode_split_blocks(void) {
     return (top_k + block_rows - 1u) / block_rows;
 }
 
-/* Every GLM 5.3 Flash decode optimisation on this branch is behind its own
- * rollback switch, and DS4_METAL_DISABLE_GLM53_FLASH_TUNING turns all of them
- * off at once, so one variable restores the pre-branch paths for an A/B run.
- * The table is the list; each entry is read once and cached.
+/* These graph-local GLM 5.3 Flash decode optimizations share an aggregate rollback
+ * switch with the backend-local tuning policies in ds4_metal.m. Each table
+ * entry is read once and cached.
  *
- * The prefill kernels pick their variant inside ds4_metal.m, where the shape
- * that selects them is known, so their switches live there and read the same
- * aggregate:
- *   DS4_METAL_DISABLE_GLM53_PREFILL_QK_LOW        qk-low token tile
- *   DS4_METAL_DISABLE_GLM53_PREFILL_INDEXED_ATTN  indexed attention head width
- *   DS4_METAL_DISABLE_GLM53_PREFILL_MOE_TAIL_CULL routed-expert tail cull
- *   DS4_METAL_DISABLE_GLM53_PREFILL_KDA_PREPARE   blocked KDA prepare
- *   DS4_METAL_DISABLE_GLM53_PREFILL_KDA_RECURRENCE two values per SIMDgroup */
+ * Backend-local variants are selected there because their tensor shapes and
+ * device restrictions are known at dispatch time. */
 typedef enum {
     GLM53_FLASH_HC_PRODUCER_FUSE,
     GLM53_FLASH_KDA_GATE_PAIR,
@@ -47146,6 +47141,8 @@ static void glm_graph_free(ds4_glm_gpu_graph *g) {
     ds4_gpu_tensor_free(g->router_weights);
     ds4_gpu_tensor_free(g->router_selected);
     ds4_gpu_tensor_free(g->router_probs);
+    ds4_gpu_tensor_free(g->router_shared_mid);
+    ds4_gpu_tensor_free(g->router_completion);
     ds4_gpu_tensor_free(g->router_logits);
     ds4_gpu_tensor_free(g->ffn_sum);
     ds4_gpu_tensor_free(g->ffn_out);
@@ -47601,6 +47598,13 @@ static bool glm_graph_alloc_slice(
     }
     DS4_GLM_GRAPH_ALLOC_TENSOR(g->ffn_out, emb_bytes);
     DS4_GLM_GRAPH_ALLOC_TENSOR(g->ffn_sum, emb_bytes);
+#ifdef __APPLE__
+    if (g->glm53 && !g->ssd_streaming) {
+        DS4_GLM_GRAPH_ALLOC_TENSOR(g->router_shared_mid, (uint64_t)DS4_N_FF_EXP * sizeof(float));
+        DS4_GLM_GRAPH_ALLOC_TENSOR(g->router_completion, sizeof(uint32_t));
+        if (ok && !ds4_gpu_tensor_fill_f32(g->router_completion, 0.0f, 1u)) ok = false;
+    }
+#endif
     DS4_GLM_GRAPH_ALLOC_TENSOR(g->router_logits, (uint64_t)DS4_N_EXPERT * sizeof(float));
     DS4_GLM_GRAPH_ALLOC_TENSOR(g->router_probs, (uint64_t)DS4_N_EXPERT * sizeof(float));
     DS4_GLM_GRAPH_ALLOC_TENSOR(g->router_selected, (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t));
@@ -48410,30 +48414,35 @@ static bool glm53_graph_hc_pre(
         }
     }
 #endif
-    bool ok = ds4_gpu_rms_norm_plain_tensor(g->hc_flat,
-                                            residual_hc,
-                                            hc_dim,
-                                            DS4_RMS_EPS) != 0;
-    if (ok) ok = glm53_graph_matmul(g->hc_mix,
-                                         model,
-                                         fn,
-                                         hc_dim,
-                                         hc_mix,
-                                         g->hc_flat);
-    if (ok) ok = metal_graph_decode_hc_pre(collapsed,
-                                           g->hc_split,
-                                           g->hc_mix,
+    const uint32_t passes =
+        (glm_decode_repeat_mask() & DS4_GLM_REPEAT_HC_PRE) ? 2u : 1u;
+    bool ok = true;
+    for (uint32_t pass = 0; ok && pass < passes; pass++) {
+        ok = ds4_gpu_rms_norm_plain_tensor(g->hc_flat,
                                            residual_hc,
-                                           model,
-                                           scale->abs_offset,
-                                           base->abs_offset);
-    if (ok) ok = ds4_gpu_rms_norm_weight_tensor(normalized,
-                                                collapsed,
-                                                model->map,
-                                                model->size,
-                                                norm->abs_offset,
-                                                DS4_N_EMBD,
-                                                DS4_RMS_EPS) != 0;
+                                           hc_dim,
+                                           DS4_RMS_EPS) != 0;
+        if (ok) ok = glm53_graph_matmul(g->hc_mix,
+                                       model,
+                                       fn,
+                                       hc_dim,
+                                       hc_mix,
+                                       g->hc_flat);
+        if (ok) ok = metal_graph_decode_hc_pre(collapsed,
+                                              g->hc_split,
+                                              g->hc_mix,
+                                              residual_hc,
+                                              model,
+                                              scale->abs_offset,
+                                              base->abs_offset);
+        if (ok) ok = ds4_gpu_rms_norm_weight_tensor(normalized,
+                                                   collapsed,
+                                                   model->map,
+                                                   model->size,
+                                                   norm->abs_offset,
+                                                   DS4_N_EMBD,
+                                                   DS4_RMS_EPS) != 0;
+    }
     return ok;
 }
 
@@ -48466,9 +48475,10 @@ static bool glm53_graph_kda_attention(
         glm53_flash_feature_enabled(GLM53_FLASH_KDA_GATE_PAIR) &&
         glm53_flash_feature_enabled(GLM53_FLASH_KDA_GATE_TRIO) &&
         g->kda_lowrank_g &&
-        l->kda_q->type == DS4_TENSOR_BF16 &&
-        l->kda_k->type == DS4_TENSOR_BF16 &&
-        l->kda_v->type == DS4_TENSOR_BF16 &&
+        ((l->kda_q->type == DS4_TENSOR_BF16 &&
+          l->kda_k->type == DS4_TENSOR_BF16 && l->kda_v->type == DS4_TENSOR_BF16) ||
+         (l->kda_q->type == DS4_TENSOR_Q8_0 &&
+          l->kda_k->type == DS4_TENSOR_Q8_0 && l->kda_v->type == DS4_TENSOR_Q8_0)) &&
         l->kda_f_a->type == DS4_TENSOR_BF16 &&
         l->kda_g_a->type == DS4_TENSOR_BF16 &&
         l->kda_beta->type == DS4_TENSOR_BF16 &&
@@ -48479,8 +48489,9 @@ static bool glm53_graph_kda_attention(
         const uint64_t offsets[6] = {l->kda_q->abs_offset, l->kda_k->abs_offset,
             l->kda_v->abs_offset, l->kda_f_a->abs_offset,
             l->kda_g_a->abs_offset, l->kda_beta->abs_offset};
-        inputs_fused = ds4_gpu_glm53_kda_inputs_bf16(
-            outputs, offsets, model->map, model->size, g->attn_norm) != 0;
+        inputs_fused = (l->kda_q->type == DS4_TENSOR_BF16 ?
+            ds4_gpu_glm53_kda_inputs_bf16(outputs, offsets, model->map, model->size, g->attn_norm) :
+            ds4_gpu_glm53_kda_inputs_q8_bf16(outputs, offsets, model->map, model->size, g->attn_norm)) != 0;
     }
     bool qkv_paired = inputs_fused;
     if (!inputs_fused && !(ablate & DS4_GLM_ABLATE_KDA_QKV) &&
@@ -49496,7 +49507,24 @@ static bool glm_graph_encode_sparse_ffn_one(
     (void)up_in;
     (void)down_in;
 
-    bool ok = ds4_gpu_matmul_f32_tensor(g->router_logits,
+    int router_shared = 0;
+#ifdef __APPLE__
+    if (g->glm53 && !g->ssd_streaming && !stage_profile &&
+        g->router_shared_mid && g->router_completion &&
+        glm_decode_ablate_mask() == 0 && glm_decode_repeat_mask() == 0 &&
+        l->ffn_gate_inp->type == DS4_TENSOR_F32 &&
+        l->ffn_gate_shexp->type == DS4_TENSOR_Q8_0 &&
+        l->ffn_up_shexp->type == DS4_TENSOR_Q8_0) {
+        router_shared = ds4_gpu_glm53_router_shared_exact(
+            g->router_logits, g->router_selected, g->router_weights, g->router_probs,
+            g->router_completion, g->router_shared_mid, model->map, model->size,
+            l->ffn_gate_inp->abs_offset, l->ffn_exp_probs_b->abs_offset,
+            l->ffn_gate_shexp->abs_offset, l->ffn_up_shexp->abs_offset,
+            ffn_norm, DS4_EXPERT_WEIGHT_SCALE, DS4_SWIGLU_CLAMP_EXP);
+        if (router_shared < 0) return false;
+    }
+#endif
+    bool ok = router_shared || ds4_gpu_matmul_f32_tensor(g->router_logits,
                                         model->map,
                                         model->size,
                                         l->ffn_gate_inp->abs_offset,
@@ -49504,7 +49532,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                         DS4_N_EXPERT,
                                         ffn_norm,
                                         1) != 0;
-    if (ok) ok = ds4_gpu_glm_router_select_tensor(g->router_selected,
+    if (ok && !router_shared) ok = ds4_gpu_glm_router_select_tensor(g->router_selected,
                                                   g->router_weights,
                                                   g->router_probs,
                                                   model->map,
@@ -49759,7 +49787,8 @@ static bool glm_graph_encode_sparse_ffn_one(
                                          stage_t0);
     if (ok && !shared_first &&
         !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_SHARED)) {
-        ok = glm_graph_encode_shared_swiglu_one(ffn_mid,
+        ds4_gpu_tensor *shared_mid = router_shared ? g->router_shared_mid : ffn_mid;
+        if (!router_shared) ok = glm_graph_encode_shared_swiglu_one(shared_mid,
                                                 ffn_gate,
                                                 ffn_up,
                                                 model,
@@ -49789,7 +49818,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                 model->map, model->size,
                 l->ffn_down_shexp->abs_offset,
                 DS4_N_FF_EXP, DS4_N_EMBD,
-                ffn_mid, ffn_out,
+                shared_mid, ffn_out,
                 g->hc_after_attn, g->hc_split,
                 DS4_N_EMBD, DS4_N_HC) != 0) {
             shared_down_fused = true;
@@ -49800,7 +49829,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                         model->map, model->size,
                         l->ffn_down_shexp->abs_offset,
                         DS4_N_FF_EXP, DS4_N_EMBD,
-                        ffn_mid, ffn_out,
+                        shared_mid, ffn_out,
                         g->hc_after_attn, g->hc_split,
                         DS4_N_EMBD, DS4_N_HC) != 0;
             }
@@ -49812,7 +49841,7 @@ static bool glm_graph_encode_sparse_ffn_one(
                                                               l->ffn_down_shexp->abs_offset,
                                                               DS4_N_FF_EXP,
                                                               DS4_N_EMBD,
-                                                              ffn_mid,
+                                                              shared_mid,
                                                               il,
                                                               pos,
                                                               "shared_down",
@@ -56803,7 +56832,11 @@ static bool glm_graph_forward_token(
                     if (ok && g->glm53) {
                         const uint32_t selected_pools =
                             indexer_top_k / DS4_GLM53_INDEX_POOL_SIZE;
+#if defined(__APPLE__)
+                        ok = ds4_gpu_glm53_indexer_topk_tensor(
+#else
                         ok = ds4_gpu_indexer_topk_tensor(
+#endif
                                 g->indexer_pool_selected,
                                 g->indexer_scores,
                                 score_rows,

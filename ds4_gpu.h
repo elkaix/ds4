@@ -259,7 +259,7 @@ enum {
     DS4_GPU_TEST_MXFP4_DOWN_HALF_LUT = 1u << 4,
     DS4_GPU_TEST_OUTPUT_HC_WEIGHTS4 = 1u << 5,
     DS4_GPU_TEST_HC_RMS_SCALE_PROJ = 1u << 6,
-    /* Exercise GLM prefill kernels on synthetic shapes/devices, while keeping
+    /* Exercise GLM tuning kernels on synthetic shapes/devices, while keeping
      * TP and streaming exclusions. The second flag forces the last KDA block
      * to finish before block 0 to test incoming-state ownership. */
     DS4_GPU_TEST_GLM53_PREFILL = 1u << 7,
@@ -3245,6 +3245,20 @@ int ds4_gpu_glm53_matmul_bf16_pair(
 int ds4_gpu_glm53_kda_inputs_bf16(
         ds4_gpu_tensor *const outputs[6], const uint64_t weight_offsets[6],
         const void *model_map, uint64_t model_size, const ds4_gpu_tensor *x);
+
+/* Exact bounded selector for serial GLM pool rows, with the original
+ * sort as a GPU-dispatched fallback. Experimental opt-in. */
+int ds4_gpu_glm53_indexer_topk_tensor(ds4_gpu_tensor *selected,
+        const ds4_gpu_tensor *scores, uint32_t n_comp,
+        uint32_t n_tokens, uint32_t top_k);
+/* Call only after synchronizing. Reports cumulative selector telemetry. */
+int ds4_gpu_test_glm53_topk_stats(uint32_t *out, uint32_t count);
+int ds4_gpu_test_glm53_topk_poison_recovery_state(void);
+void ds4_gpu_test_invalidate_completion_counters(void);
+
+int ds4_gpu_glm53_kda_inputs_q8_bf16(
+        ds4_gpu_tensor *const outputs[6], const uint64_t weight_offsets[6],
+        const void *model_map, uint64_t model_size, const ds4_gpu_tensor *x);
 #endif
 
 uint64_t ds4_gpu_encoder_count(void);
@@ -3672,6 +3686,17 @@ int ds4_gpu_qwen4_mtp_stage_tensor(
         uint32_t n_embd, uint32_t n_hc, float eps);
 int ds4_gpu_qwen4_mtp_combine_tensor(
         ds4_gpu_tensor *R_out, const ds4_gpu_tensor *proj, uint32_t n_embd, uint32_t n_hc);
+
+#ifdef __APPLE__
+int ds4_gpu_glm53_router_shared_exact(
+        ds4_gpu_tensor *logits, ds4_gpu_tensor *selected,
+        ds4_gpu_tensor *weights, ds4_gpu_tensor *probs,
+        ds4_gpu_tensor *counter, ds4_gpu_tensor *shared_mid,
+        const void *model_map, uint64_t model_size,
+        uint64_t router_offset, uint64_t bias_offset,
+        uint64_t gate_offset, uint64_t up_offset,
+        const ds4_gpu_tensor *x, float scale, float clamp);
+#endif
 
 #ifdef __cplusplus
 }
