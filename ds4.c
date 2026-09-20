@@ -40229,6 +40229,7 @@ static uint32_t ds41_carry_cap(uint32_t ctx) {
     X(shared_gate, DS4_N_FF_EXP) X(shared_up, DS4_N_FF_EXP) \
     X(shared_mid, DS4_N_FF_EXP) X(shared, DS4_N_EMBD) \
     X(engram_rows, DS4_ENGRAM_COLS * DS4_ENGRAM_DIM) \
+    X(engram_rows_late, DS4_ENGRAM_COLS * DS4_ENGRAM_DIM) \
     X(engram_prefetch, (g->carry_cap ? g->carry_cap : g->prefill_cap) * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM) \
     X(engram_kv, (DS4_N_HC + 1u) * DS4_N_EMBD) X(logits, DS4_N_VOCAB)
 
@@ -40269,6 +40270,10 @@ static bool ds41_read_array(const ds4_model *m, const char *key, uint32_t type,
 }
 
 static void ds41_graph_free(ds41_gpu_graph *g) {
+#ifdef __APPLE__
+    /* Whatever encodes next publishes its own configuration first. */
+    ds4_gpu_dsv41_set_measured_config(0);
+#endif
     if (!g) return;
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
     ds4_gpu_decode_graphs_invalidate();
@@ -40485,6 +40490,14 @@ static bool ds41_bf16(ds4_gpu_tensor *x, uint32_t width) {
 
 static bool ds41_matmul(ds4_gpu_tensor *out, const ds4_model *m,
                         const ds4_tensor *weight, const ds4_gpu_tensor *in, bool round) {
+#ifdef __APPLE__
+    /* The measured configuration rounds a Q8_0 projection where it is stored. */
+    if (round && weight->type == DS4_TENSOR_Q8_0) {
+        const int rc = ds4_gpu_dsv41_matmul_q8_0_bf16(out, m->map, m->size,
+            weight->abs_offset, weight->dim[0], weight->dim[1], in);
+        if (rc) return rc > 0;
+    }
+#endif
     return metal_graph_matmul_plain_tensor(out, m, weight, weight->dim[0], weight->dim[1], in, 1) &&
            (!round || ds41_bf16(out, (uint32_t)weight->dim[1]));
 }
@@ -40660,14 +40673,14 @@ static bool ds41_attention_low(ds41_gpu_graph *g, const ds4_model *m,
 }
 
 static bool ds41_attention_output(ds41_gpu_graph *g, const ds4_model *m,
-                                  const ds4_layer_weights *l) {
+                                  const ds4_layer_weights *l, bool round) {
     const uint32_t groups = DS4_N_OUT_GROUP / g->tp_world;
     if (!ds41_attention_low(g, m, l)) return false;
     return g->tp_world == 2 ?
         metal_graph_matmul_dense_quant_kslice(g->block, m, l->attn_output_b,
             8192, (uint64_t)g->tp_rank * groups * 1024u,
             (uint64_t)groups * 1024u, DS4_N_EMBD, g->low, 0) :
-        ds41_matmul(g->block, m, l->attn_output_b, g->low, false);
+        ds41_matmul(g->block, m, l->attn_output_b, g->low, round);
 }
 
 static bool ds41_attention_publish(ds41_gpu_graph *g, const ds4_model *m,
@@ -40794,9 +40807,12 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
         !ds41_bf16(g->heads, heads * DS4_N_HEAD_DIM) ||
         !ds41_rope(g->heads, heads, DS4_N_HEAD_DIM, il, pos, true)) return false;
     if (projected) return true;
-    return ds41_attention_output(g, m, l) &&
+    /* A single device has no partial sum between the output projection and its
+     * BF16 boundary, so the boundary belongs to the projection. */
+    const bool round_projection = g->tp_world != 2;
+    return ds41_attention_output(g, m, l, round_projection) &&
            ds41_sum_partial(g, g->block, il, DS4_TP_GATE_ATTN) &&
-           ds41_bf16(g->block, DS4_N_EMBD);
+           (round_projection || ds41_bf16(g->block, DS4_N_EMBD));
 }
 
 static bool ds41_shared_mid(ds41_gpu_graph *g, const ds4_model *m,
@@ -40895,13 +40911,18 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
     return ds41_moe_partial(g, m, l, il, token) && ds41_moe_finish(g, il);
 }
 
+static bool ds41_graph_logits_encode(ds41_gpu_graph *g, const ds4_model *m,
+                                     const ds4_weights *w) {
+    return ds4_gpu_hc_weighted_sum_tensor(g->x, g->residual, g->pre, DS4_N_EMBD, DS4_N_HC) &&
+           ds41_bf16(g->x, DS4_N_EMBD) && ds41_norm(g->norm, g->x, m, w->output_norm) &&
+           ds41_output_projection(g, g->tp_logits_half ? g->tp_logits_half : g->logits,
+                                   m, w, g->norm, 1);
+}
+
 static bool ds41_graph_logits(ds41_gpu_graph *g, const ds4_model *m,
                              const ds4_weights *w, float *logits) {
     if (!g->valid || !logits || !ds4_gpu_begin_commands()) return false;
-    bool ok = ds4_gpu_hc_weighted_sum_tensor(g->x, g->residual, g->pre, DS4_N_EMBD, DS4_N_HC) &&
-              ds41_bf16(g->x, DS4_N_EMBD) && ds41_norm(g->norm, g->x, m, w->output_norm) &&
-              ds41_output_projection(g, g->tp_logits_half ? g->tp_logits_half : g->logits,
-                                      m, w, g->norm, 1);
+    bool ok = ds41_graph_logits_encode(g, m, w);
     if (!ds4_gpu_end_commands()) ok = false;
     return ok && ds4_gpu_tensor_read(g->logits, 0, logits,
                                      (uint64_t)DS4_N_VOCAB * sizeof(float));
@@ -41247,7 +41268,7 @@ static bool ds41_decode_island(ds41_gpu_graph *g, const ds4_model *m,
         if (state == 1) return true;
         const bool ok = island == 0 ?
             ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l) :
-            island == 2 ? ds41_attention_output(g, m, l) :
+            island == 2 ? ds41_attention_output(g, m, l, false) :
             ds41_graph_after_attention(g, m, l) && ds41_moe_partial(g, m, l, il, 0);
         if (state != 0) return ok;
         if (!ok) ds4_gpu_decode_graph_abort(&key);
@@ -41347,44 +41368,123 @@ static bool ds41_moe_batch(ds41_gpu_graph *g, const ds4_model *m,
         ds41_sum_partial_batch(g, b->routed, il, count);
 }
 
+/* The M3 Ultra exact paths were measured on one configuration: resident,
+ * single device, text-only, no imatrix collection, Q4_K routed experts in
+ * every layer. The backend owns the device, quality, streaming and TP checks. */
+static bool ds41_measured_config(const ds41_gpu_graph *g, const ds4_weights *w) {
+    if (g->tp_world != 1 || g->streaming || g->imatrix || g->image_count || g->quality)
+        return false;
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        const ds4_layer_weights *l = &w->layer[il];
+        if (l->ffn_gate_exps->type != DS4_TENSOR_Q4_K ||
+            l->ffn_up_exps->type != DS4_TENSOR_Q4_K ||
+            l->ffn_down_exps->type != DS4_TENSOR_Q4_K) return false;
+    }
+    return true;
+}
+
+/* Every graph entry publishes its own answer: sessions with and without images
+ * share one backend. */
+static bool ds41_publish_measured_config(const ds41_gpu_graph *g, const ds4_weights *w) {
+    const bool measured = ds41_measured_config(g, w);
+#ifdef __APPLE__
+    ds4_gpu_dsv41_set_measured_config(measured);
+#endif
+    return measured;
+}
+
 static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model *m,
                                              const ds4_weights *w, int token, float *logits) {
     if (!g || !g->valid || g->pos >= g->ctx || token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
+    const bool measured_m3_ultra = ds41_publish_measured_config(g, w) &&
+#ifdef __APPLE__
+        ds4_gpu_device_is_m3_ultra();
+#else
+        false;
+#endif
+    /* Diagnostic attribution of the host time in one decode step; the GPU is
+     * idle for all of it except the waits. */
+    static int host_profile = -1;
+    static double host_ms[4], host_last;
+    static uint32_t host_steps;
+    static uint64_t host_counts[2];
+    if (host_profile < 0) host_profile = getenv("DS4_METAL_V41_DECODE_HOST_PROFILE") != NULL;
+    const double host_t0 = host_profile ? now_sec() : 0.0;
+    if (host_profile && host_last != 0.0) host_ms[3] += (host_t0 - host_last) * 1000.0;
     uint32_t ids[2][DS4_ENGRAM_COLS];
     ds4_engram_history next_history = g->history;
     if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
-    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+    const bool queue_layers =
 #ifdef __APPLE__
-        if (!ds4_engram_read_batch(&g->table[i], ids[i], 1, DS4_ENGRAM_COLS, g->rows[i]))
-            return false;
-#else
-        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+        (measured_m3_ultra &&
+         !getenv("DS4_METAL_DISABLE_V41_RESIDENT_DECODE_QUEUE")) ||
 #endif
+        (g->tp_world == 2 && !g->imatrix &&
+         !getenv("DS4_METAL_DISABLE_V41_TP_DECODE_QUEUE"));
+    /* The queue still leaves the GPU idle while the host encodes, and drains
+     * at layer 13 only because both Engram tables share one input buffer. The
+     * pipeline gives the second table its own input, commits without waiting
+     * so the GPU starts after the first layer, and encodes the output head
+     * into the last buffer. Only the token's one final wait remains; every
+     * dispatch and its order within the queue are unchanged. */
+    const bool pipeline_layers =
+#ifdef __APPLE__
+        measured_m3_ultra && queue_layers && g->tp_world == 1 &&
+        !getenv("DS4_METAL_DISABLE_V41_DECODE_PIPELINE");
+#else
+        false;
+#endif
+    /* The GPU is idle until these uncached table rows arrive. The measured
+     * configuration issues them together, and the pipeline lets them arrive
+     * while layer 0, which does not use them, is encoded and started. The
+     * values are the same either way. */
+    ds4_engram_step engram_step;
+    bool engram_pending = false;
+    if (measured_m3_ultra && !ds41_image_at(g, g->pos) &&
+        !getenv("DS4_DISABLE_V41_ENGRAM_STEP_READERS")) {
+        float *step_rows[DS4_ENGRAM_LAYERS] = {g->rows[0], g->rows[1]};
+        if (pipeline_layers && !getenv("DS4_DISABLE_V41_ENGRAM_STEP_OVERLAP")) {
+            if (!ds4_engram_read_step_begin(&engram_step, g->table,
+                    (const uint32_t (*)[DS4_ENGRAM_COLS])ids, step_rows)) return false;
+            engram_pending = true;
+        } else if (!ds4_engram_read_step(g->table,
+                (const uint32_t (*)[DS4_ENGRAM_COLS])ids, step_rows)) return false;
+    } else {
+        for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+#ifdef __APPLE__
+            if (!ds4_engram_read_batch(&g->table[i], ids[i], 1,
+                                       DS4_ENGRAM_COLS, g->rows[i])) return false;
+#else
+            if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+#endif
+        }
     }
+    const double host_t1 = host_profile ? now_sec() : 0.0;
     const float initial_pre[] = {1, 0, 0, 0};
     if (!ds4_gpu_tensor_write(g->pre, 0, initial_pre, sizeof(initial_pre)) ||
-        !ds4_gpu_begin_commands()) return false;
+        !ds4_gpu_begin_commands()) {
+        if (engram_pending) (void)ds4_engram_read_step_end(&engram_step);
+        return false;
+    }
     bool ok = ds41_embed(g, m, w, g->residual, g->x, token, g->pos);
     /* Unfused quality kernels bind whole expert tensors. Keep just the current
      * layer mapped, using the same admitted reserve as layer-major prefill. */
     const bool layer_resident = g->streaming && g->quality;
     if (layer_resident && !ds4_gpu_end_commands()) ok = false;
-    const bool queue_layers =
-#ifdef __APPLE__
-        (g->tp_world == 1 && !g->streaming && !g->imatrix &&
-         !g->image_count && !g->quality && ds4_gpu_device_is_m3_ultra() &&
-         w->layer[0].ffn_gate_exps->type == DS4_TENSOR_Q4_K &&
-         w->layer[0].ffn_down_exps->type == DS4_TENSOR_Q4_K &&
-         !getenv("DS4_METAL_DISABLE_V41_RESIDENT_DECODE_QUEUE")) ||
-#endif
-        (g->tp_world == 2 && !g->imatrix &&
-         !getenv("DS4_METAL_DISABLE_V41_TP_DECODE_QUEUE"));
+    bool logits_encoded = false;
+    ds4_gpu_tensor *const engram_rows_early = g->engram_rows;
     for (uint32_t il = 0; ok && il < DS4_N_LAYER; il++) {
         const ds4_layer_weights *l = &w->layer[il];
         if (layer_resident)
             ok = metal_graph_stream_map_layer(m, w, il) && ds4_gpu_begin_commands();
+        if (ok && engram_pending && ds41_engram_layer(il)) {
+            engram_pending = false;
+            ok = ds4_engram_read_step_end(&engram_step);
+        }
         if (ok && ds41_engram_layer(il)) {
             const uint32_t i = il == 1 ? 0 : 1;
+            /* Layer 1's read may still be in flight when layer 14 is encoded. */
+            if (pipeline_layers && i) g->engram_rows = g->engram_rows_late;
             ok = ds4_gpu_tensor_write(g->engram_rows, 0, g->rows[i], sizeof(g->rows[i]));
         }
         if (ok) {
@@ -41397,7 +41497,16 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
         /* Resident Q4 on M3 Ultra shares TP's exact queue boundaries. Drain
          * before layer 14 overwrites the first Engram table's shared input,
          * and before publishing the completed token to the CPU. */
-        const bool drain = !queue_layers || il == 13 || il + 1u == DS4_N_LAYER;
+        g->engram_rows = engram_rows_early;
+        const bool last = il + 1u == DS4_N_LAYER;
+        if (ok && pipeline_layers && last && logits) {
+            ok = ds41_graph_logits_encode(g, m, w);
+            logits_encoded = ok;
+        }
+#ifdef __APPLE__
+        if (ok && pipeline_layers && (il == 0 || il == 4) && !ds4_gpu_flush_commands()) ok = false;
+#endif
+        const bool drain = !queue_layers || (!pipeline_layers && il == 13) || last;
         if (drain && !ds4_gpu_end_commands()) ok = false;
         if (g->tp_world == 2 && ds4_gpu_tp_failed()) ok = false;
         if (ok && g->imatrix)
@@ -41407,10 +41516,36 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
         if (ok && drain && !layer_resident && il + 1u < DS4_N_LAYER)
             ok = ds4_gpu_begin_commands() != 0;
     }
+    /* A failed layer 0 leaves the table read outstanding; it writes g->rows. */
+    if (engram_pending && !ds4_engram_read_step_end(&engram_step)) ok = false;
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
     if (layer_resident && !metal_graph_stream_map_decode_static_all(m, w)) ok = false;
     if (g->tp_world == 2 && ds4_gpu_tp_failed()) ok = false;
-    if (ok && logits) ok = ds41_graph_logits(g, m, w, logits);
+    const double host_t2 = host_profile ? now_sec() : 0.0;
+    if (ok && logits) {
+        ok = logits_encoded ?
+            ds4_gpu_tensor_read(g->logits, 0, logits, (uint64_t)DS4_N_VOCAB * sizeof(float)) != 0 :
+            ds41_graph_logits(g, m, w, logits);
+    }
+    if (host_profile) {
+        host_last = now_sec();
+        host_ms[0] += (host_t1 - host_t0) * 1000.0;
+        host_ms[1] += (host_t2 - host_t1) * 1000.0;
+        host_ms[2] += (host_last - host_t2) * 1000.0;
+        if (++host_steps % 64u == 0u) {
+            fprintf(stderr, "ds4: V4.1 decode host profile, mean ms over 64 steps: "
+                    "hash+engram %.3f, layers %.3f, logits %.3f, between steps %.3f\n",
+                    host_ms[0] / 64.0, host_ms[1] / 64.0, host_ms[2] / 64.0, host_ms[3] / 64.0);
+            memset(host_ms, 0, sizeof(host_ms));
+#ifdef __APPLE__
+            const uint64_t encodes = ds4_gpu_encoder_count(), copies = ds4_gpu_tensor_copy_count();
+            fprintf(stderr, "ds4: V4.1 decode host profile, per step: %.1f compute encodes, "
+                    "%.1f blit copies\n", (double)(encodes - host_counts[0]) / 64.0,
+                    (double)(copies - host_counts[1]) / 64.0);
+            host_counts[0] = encodes; host_counts[1] = copies;
+#endif
+        }
+    }
     if (!ok) {
         g->valid = false;
         return false;
@@ -41762,6 +41897,7 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
     if ((!g->valid && !resume_encoder) || !total_count || (wide && total_count > g->carry_cap) ||
         total_count > g->ctx - g->pos || g->imatrix || !ds41_tp_batch_enabled(g))
         return false;
+    (void)ds41_publish_measured_config(g, w);
     const bool profile = getenv("DS4_METAL_GRAPH_PREFILL_PROFILE") != NULL;
     const bool stage_profile = getenv("DS4_METAL_V41_STAGE_PROFILE") != NULL;
     const bool batch_moe = !getenv("DS4_METAL_DISABLE_V41_BATCH_MOE");
@@ -42128,6 +42264,14 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step_batch(ds41_gpu_graph *const *graphs
      * Attention and Engram history remain private to each session. */
     ds41_gpu_graph *g = ds41_batch_workspace(graphs, count);
     if (!g) return false;
+    {
+        bool measured = true;
+        for (int i = 0; measured && i < count; i++)
+            measured = ds41_measured_config(graphs[i], weights);
+#ifdef __APPLE__
+        ds4_gpu_dsv41_set_measured_config(measured);
+#endif
+    }
     const uint32_t rows = (uint32_t)count;
     const bool prefill_only = prefill_rows == rows;
     const bool shared_owner = g->tp_world == 2 &&
@@ -42193,7 +42337,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step_batch(ds41_gpu_graph *const *graphs
             row.q = queries[i];
             row.heads = heads[i];
             ok = ds41_attention(&row, model, l, il, true) &&
-                ds41_attention_output(&row, model, l);
+                ds41_attention_output(&row, model, l, false);
         }
         if (ok) ok = ds41_sum_partial_batch(g, active.block, il, rows);
         if (ok) ok = ds4_gpu_dsv41_quantize(active.block, DS4_N_EMBD, rows, DS4_V41_BF16) &&
@@ -45980,7 +46124,14 @@ static bool glm53_flash_feature_enabled(glm53_flash_feature feature) {
             getenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING") == NULL &&
             getenv(switches[feature]) == NULL ? 1 : -1;
     }
-    return state[feature] > 0;
+    if (state[feature] < 0) return false;
+#ifdef __APPLE__
+    /* Exactness was checked on the resident, single-device M3 Ultra only. The
+     * ownership half can change between sessions, so it is not cached. */
+    return ds4_gpu_glm53_measured_config() != 0;
+#else
+    return true;
+#endif
 }
 
 /* Rows per split block for indexed decode attention.  The 32/128 step at 1024
@@ -57395,7 +57546,7 @@ glm53_attention_done:
             }
             if (ok) ok = glm_graph_begin_commands_if_needed();
         }
-        if (!(glm_decode_ablate_mask() & DS4_GLM_ABLATE_HEAD)) {
+        if (ok && !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_HEAD)) {
             ok = glm_graph_encode_output_head(g, model, weights);
             if (ok && (glm_decode_repeat_mask() & DS4_GLM_REPEAT_HEAD)) {
                 ok = glm_graph_encode_output_head(g, model, weights);

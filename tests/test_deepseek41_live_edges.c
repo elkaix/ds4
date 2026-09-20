@@ -264,8 +264,19 @@ static int live_topk(ds4_gpu_tensor *selected, const ds4_gpu_tensor *scores,
 
 static void rollback(bool on) {
     const char *names[] = {"DS4_METAL_DISABLE_V41_ROUTER_FUSION", "DS4_METAL_DISABLE_V41_HC_NORM",
-        "DS4_METAL_DISABLE_V41_SHARED_FUSION", "DS4_METAL_DISABLE_V41_TOPK_FAST"};
-    for (unsigned i = 0; i < 4; i++) {
+        "DS4_METAL_DISABLE_V41_SHARED_FUSION", "DS4_METAL_DISABLE_V41_TOPK_FAST",
+        "DS4_METAL_DISABLE_V41_COMPUTE_COPY", "DS4_METAL_DISABLE_V41_MATVEC_BF16"};
+    for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (on) CHECK(setenv(names[i], "1", 1) == 0);
+        else CHECK(unsetenv(names[i]) == 0);
+    }
+}
+/* Decode scheduling rollbacks: each restores an original synchronization point. */
+static void schedule_rollback(bool on) {
+    const char *names[] = {"DS4_METAL_DISABLE_V41_RESIDENT_DECODE_QUEUE",
+        "DS4_METAL_DISABLE_V41_DECODE_PIPELINE", "DS4_DISABLE_V41_ENGRAM_STEP_READERS",
+        "DS4_DISABLE_V41_ENGRAM_STEP_OVERLAP"};
+    for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
         if (on) CHECK(setenv(names[i], "1", 1) == 0);
         else CHECK(unsetenv(names[i]) == 0);
     }
@@ -305,6 +316,9 @@ int main(int argc, char **argv) {
     CHECK(ds4_session_create(&session, engine, 32768) == 0);
     CHECK(!session->ds41_graph.streaming && !session->ds41_graph.quality &&
           session->ds41_graph.tp_world == 1 && session->ds41_graph.ctx == 32768);
+    /* The test flag stands in for the device and the published configuration
+     * inside the backend, but the decode schedule is chosen by the graph. */
+    CHECK(ds41_measured_config(&session->ds41_graph, &engine->weights));
     ds4_encode_chat_prompt(engine, NULL, prompt, DS4_THINK_NONE, &tokens);
     CHECK(tokens.len >= 32703);
     tokens.len = 32703;
@@ -383,10 +397,69 @@ int main(int argc, char **argv) {
     CHECK(observation_cursor == observation_count);
     puts("PASS hc-error-recovery: graph error, invalid snapshot rejection, restore, exact logits/state");
     rollback(false); clear_observations();
+    /* Every case above pauses the graph at its interposed calls, so no fused
+     * stage or histogram selection ran inside a multi-layer queued command
+     * buffer. Nothing is interposed from here on. Arm 0 is the original
+     * per-layer schedule with every exact stage rolled back; the others cross
+     * the production schedule with the production stages. Each arm replays the
+     * same seed and must reproduce arm 0's tokens, logits and final state. */
+    case_name = "queued-schedule"; edge = NATURAL; active = false;
+    enum { SCHEDULE_STEPS = 16 };
+    float *schedule_logits = malloc((size_t)SCHEDULE_STEPS * DS4_N_VOCAB * sizeof(float));
+    int schedule_tokens[SCHEDULE_STEPS];
+    ds4_session_snapshot schedule_state = {0};
+    CHECK(schedule_logits);
+    for (arm = 0; arm < 4; arm++) {
+        const bool original_stages = arm == 0 || arm == 2;
+        const bool original_schedule = arm == 0 || arm == 1;
+        rollback(original_stages);
+        schedule_rollback(original_schedule);
+        CHECK(ds4_session_load_snapshot(session, &seed, err, sizeof(err)) == 0);
+        uint32_t before[15] = {0}, after[15] = {0};
+        ds4_gpu_test_glm53_topk_stats(before, 15);
+        uint64_t buffers = 0, copies = ds4_gpu_tensor_copy_count();
+        for (step = 0; step < SCHEDULE_STEPS; step++) {
+            const int token = ds4_session_argmax(session);
+            const uint64_t buffers_before = ds4_gpu_command_buffer_count();
+            CHECK(ds4_session_eval(session, token, err, sizeof(err)) == 0);
+            const uint64_t used = ds4_gpu_command_buffer_count() - buffers_before;
+            /* The schedule itself, not just its result: one buffer per layer
+             * and one for the head, against the pipeline's three. */
+            CHECK(original_schedule ? used == (uint64_t)DS4_N_LAYER + 1u : used == 3u);
+            buffers += used;
+            float *row = schedule_logits + (size_t)step * DS4_N_VOCAB;
+            if (!arm) {
+                schedule_tokens[step] = token;
+                CHECK(ds4_session_copy_logits(session, row, DS4_N_VOCAB) == (int)DS4_N_VOCAB);
+            } else {
+                CHECK(token == schedule_tokens[step]);
+                CHECK(!memcmp(session->logits, row, DS4_N_VOCAB * sizeof(float)));
+            }
+        }
+        ds4_gpu_test_glm53_topk_stats(after, 15);
+        /* The histogram selector really ran inside the queued buffers, and
+         * only where it is admitted; so did the in-encoder copy. */
+        CHECK((after[5] - before[5] != 0) == !original_stages);
+        copies = ds4_gpu_tensor_copy_count() - copies;
+        CHECK((copies == 0) == !original_stages);
+        CHECK(ds4_session_save_snapshot(session, &actual, err, sizeof(err)) == 0);
+        if (!arm) { schedule_state = actual; actual = (ds4_session_snapshot){0}; }
+        else CHECK(actual.len == schedule_state.len &&
+                   !memcmp(actual.ptr, schedule_state.ptr, actual.len));
+        printf("SCHEDULE arm=%u original_stages=%d original_schedule=%d steps=%d "
+               "command_buffers=%llu blit_copies=%llu histogram_accepted=%u snapshot_bytes=%llu\n",
+               arm, original_stages, original_schedule, SCHEDULE_STEPS,
+               (unsigned long long)buffers, (unsigned long long)copies, after[5] - before[5],
+               (unsigned long long)(arm ? actual.len : schedule_state.len));
+        ds4_session_snapshot_free(&actual);
+    }
+    rollback(false); schedule_rollback(false);
+    ds4_session_snapshot_free(&schedule_state); free(schedule_logits);
+    puts("PASS queued-schedule: 4 arms x 16 uninterposed steps, full logits/tokens/state exact");
     ds4_session_snapshot_free(&seed);
     for (unsigned i = 0; i < 2; i++) ds4_session_snapshot_free(&reference[i]);
     free(logits); free(prompt); ds4_tokens_free(&tokens);
     ds4_session_free(session); ds4_engine_close(engine);
-    puts("PASS live edges: 16 matched cases, full logits/tokens/snapshots, error recovery; max_ctx=32768 max_pos=32705");
+    puts("PASS live edges: 16 matched cases, full logits/tokens/snapshots, error recovery, queued schedule; max_ctx=32768 max_pos=32719");
     return 0;
 }

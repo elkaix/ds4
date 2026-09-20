@@ -465,6 +465,69 @@ static void check_split_dsa_attention(uint8_t *model, size_t model_bytes,
                       (size_t)SA_HEADS * SA_VALUE * sizeof(float)) == 0,
                "nonfinite row-zero exact attention matches generic");
 
+    /* No selected row is valid: the generic kernel accumulates nothing. The
+     * phased weights would otherwise be exp(-inf - -inf). */
+    for (uint32_t s = 0; s < 200u; s++) sel[s] = (s & 1u) ? UINT32_MAX : SA_CAP + s;
+    require_ok(ds4_gpu_tensor_write(sel_gpu, 0, sel, 200u * sizeof(uint32_t)),
+               "all-invalid selection write");
+    require_ok(ds4_gpu_glm_attention_indexed_decode_tensor(
+        heads_gpu, q_gpu, low_gpu, kv_gpu, rope_gpu, model, model_bytes,
+        value_offset, sel_gpu, 200u, SA_CAP, true, SA_HEADS, SA_LORA,
+        SA_NOPE, 0, SA_VALUE, 0, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
+        "all-invalid generic attention");
+    require_ok(ds4_gpu_tensor_read(heads_gpu, 0, gen,
+                   (uint64_t)SA_HEADS * SA_VALUE * sizeof(float)),
+               "all-invalid generic attention read");
+    require_ok(ds4_gpu_glm_attention_indexed_decode_exact_tensor(
+        heads_gpu, exact_scores_gpu, exact_lora_gpu, exact_denom_gpu,
+        low_gpu, kv_gpu, model, model_bytes, value_offset, sel_gpu, 200u,
+        SA_CAP, true, SA_HEADS, SA_LORA, SA_NOPE, 0, SA_VALUE),
+        "all-invalid exact attention");
+    require_ok(ds4_gpu_tensor_read(heads_gpu, 0, exact,
+                   (uint64_t)SA_HEADS * SA_VALUE * sizeof(float)),
+               "all-invalid exact attention read");
+    require_ok(memcmp(exact, gen, (size_t)SA_HEADS * SA_VALUE * sizeof(float)) == 0,
+               "all-invalid exact attention matches generic");
+
+    /* Valid rows whose scores overflow, mixed with invalid ones. The kernels
+     * may produce infinities or NaN; they must produce the same ones. */
+    {
+        float *huge = malloc((size_t)SA_HEADS * SA_LORA * sizeof(*huge));
+        require_ok(huge != NULL, "overflow low allocation");
+        for (uint32_t pass = 0; pass < 2; pass++) {
+            for (uint32_t i = 0; i < SA_HEADS * SA_LORA; i++)
+                huge[i] = pass ? -3.0e38f : ((i & 1u) ? 3.0e38f : -3.0e38f);
+            for (uint32_t s = 0; s < 200u; s++)
+                sel[s] = (s % 3u == 2u) ? UINT32_MAX : 1u + (s * 7919u) % (SA_CAP - 1u);
+            require_ok(ds4_gpu_tensor_write(low_gpu, 0, huge,
+                           (uint64_t)SA_HEADS * SA_LORA * sizeof(float)) &&
+                       ds4_gpu_tensor_write(sel_gpu, 0, sel, 200u * sizeof(uint32_t)),
+                       "overflow attention input write");
+            require_ok(ds4_gpu_glm_attention_indexed_decode_tensor(
+                heads_gpu, q_gpu, low_gpu, kv_gpu, rope_gpu, model, model_bytes,
+                value_offset, sel_gpu, 200u, SA_CAP, true, SA_HEADS, SA_LORA,
+                SA_NOPE, 0, SA_VALUE, 0, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
+                "overflow generic attention");
+            require_ok(ds4_gpu_tensor_read(heads_gpu, 0, gen,
+                           (uint64_t)SA_HEADS * SA_VALUE * sizeof(float)),
+                       "overflow generic attention read");
+            require_ok(ds4_gpu_glm_attention_indexed_decode_exact_tensor(
+                heads_gpu, exact_scores_gpu, exact_lora_gpu, exact_denom_gpu,
+                low_gpu, kv_gpu, model, model_bytes, value_offset, sel_gpu, 200u,
+                SA_CAP, true, SA_HEADS, SA_LORA, SA_NOPE, 0, SA_VALUE),
+                "overflow exact attention");
+            require_ok(ds4_gpu_tensor_read(heads_gpu, 0, exact,
+                           (uint64_t)SA_HEADS * SA_VALUE * sizeof(float)),
+                       "overflow exact attention read");
+            require_ok(memcmp(exact, gen, (size_t)SA_HEADS * SA_VALUE * sizeof(float)) == 0,
+                       "overflowing scores: exact attention matches generic");
+        }
+        require_ok(ds4_gpu_tensor_write(low_gpu, 0, low,
+                       (uint64_t)SA_HEADS * SA_LORA * sizeof(float)),
+                   "overflow attention input restore");
+        free(huge);
+    }
+
     /* GLM 5.2's selections are always in range and it ran the unchecked
      * variant before GLM 5.3 was admitted; decode now passes false for every
      * GLM model, which is free of numerical consequence only if the two
@@ -1455,7 +1518,7 @@ static void check_glm53_kda_decode_values4(uint8_t *model, uint64_t model_bytes,
         const uint64_t sizes[] = {n * sizeof(float), (uint64_t)n * 9 * sizeof(float),
                                   (uint64_t)n * D * sizeof(float)};
         float *actual = malloc(sizes[2]), *reference = malloc(sizes[2]);
-        ds4_gpu_tensor *input[6], *out[3][3];
+        ds4_gpu_tensor *input[6], *out[4][3];
         require_ok(actual && reference, "KDA decode values host buffers");
         for (unsigned i = 0; i < 6; i++) {
             input[i] = ds4_gpu_tensor_alloc(sizes[0]);
@@ -1464,7 +1527,7 @@ static void check_glm53_kda_decode_values4(uint8_t *model, uint64_t model_bytes,
         for (unsigned b = 0; b < 3; b++) {
             for (uint64_t j = 0; j < sizes[b] / sizeof(float); j++)
                 actual[j] = (float)((int)((j * 1664525u + 1013904223u) % 2047u) - 1023) * 0.0005f;
-            for (unsigned arm = 0; arm < 3; arm++) {
+            for (unsigned arm = 0; arm < 4; arm++) {
                 out[arm][b] = ds4_gpu_tensor_alloc(sizes[b]);
                 require_ok(out[arm][b] != NULL, "KDA decode values output buffer");
                 require_ok(ds4_gpu_tensor_write(out[arm][b], 0, actual, sizes[b]),
@@ -1480,10 +1543,15 @@ static void check_glm53_kda_decode_values4(uint8_t *model, uint64_t model_bytes,
                 require_ok(ds4_gpu_tensor_write(input[i], 0, actual, sizes[0]),
                            "KDA decode values input write");
             }
-            for (unsigned arm = 0; arm < 3; arm++) {
-                if (arm == 0) setenv("DS4_METAL_DISABLE_GLM53_DECODE_KDA_VALUES4", "1", 1);
+            /* Arm 0 is the kernel as it was before the shared decay term and
+             * the narrower barriers; arms 1-3 are today's one-row, four-row and
+             * untuned dispatches. */
+            for (unsigned arm = 0; arm < 4; arm++) {
+                if (arm == 0) setenv("DS4_METAL_GLM53_KDA_DECODE_REFERENCE", "1", 1);
+                else unsetenv("DS4_METAL_GLM53_KDA_DECODE_REFERENCE");
+                if (arm == 1) setenv("DS4_METAL_DISABLE_GLM53_DECODE_KDA_VALUES4", "1", 1);
                 else unsetenv("DS4_METAL_DISABLE_GLM53_DECODE_KDA_VALUES4");
-                if (arm == 2) setenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING", "1", 1);
+                if (arm == 3) setenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING", "1", 1);
                 require_ok(ds4_gpu_tensor_fill_f32(out[arm][0], -17.0f, n),
                            "KDA decode values poison output");
                 require_ok(ds4_gpu_glm53_kda_decode(
@@ -1492,13 +1560,13 @@ static void check_glm53_kda_decode_values4(uint8_t *model, uint64_t model_bytes,
                     offset + V, offset + A, offset + DT, offset + NORM,
                     heads, rows, -5.0f, 1e-6f), "KDA decode values dispatch");
                 require_prefill_dispatch(DS4_GPU_GLM53_DECODE_KDA_VALUES4,
-                                         arm == 1 && shape == 0, "KDA decode values coverage");
+                                         arm == 2 && shape == 0, "KDA decode values coverage");
                 unsetenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING");
             }
             for (unsigned b = 0; b < 3; b++) {
                 require_ok(ds4_gpu_tensor_read(out[0][b], 0, reference, sizes[b]),
                            "KDA decode values reference read");
-                for (unsigned arm = 1; arm < 3; arm++) {
+                for (unsigned arm = 1; arm < 4; arm++) {
                     require_ok(ds4_gpu_tensor_read(out[arm][b], 0, actual, sizes[b]),
                                "KDA decode values candidate read");
                     require_ok(memcmp(reference, actual, sizes[b]) == 0,
@@ -1507,7 +1575,7 @@ static void check_glm53_kda_decode_values4(uint8_t *model, uint64_t model_bytes,
             }
         }
         for (unsigned i = 0; i < 6; i++) ds4_gpu_tensor_free(input[i]);
-        for (unsigned arm = 0; arm < 3; arm++)
+        for (unsigned arm = 0; arm < 4; arm++)
             for (unsigned b = 0; b < 3; b++) ds4_gpu_tensor_free(out[arm][b]);
         free(actual); free(reference);
     }

@@ -102,6 +102,11 @@ int ds4_gpu_dsv41_indexer_scores_packed(ds4_gpu_tensor *scores,
                                       uint32_t start, uint32_t ratio,
                                       uint32_t packed_rows, uint32_t offset);
 #ifdef __APPLE__
+/* The M3 Ultra exact paths (router, HC, shared, histogram top-k, Q4 tail cull)
+ * were measured on one configuration. The backend knows the device, quality,
+ * streaming and TP state; the graph publishes the rest before it encodes:
+ * text-only, no imatrix collection, Q4_K routed experts in every layer. */
+void ds4_gpu_dsv41_set_measured_config(int admitted);
 /* Fixed-shape resident M3 Ultra helpers. HC/shared return 1 when encoded,
  * 0 when unsupported, and -1 on failure; top-k includes its exact fallback. */
 int ds4_gpu_dsv41_indexer_topk(ds4_gpu_tensor *selected,
@@ -109,6 +114,11 @@ int ds4_gpu_dsv41_indexer_topk(ds4_gpu_tensor *selected,
 int ds4_gpu_dsv41_shared(ds4_gpu_tensor *gate, ds4_gpu_tensor *up, ds4_gpu_tensor *mid,
     const ds4_gpu_tensor *x, const void *model_map, uint64_t model_size,
     uint64_t gate_offset, uint64_t up_offset, float clamp);
+/* One-token Q8_0 projection whose BF16 boundary is applied at the store.
+ * Returns 1 when encoded, 0 when unsupported, -1 on encoding failure. */
+int ds4_gpu_dsv41_matmul_q8_0_bf16(ds4_gpu_tensor *out, const void *model_map,
+    uint64_t model_size, uint64_t weight_offset, uint64_t in_dim, uint64_t out_dim,
+    const ds4_gpu_tensor *x);
 /* V4.1 decode collapse with the preceding mixer, BF16 boundaries and RMSNorm.
  * Returns 1 when encoded, 0 when unsupported, -1 on encoding failure. */
 int ds4_gpu_dsv41_hc_norm(ds4_gpu_tensor *collapsed, ds4_gpu_tensor *norm,

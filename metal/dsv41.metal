@@ -294,10 +294,13 @@ kernel void kernel_dsv41_indexer_scores_packed(
 
 // Fuse the reference 384-expert router without changing its sorting network,
 // active-lane sum or the stored F32 boundaries between normalization stages.
+// The clamp bounds arrive as runtime arguments, as they do in the unary clamp
+// this replaces: a compile-time INFINITY invites fast-math to fold the clamp.
 kernel void kernel_dsv41_router(
         constant float &scale, device const float *logits,
         device const float *bias, device float *probs,
         device int *selected, device float *weights,
+        constant float2 &sum_bounds,
         uint row [[threadgroup_position_in_grid]],
         uint tid [[thread_index_in_threadgroup]]) {
     threadgroup int ids[512];
@@ -344,7 +347,7 @@ kernel void kernel_dsv41_router(
     if (tid < 6u) {
         sum = scratch[tid];
         sum = simd_sum(sum);
-        if (tid == 0u) scratch[32] = clamp(sum, 6.103515625e-5f, INFINITY);
+        if (tid == 0u) scratch[32] = clamp(sum, sum_bounds.x, sum_bounds.y);
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 6u) scratch[33u + tid] = p / scratch[32];
@@ -354,10 +357,13 @@ kernel void kernel_dsv41_router(
 
 // Collapse consumes the previous mixer. Preserve the four ordered FMAs, both
 // BF16 stores and the weighted RMSNorm's original 1024-thread reduction.
+// The width arrives as the same runtime int32 the reference RMSNorm divides
+// by: a compile-time 5120.0f invites fast-math to multiply by a reciprocal.
 kernel void kernel_dsv41_hc_norm(
         constant float &eps, device const float *residual,
         device const float *pre, device const float4 *weight,
         device float4 *collapsed, device float4 *normalized,
+        constant int32_t &width,
         uint tid [[thread_index_in_threadgroup]],
         ushort lane [[thread_index_in_simdgroup]],
         ushort sg [[simdgroup_index_in_threadgroup]]) {
@@ -380,7 +386,7 @@ kernel void kernel_dsv41_hc_norm(
     if (lane == 0) sums[sg] = sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     sum = simd_sum(sums[lane]);
-    const float mean = sum / 5120.0f;
+    const float mean = sum / width;
     const float scale = 1.0f / sqrt(mean + eps);
     for (uint i = tid; i < 1280u; i += 1024u) {
         volatile float4 v = (values[i] * scale) * weight[i];

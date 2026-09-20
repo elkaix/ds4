@@ -3233,6 +3233,10 @@ int ds4_gpu_glm53_matmul_bf16_qkv(
         uint32_t              out_dim,
         const ds4_gpu_tensor *x);
 
+/* Nonzero when the GLM 5.3 exact tuning scope applies: M3 Ultra, resident,
+ * single device. */
+int ds4_gpu_glm53_measured_config(void);
+
 int ds4_gpu_glm53_matmul_bf16_pair(
         ds4_gpu_tensor       *out_a,
         ds4_gpu_tensor       *out_b,
@@ -3269,6 +3273,11 @@ int ds4_gpu_glm53_kda_inputs_q8_bf16(
 #endif
 
 uint64_t ds4_gpu_encoder_count(void);
+/* Diagnostic: blit copies encoded so far; each one ends the compute encoder. */
+uint64_t ds4_gpu_tensor_copy_count(void);
+/* Diagnostic: command buffers created so far. A decode schedule is visible in
+ * how many one step takes. */
+uint64_t ds4_gpu_command_buffer_count(void);
 
 int ds4_gpu_glm53_matmul_bf16_trio(
         ds4_gpu_tensor       *out_a,

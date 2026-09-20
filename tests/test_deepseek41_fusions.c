@@ -17,11 +17,13 @@ static void equal(const void *a, const void *b, size_t bytes, const char *label,
     }
 }
 int main(void) {
+    CHECK(setenv("DS4_METAL_DISABLE_METAL4","1",1)==0);
     enum {E=384,K=6,N=17,G=16};
     const size_t bytes=40960 + 2u*160u*34u*2304u;
     void *model=NULL; CHECK(posix_memalign(&model,getpagesize(),bytes)==0);
     memset(model,0,bytes);
     CHECK(ds4_gpu_init() && ds4_gpu_set_model_map(model,bytes));
+    CHECK(!ds4_gpu_dsv41_tensor_ops_available());
     ds4_gpu_test_set_flags(DS4_GPU_TEST_V41_FUSIONS);
     ds4_gpu_tensor *logits=ds4_gpu_tensor_alloc_managed(N*E*4), *tokens=ds4_gpu_tensor_alloc_managed(N*4);
     const size_t sizes[]={N*K*4,N*K*4,N*E*4};
@@ -147,6 +149,113 @@ int main(void) {
     unsetenv("DS4_METAL_DISABLE_V41_SHARED_FUSION");
     CHECK(!ds4_gpu_test_v41_fusions_take_dispatches());
 
+    /* The BF16-store matvec against the matvec followed by the BF16 dispatch:
+     * V4.1's real Q8_0 decode shapes, exceptional scales and activations. */
+    {
+        unsigned raw_nonfinite_out=0, rounding_sensitive_out=0;
+        const uint32_t shapes[][2]={{5120,1536},{5120,576},{2304,5120},{8192,2048},{1536,128*64},{5120,64},{512,128}};
+        uint8_t *wq=(uint8_t *)model;
+        for(unsigned draw=0;draw<140;draw++) {
+            const uint32_t in=shapes[draw%7][0], od=shapes[draw%7][1];
+            const size_t wbytes=(size_t)od*(in/32u)*34u;
+            CHECK(wbytes<=bytes);
+            for(size_t b=0;b<wbytes;b+=34) {
+                uint16_t scale=(uint16_t)(0x3000u+(random_u32()%0x1000u));
+                if(draw%10==4 && b%(34*97)==0) scale=draw%30==4?0x7c00u:draw%30==14?0x7e01u:0x7c06u;
+                if(draw%10==5) scale=(uint16_t)(random_u32()&1u?0x0001u:0x8001u);
+                memcpy(wq+b,&scale,2);
+                for(unsigned i=0;i<32;i++) wq[b+2+i]=(uint8_t)(draw%10==6?0:random_u32());
+            }
+            ds4_gpu_tensor *mx=ds4_gpu_tensor_alloc_managed(in*4), *mo[2];
+            for(unsigned i=0;i<2;i++){mo[i]=ds4_gpu_tensor_alloc_managed(od*4+G);CHECK(mo[i]);}
+            CHECK(mx);
+            float *xv=ds4_gpu_tensor_contents(mx);
+            for(unsigned i=0;i<in;i++) xv[i]=draw%10==7?0.0f:sample()*(draw%10==8?1e18f:1.0f);
+            if(draw%10==9) for(unsigned i=0;i<6;i++) memcpy(xv+i*61,&exceptional[i],4);
+            for(unsigned arm=0;arm<2;arm++) {
+                memset(ds4_gpu_tensor_contents(mo[arm]),0xa5,od*4+G);
+                if(!arm) setenv("DS4_METAL_DISABLE_V41_MATVEC_BF16","1",1);
+                else unsetenv("DS4_METAL_DISABLE_V41_MATVEC_BF16");
+                CHECK(ds4_gpu_begin_commands());
+                const int rc=ds4_gpu_dsv41_matmul_q8_0_bf16(mo[arm],model,bytes,0,in,od,mx);
+                CHECK(rc==(int)arm);
+                if(!arm) {
+                    CHECK(ds4_gpu_matmul_q8_0_tensor(mo[0],model,bytes,0,in,od,mx,1));
+                    CHECK(ds4_gpu_end_commands());
+                    const uint32_t *raw=ds4_gpu_tensor_contents(mo[0]);
+                    for(unsigned i=0;i<od;i++) if((raw[i]&0x7f800000u)==0x7f800000u) {
+                        raw_nonfinite_out++;
+                        const uint32_t rounded=raw[i]+0x7fffu+((raw[i]>>16)&1u);
+                        if((rounded>>16)!=(raw[i]>>16)) rounding_sensitive_out++;
+                    }
+                    CHECK(ds4_gpu_begin_commands());
+                    CHECK(ds4_gpu_dsv41_quantize(mo[0],od,1,DS4_V41_BF16));
+                }
+                CHECK(ds4_gpu_end_commands());
+                CHECK(ds4_gpu_test_v41_fusions_take_dispatches()==(arm?16u:0u));
+            }
+            equal(ds4_gpu_tensor_contents(mo[0]),ds4_gpu_tensor_contents(mo[1]),od*4+G,"matvec bf16",draw);
+            ds4_gpu_tensor_free(mx);for(unsigned i=0;i<2;i++)ds4_gpu_tensor_free(mo[i]);
+        }
+        ds4_gpu_set_quality(true);
+        CHECK(ds4_gpu_dsv41_matmul_q8_0_bf16(out[2],model,bytes,0,512,128,logits)==0);
+        ds4_gpu_set_quality(false);
+        ds4_gpu_set_ssd_streaming(true);
+        CHECK(ds4_gpu_dsv41_matmul_q8_0_bf16(out[2],model,bytes,0,512,128,logits)==0);
+        ds4_gpu_set_ssd_streaming(false);
+        CHECK(!ds4_gpu_test_v41_fusions_take_dispatches());
+        memset(model,0,bytes);
+        CHECK(raw_nonfinite_out);
+        printf("matvec: 140 Q8_0 cases, BF16-store outputs and guards equal matvec then BF16 "
+               "(%u raw non-finite outputs, %u whose upper word would change under rounding)\n",
+               raw_nonfinite_out,rounding_sensitive_out);
+    }
+
+    /* The in-encoder copy against the blit it replaces: every bit pattern,
+     * offsets inside both tensors, untouched bytes on either side, and the
+     * cases that must keep the blit. */
+    {
+        enum { WORDS = 20480 + 64, PAD = 32 };
+        ds4_gpu_tensor *cs=ds4_gpu_tensor_alloc_managed(WORDS*4), *cd[2];
+        for(unsigned i=0;i<2;i++){cd[i]=ds4_gpu_tensor_alloc_managed(WORDS*4);CHECK(cd[i]);}
+        CHECK(cs);
+        const uint32_t sizes_w[]={1,4,5,1023,1024,1025,5120,16384};
+        const uint32_t special[]={0x7fc00123,0xffc00001,0x7f800000,0xff800000,0x80000000,1,0x80000001,0x7fffffff};
+        for(unsigned draw=0;draw<160;draw++) {
+            uint32_t *src=ds4_gpu_tensor_contents(cs);
+            for(unsigned i=0;i<WORDS;i++) src[i]=i%11==0?special[(i+draw)%8]:random_u32();
+            const uint32_t n=sizes_w[draw%8], so_w=draw%PAD, do_w=(draw*7)%PAD;
+            for(unsigned arm=0;arm<2;arm++) {
+                memset(ds4_gpu_tensor_contents(cd[arm]),0xa5,WORDS*4);
+                if(!arm) setenv("DS4_METAL_DISABLE_V41_COMPUTE_COPY","1",1);
+                else unsetenv("DS4_METAL_DISABLE_V41_COMPUTE_COPY");
+                CHECK(ds4_gpu_begin_commands());
+                CHECK(ds4_gpu_tensor_copy(cd[arm],do_w*4u,cs,so_w*4u,n*4u));
+                CHECK(ds4_gpu_end_commands());
+                CHECK(ds4_gpu_test_v41_fusions_take_dispatches()==(arm?8u:0u));
+            }
+            equal(ds4_gpu_tensor_contents(cd[0]),ds4_gpu_tensor_contents(cd[1]),WORDS*4,"copy",draw);
+            CHECK(!memcmp((uint8_t *)ds4_gpu_tensor_contents(cd[1])+do_w*4u,src+so_w,n*4u));
+        }
+        /* Unaligned sizes or offsets, large and same-buffer copies keep the blit. */
+        CHECK(ds4_gpu_begin_commands());
+        CHECK(ds4_gpu_tensor_copy(cd[1],0,cs,0,65540));
+        CHECK(ds4_gpu_tensor_copy(cd[1],0,cs,0,7));
+        CHECK(ds4_gpu_tensor_copy(cd[1],2,cs,0,8));
+        CHECK(ds4_gpu_tensor_copy(cd[1],4096,cd[1],0,1024));
+        CHECK(ds4_gpu_end_commands());
+        CHECK(!ds4_gpu_test_v41_fusions_take_dispatches());
+        CHECK(!memcmp((uint8_t *)ds4_gpu_tensor_contents(cd[1])+4096,ds4_gpu_tensor_contents(cd[1]),1024));
+        ds4_gpu_set_quality(true);
+        CHECK(ds4_gpu_begin_commands() && ds4_gpu_tensor_copy(cd[1],0,cs,0,64) && ds4_gpu_end_commands());
+        ds4_gpu_set_quality(false);
+        ds4_gpu_set_ssd_streaming(true);
+        CHECK(ds4_gpu_begin_commands() && ds4_gpu_tensor_copy(cd[1],0,cs,0,64) && ds4_gpu_end_commands());
+        ds4_gpu_set_ssd_streaming(false);
+        CHECK(!ds4_gpu_test_v41_fusions_take_dispatches());
+        ds4_gpu_tensor_free(cs);for(unsigned i=0;i<2;i++)ds4_gpu_tensor_free(cd[i]);
+        puts("copy: 160 cases, in-encoder copy bits and guards equal the blit; fallbacks keep the blit");
+    }
 
     ds4_gpu_tensor_free(sx);for(unsigned i=0;i<3;i++){ds4_gpu_tensor_free(so[i]);free(sr[i]);}
     for(unsigned i=0;i<3;i++){ds4_gpu_tensor_free(out[i]);free(ref[i]);}
