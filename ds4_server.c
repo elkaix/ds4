@@ -13095,22 +13095,15 @@ static char *build_qwen_tool_turn_visible_text(const request *r,
     return buf_take(&visible);
 }
 
-static bool remember_qwen_tool_turn_visible_checkpoint(server *s, server_slot *slot,
-                                                       job *j, const char *ctx,
-                                                       const char *finish,
-                                                       bool inside_thinking,
-                                                       const char *content,
-                                                       const tool_calls *calls) {
-    char *visible = build_qwen_tool_turn_visible_text(&j->req, finish,
-                                                     inside_thinking, content, calls);
-    if (!visible) return false;
+static void remember_qwen_tool_turn_visible(server *s, server_slot *slot,
+                                            const job *j, const char *ctx,
+                                            char *visible) {
     thinking_live_remember(s, slot, visible, &j->req);
     server_log(DS4_LOG_KVCACHE,
                "ds4-server: qwen tool-turn visible checkpoint remembered ctx=%s live=%d visible=%zu",
                ctx, ds4_session_pos(slot->session),
                strlen(visible));
     free(visible);
-    return true;
 }
 
 /* GLM counterpart of the Qwen tool-turn key.  A chat client that carries tool
@@ -13166,6 +13159,35 @@ static char *build_glm_tool_turn_visible_text(const request *r, const char *cont
     append_trimmed_text(&visible, content);
     append_glm_tool_calls_text(&visible, calls, &r->tool_orders);
     return buf_take(&visible);
+}
+
+/* Visible key for a tool-call turn, rendered the way the family replays it;
+ * NULL when the turn is not eligible.  content is the parsed assistant content
+ * with the tool calls already removed: each family appends its own tool-call
+ * block (Qwen re-renders it, GLM appends the sampled raw bytes), so passing the
+ * raw tool text as content would put the call in the key twice. */
+static char *build_tool_turn_visible_text(const request *r, const char *finish,
+                                          bool inside_thinking,
+                                          const char *content,
+                                          const tool_calls *calls) {
+    if (!r || !calls) return NULL;
+    if (!content) content = "";
+    switch (r->model_syntax) {
+    case SERVER_MODEL_SYNTAX_QWEN:
+        return build_qwen_tool_turn_visible_text(r, finish, inside_thinking,
+                                                 content, calls);
+    case SERVER_MODEL_SYNTAX_GLM: {
+        /* GLM consumes the tool call out of the content, so content is
+         * usually empty; the sampled call text is what must be present. */
+        const char *turn_text = content[0] ? content :
+            (calls->raw_tool_text ? calls->raw_tool_text : "");
+        if (!glm_tool_turn_checkpoint_eligible(r, finish, inside_thinking, turn_text))
+            return NULL;
+        return build_glm_tool_turn_visible_text(r, content, calls);
+    }
+    default:
+        return NULL;
+    }
 }
 
 /* GLM + tools never hits should_remember_thinking_checkpoint (has_tools).
@@ -14879,36 +14901,18 @@ decode_again:
                                      parsed_reasoning, &parsed_calls);
         thinking_live_clear(s, slot);
     } else if (parsed_calls.len) {
-        /* GLM consumes the DSML tool call out of the generated content, so
-         * parsed_content is empty on a tool turn; the exact sampled text lives
-         * in raw_tool_text and is what the client will send back. */
-        const char *tool_turn_content = parsed_content && parsed_content[0] ?
-                                        parsed_content :
-                                        (parsed_calls.raw_tool_text ?
-                                         parsed_calls.raw_tool_text : "");
-        /* Qwen renders the tool calls itself after the content; passing the
-         * raw tool text as content would put them in the key twice. */
-        bool checkpoint_remembered = remember_qwen_tool_turn_visible_checkpoint(
-                s, slot, j, ctx_span, finish, thinking.inside,
-                parsed_content ? parsed_content : "",
-                &parsed_calls);
-        if (!checkpoint_remembered &&
-            glm_tool_turn_checkpoint_eligible(&j->req, finish, thinking.inside,
-                                              tool_turn_content))
-        {
+        char *visible = build_tool_turn_visible_text(&j->req, finish, thinking.inside,
+                                                     parsed_content, &parsed_calls);
+        if (!visible) {
+            thinking_live_clear(s, slot);
+        } else if (j->req.model_syntax == SERVER_MODEL_SYNTAX_QWEN) {
+            remember_qwen_tool_turn_visible(s, slot, j, ctx_span, visible);
+        } else {
             /* GLM has no raw-DSML replay path (should_canonicalize_tool_checkpoint
              * returns false once raw_tool_text is known) and no truncating rewind,
              * so without this the live checkpoint is cleared and every follow-up
              * turn rebuilds its prefix. */
-            char *visible = build_glm_tool_turn_visible_text(
-                    &j->req, parsed_content, &parsed_calls);
-            if (visible) {
-                remember_thinking_visible(s, slot, j, ctx_span, trace_id, visible, false);
-                checkpoint_remembered = true;
-            }
-        }
-        if (!checkpoint_remembered) {
-            thinking_live_clear(s, slot);
+            remember_thinking_visible(s, slot, j, ctx_span, trace_id, visible, false);
         }
     } else if (!parsed_calls.len &&
                (should_remember_thinking_checkpoint(&j->req, &thinking, final_finish) ||
@@ -21369,6 +21373,118 @@ static void test_glm_tool_turn_visible_key_matches_replay(void) {
     }
 }
 
+/* The tool-turn key comes from the parsed turn exactly as the call site sees
+ * it: omit-reasoning replay of that turn must extend the key, and what follows
+ * must be the family's observation boundary (the call is already in the KV). */
+static void test_tool_turn_visible_key_matches_replay_by_family(void) {
+    const char *tools = "[{\"type\":\"function\",\"function\":{\"name\":\"bash\","
+        "\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":"
+        "{\"type\":\"string\"}},\"required\":[\"command\"]}}}]";
+    const char *qwen_block =
+        "<tool_call>\n<function=bash>\n<parameter=command>\nls\n</parameter>\n"
+        "</function>\n</tool_call>";
+    const char *qwen_marker_block =
+        "<tool_call>\n<function=bash>\n<parameter=command>\n"
+        "echo 'literal </tool_call> <tool_call> </think>'\n</parameter>\n"
+        "</function>\n</tool_call>";
+    const char *glm_block =
+        "<tool_call>bash<arg_key>command</arg_key><arg_value>ls</arg_value></tool_call>";
+    struct {
+        server_model_syntax syntax;
+        ds4_think_mode think;
+        const char *reasoning_prefix;  /* sampled before the visible turn */
+        const char *content;           /* visible prose before the call */
+        const char *block;
+        const char *boundary;
+    } cases[] = {
+        {SERVER_MODEL_SYNTAX_QWEN, DS4_THINK_NONE, "", "", qwen_block,
+         "<|im_end|>\n<|im_start|>user\n<tool_response>"},
+        {SERVER_MODEL_SYNTAX_QWEN, DS4_THINK_NONE, "", "Running.\n\n", qwen_block,
+         "<|im_end|>\n<|im_start|>user\n<tool_response>"},
+        {SERVER_MODEL_SYNTAX_QWEN, DS4_THINK_HIGH, "Need ls.\n</think>\n\n", "",
+         qwen_block, "<|im_end|>\n<|im_start|>user\n<tool_response>"},
+        {SERVER_MODEL_SYNTAX_QWEN, DS4_THINK_HIGH, "Need ls.\n</think>\n\n",
+         "Listing.\n\n", qwen_block, "<|im_end|>\n<|im_start|>user\n<tool_response>"},
+        {SERVER_MODEL_SYNTAX_QWEN, DS4_THINK_HIGH, "Quote markers.\n</think>\n\n", "",
+         qwen_marker_block, "<|im_end|>\n<|im_start|>user\n<tool_response>"},
+        {SERVER_MODEL_SYNTAX_GLM, DS4_THINK_HIGH, "<think>need ls</think>", "\n\n",
+         glm_block, "<|observation|>"},
+        {SERVER_MODEL_SYNTAX_GLM, DS4_THINK_HIGH, "<think>need ls</think>",
+         "Let me list files.\n\n", glm_block, "<|observation|>"},
+        {SERVER_MODEL_SYNTAX_GLM, DS4_THINK_HIGH, "<think>need ls</think>",
+         "Let me list files.", glm_block, "<|observation|>"},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        chat_msgs msgs = {0};
+        chat_msg user = {0};
+        user.role = xstrdup("user");
+        user.content = xstrdup("list files");
+        chat_msgs_push(&msgs, user);
+        request r;
+        request_init(&r, REQ_CHAT, 128);
+        r.api = API_OPENAI;
+        r.model_syntax = cases[i].syntax;
+        r.think_mode = cases[i].think;
+        r.prompt_text = render_chat_prompt_text_for_syntax(
+            cases[i].syntax, &msgs, tools, NULL, cases[i].think);
+        TEST_ASSERT(r.prompt_text != NULL);
+
+        buf generated = {0};
+        buf_puts(&generated, cases[i].reasoning_prefix);
+        buf_puts(&generated, cases[i].content);
+        buf_puts(&generated, cases[i].block);
+        chat_msg asst = {0};
+        asst.role = xstrdup("assistant");
+        TEST_ASSERT(parse_generated_message_ex_for_syntax(
+            cases[i].syntax, generated.ptr, true, &asst.content, &asst.reasoning,
+            &asst.calls));
+        TEST_ASSERT(asst.calls.len == 1 && asst.calls.raw_tool_text != NULL);
+
+        char *visible = build_tool_turn_visible_text(
+            &r, "tool_calls", false, asst.content, &asst.calls);
+        TEST_ASSERT(visible != NULL);
+        TEST_ASSERT(build_tool_turn_visible_text(
+            &r, "stop", false, asst.content, &asst.calls) == NULL);
+        TEST_ASSERT(build_tool_turn_visible_text(
+            &r, "tool_calls", true, asst.content, &asst.calls) == NULL);
+        r.api = API_ANTHROPIC;
+        TEST_ASSERT(build_tool_turn_visible_text(
+            &r, "tool_calls", false, asst.content, &asst.calls) == NULL);
+        r.api = API_OPENAI;
+        r.model_syntax = SERVER_MODEL_SYNTAX_DEEPSEEK;
+        TEST_ASSERT(build_tool_turn_visible_text(
+            &r, "tool_calls", false, asst.content, &asst.calls) == NULL);
+        r.model_syntax = cases[i].syntax;
+
+        /* Omit-reasoning client: content and the sampled call come back. */
+        free(asst.reasoning);
+        asst.reasoning = NULL;
+        chat_msgs_push(&msgs, asst);
+        chat_msg tool = {0};
+        tool.role = xstrdup("tool");
+        tool.content = xstrdup("a.txt");
+        chat_msgs_push(&msgs, tool);
+        char *next = render_chat_prompt_text_for_syntax(
+            cases[i].syntax, &msgs, tools, NULL, cases[i].think);
+        TEST_ASSERT(next != NULL);
+        if (visible && next) {
+            const size_t vl = strlen(visible);
+            const bool prefix = byte_prefix_match(next, strlen(next), visible, vl);
+            TEST_ASSERT(prefix);
+            TEST_ASSERT(prefix && !strncmp(next + vl, cases[i].boundary,
+                                           strlen(cases[i].boundary)));
+            if (!prefix || strncmp(next + vl, cases[i].boundary, strlen(cases[i].boundary)))
+                fprintf(stderr, "tool-turn key case %zu:\n key=[%s]\n next=[%s]\n",
+                        i, visible, next);
+        }
+        free(next);
+        free(visible);
+        buf_free(&generated);
+        chat_msgs_free(&msgs);
+        request_free(&r);
+    }
+}
+
 static void test_glm_tool_turn_checkpoint_eligible(void) {
     request r;
     memset(&r, 0, sizeof r);
@@ -23682,6 +23798,7 @@ static void ds4_server_unit_tests_run(void) {
     test_model_metadata_clamps_completion_to_context();
     test_live_prefix_rewind_target();
     test_glm_tool_turn_checkpoint_eligible();
+    test_tool_turn_visible_key_matches_replay_by_family();
     test_glm_tool_turn_visible_key_matches_replay();
     test_glm_stop_thinking_checkpoint_eligible();
     test_client_socket_nonblocking_flag();
