@@ -5,10 +5,10 @@ import {
   percentile, rate, safeDiv, sec, signedPct, tps,
 } from "./format";
 import type { RecentRequest } from "./types";
-import { useStats } from "./useStats";
+import { DECODE_LIVE_MIN, PREFILL_LIVE_MIN, useStats } from "./useStats";
 import {
-  ZERO, ZERO_MTP, ZERO_TOTALS, clockOf, computeTps, decodeTps, delta, ema, mtpCounters,
-  shortSource, snapshot,
+  ZERO, ZERO_MTP, ZERO_TOTALS, clockOf, computeTps, decodeTps, delta, ema, holdSmooth, mtpCounters,
+  shortSource, snapshot, weightedPrefillTps,
 } from "./lib";
 import type { Baseline } from "./lib";
 import { Icon } from "./components/Icon";
@@ -96,10 +96,20 @@ export function App() {
   const last = recent[0];
   const n = recent.length;
 
-  const decodeSeries = useMemo(() => recent.map(decodeTps).filter((v): v is number => v !== null).reverse(), [recent]);
-  const computeSeries = useMemo(() => recent.map(computeTps).filter((v): v is number => v !== null).reverse(), [recent]);
-  const decodeEma = useMemo(() => ema(samples.map((s) => s.decode)), [samples]);
-  const decodeMedian = useMemo(() => percentile(decodeSeries, 50), [decodeSeries]);
+  const decodeSeries = useMemo(
+    () => holdSmooth(samples.map((s) => (s.busy && s.decodeEma >= DECODE_LIVE_MIN && s.prefillEma < PREFILL_LIVE_MIN ? s.decodeEma : s.decode))),
+    [samples],
+  );
+  const computeSeries = useMemo(
+    () => holdSmooth(samples.map((s) => (s.prefillEma >= PREFILL_LIVE_MIN ? s.prefillEma : s.prefill))),
+    [samples],
+  );
+  const decodeEma = useMemo(() => ema(decodeSeries), [decodeSeries]);
+  const decodeMedian = useMemo(
+    () => percentile(decodeSeries.filter((v) => v > 0), 50)
+      ?? percentile(recent.map(decodeTps).filter((v): v is number => v !== null), 50),
+    [decodeSeries, recent],
+  );
 
   const plainStepNs = useMemo(() => {
     const r = recent.find((x) => x.mtp_cycles === 0 && x.decode_tokens > 0 && x.decode_ns > 0);
@@ -119,15 +129,19 @@ export function App() {
   const mtpActive = !!(mtp?.enabled && mtp.active);
   const mtpGated = !!(mtp?.enabled && !mtp.active);
 
+  const lastS = samples.at(-1);
+  const livePrefill = lastS && lastS.busy && lastS.prefillEma >= PREFILL_LIVE_MIN ? lastS.prefillEma : null;
+  const liveDecode = lastS && lastS.busy && livePrefill == null && lastS.decodeEma >= DECODE_LIVE_MIN ? lastS.decodeEma : null;
   const lastDecodeTps = last ? decodeTps(last) : null;
-  const lastCompute = last ? computeTps(last) : null;
-  const msPerTok = safeDiv(last?.decode_ns, last?.decode_tokens);
+  const decodeHeadline = liveDecode ?? lastDecodeTps ?? stats?.last_decode_tps ?? null;
+  const prefillHeadline = livePrefill ?? weightedPrefillTps(T) ?? (last ? computeTps(last) : null);
+  const msPerTok = decodeHeadline != null && decodeHeadline > 0 ? 1000 / decodeHeadline : null;
   const remaining = stats ? Math.max(0, stats.ctx_size - stats.live_tokens) : undefined;
   const turnNs = last ? last.prompt_ns + last.first_token_ns + last.decode_ns : undefined;
   const storeAlarm = !!last && last.store_ns > 1e9;
 
   const isHealthy = !error && failures === 0;
-  const statusText = error ? "Unreachable" : !stats ? "Connecting" : stats.busy ? "Generating" : "Healthy";
+  const statusText = error ? "Unreachable" : !stats ? "Connecting" : livePrefill ? "Prefilling" : stats.busy ? "Generating" : "Healthy";
 
   // Build Cache Paths rows from live stats
   const cacheRows = useMemo(() => {
@@ -263,9 +277,9 @@ export function App() {
             <section className="topGrid" id="sec-performance">
               <MetricCard
                 title="Decode"
-                value={tps(lastDecodeTps).replace(" tok/s", "")}
+                value={tps(decodeHeadline).replace(" tok/s", "")}
                 unit="tok/s"
-                subValue={msPerTok != null ? `${fixed(msPerTok / 1e6, 1)} ms/token` : undefined}
+                subValue={msPerTok != null ? `${fixed(msPerTok, 1)} ms/token` : undefined}
                 accent="blue"
                 sparkKind="decode"
                 sparkData={decodeSeries}
@@ -274,13 +288,14 @@ export function App() {
               />
               <MetricCard
                 title="Prefill"
-                value={tps(lastCompute).replace(" tok/s", "")}
+                value={tps(prefillHeadline).replace(" tok/s", "")}
                 unit="tok/s"
+                subValue={livePrefill ? "live" : "session"}
                 accent="green"
                 sparkKind="prefill"
                 sparkData={computeSeries}
-                footerLeft={["Fresh", num(last?.fresh_tokens ?? T?.prefill_fresh_tokens)]}
-                footerRight={["Reuse", pctStr(last?.cached_tokens ?? counters?.cached, last?.prompt_tokens ?? counters?.prompt, 1)]}
+                footerLeft={["Fresh", num(T?.prefill_fresh_tokens)]}
+                footerRight={["Reuse", pctStr(counters?.cached, counters?.prompt, 1)]}
               />
               <ProgressCard
                 title="Context in use"

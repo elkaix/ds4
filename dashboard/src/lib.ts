@@ -63,10 +63,25 @@ export function ema(values: number[]): number | null {
   return nz.reduce((acc, v, i) => (i === 0 ? v : acc + EMA_ALPHA * (v - acc)), 0);
 }
 
+/** Hold last >0, then slow EMA. Tool-turn gaps become a plateau, not a comb. */
+export function holdSmooth(values: number[], alpha = 2 / 30): number[] {
+  let hold = 0;
+  let e = 0;
+  const out: number[] = [];
+  for (const v of values) {
+    if (v > 0) hold = v;
+    e = e === 0 ? hold : alpha * hold + (1 - alpha) * e;
+    out.push(e);
+  }
+  return out;
+}
+
 /* ── Recent-request helpers ── */
 
 export const decodeTps = (r: RecentRequest) => rate(r.decode_tokens, r.decode_ns);
 export const computeTps = (r: RecentRequest) => rate(r.fresh_tokens, r.prefill_ns);
+export const weightedPrefillTps = (t: Totals | null | undefined) =>
+  t ? rate(t.prefill_fresh_tokens, t.prefill_compute_ns) : null;
 
 const SOURCE_SHORT: Record<string, string> = {
   "memory-text": "mem-text", "memory-token": "mem-token", "disk-text": "disk-text", "disk-token": "disk-token", none: "cold",

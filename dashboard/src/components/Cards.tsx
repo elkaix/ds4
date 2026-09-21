@@ -181,55 +181,50 @@ function DynamicSparkline({
   data: number[];
 }) {
   const color = accent === "blue" ? "#2589ff" : "#2ab46c";
+  const N = 32;
 
-  // If we have actual telemetry points, build smooth curve
-  const path = useMemo(() => {
-    if (data.length < 2) {
-      return kind === "decode"
-        ? "M3 50 C12 47,12 34,20 38 C26 43,29 22,40 27 C52 31,58 42,70 42 C84 42,87 29,101 32 C114 34,119 43,132 42 C144 42,150 34,162 35 C176 37,181 24,194 26 C208 26,214 38,225 34"
-        : "M3 48 C10 48,11 35,20 38 C28 43,32 27,41 34 C50 39,54 29,65 31 C76 33,79 18,89 23 C99 30,102 39,113 35 C124 30,128 41,138 35 C148 29,150 22,158 29 C166 39,170 18,179 24 C188 30,191 39,202 35 C211 32,215 41,225 20";
+  const bars = useMemo(() => {
+    if (!data.length) return Array.from({ length: N }, () => 0);
+    const out: number[] = [];
+    const w = data.length / N;
+    for (let i = 0; i < N; i++) {
+      const a = Math.floor(i * w);
+      const b = Math.max(a + 1, Math.floor((i + 1) * w));
+      let s = 0;
+      let c = 0;
+      for (let j = a; j < b; j++) {
+        const v = data[j] ?? 0;
+        if (v > 0) {
+          s += v;
+          c++;
+        }
+      }
+      out.push(c ? s / c : 0);
     }
-    const max = Math.max(1, ...data);
-    const min = Math.min(...data);
-    const range = max - min || 1;
-    const w = 222;
-    const h = 48;
-    const step = w / Math.max(1, data.length - 1);
+    return out;
+  }, [data]);
 
-    const pts = data.map((v, i) => ({
-      x: 3 + i * step,
-      y: 56 - ((v - min) / range) * h,
-    }));
-
-    const first = pts[0];
-    if (!first) return "";
-    let d = `M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i];
-      const p1 = pts[i + 1];
-      if (!p0 || !p1) continue;
-      const mx = (p0.x + p1.x) / 2;
-      d += ` C ${mx.toFixed(1)} ${p0.y.toFixed(1)}, ${mx.toFixed(1)} ${p1.y.toFixed(1)}, ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
-    }
-    return d;
-  }, [data, kind]);
+  const max = Math.max(1, ...bars);
+  const barW = 222 / N;
+  const gap = 1.4;
 
   return (
-    <svg className="sparkline" viewBox="0 0 228 62" role="img" aria-label={`${kind} trend`}>
-      <defs>
-        <linearGradient id={`${kind}-fill`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity=".18" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={`${path} L225 60 L3 60 Z`} fill={`url(#${kind}-fill)`} />
-      <path
-        d={path}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+    <svg className="sparkline" viewBox="0 0 228 62" role="img" aria-label={`${kind} histogram`}>
+      {bars.map((v, i) => {
+        const h = Math.max(v > 0 ? 2 : 0, (v / max) * 48);
+        return (
+          <rect
+            key={i}
+            x={3 + i * barW}
+            y={56 - h}
+            width={Math.max(0.8, barW - gap)}
+            height={h}
+            rx={1.2}
+            fill={color}
+            opacity={v > 0 ? 0.88 : 0.12}
+          />
+        );
+      })}
     </svg>
   );
 }
