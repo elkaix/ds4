@@ -14886,9 +14886,11 @@ decode_again:
                                         parsed_content :
                                         (parsed_calls.raw_tool_text ?
                                          parsed_calls.raw_tool_text : "");
+        /* Qwen renders the tool calls itself after the content; passing the
+         * raw tool text as content would put them in the key twice. */
         bool checkpoint_remembered = remember_qwen_tool_turn_visible_checkpoint(
                 s, slot, j, ctx_span, finish, thinking.inside,
-                tool_turn_content,
+                parsed_content ? parsed_content : "",
                 &parsed_calls);
         if (!checkpoint_remembered &&
             glm_tool_turn_checkpoint_eligible(&j->req, finish, thinking.inside,
