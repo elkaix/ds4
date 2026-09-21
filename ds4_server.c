@@ -13043,13 +13043,10 @@ static char *build_thinking_visible_text(const request *r,
     return buf_take(&visible);
 }
 
-static void remember_thinking_checkpoint(server *s, server_slot *slot,
-                                         const job *j, const char *ctx,
-                                         uint64_t trace_id, const char *content,
-                                         bool visible_continuation) {
-    char *visible = build_thinking_visible_text(&j->req, content);
-    if (!visible) return;
-
+static void remember_thinking_visible(server *s, server_slot *slot,
+                                      const job *j, const char *ctx,
+                                      uint64_t trace_id, char *visible,
+                                      bool visible_continuation) {
     thinking_live_remember(s, slot, visible, &j->req);
     pthread_mutex_lock(&s->tool_mu);
     slot->thinking_live.token_text_disk_key =
@@ -13062,6 +13059,15 @@ static void remember_thinking_checkpoint(server *s, server_slot *slot,
                 "thinking live checkpoint remembered: live=%d visible=%zu",
                 ds4_session_pos(slot->session), strlen(visible));
     free(visible);
+}
+
+static void remember_thinking_checkpoint(server *s, server_slot *slot,
+                                         const job *j, const char *ctx,
+                                         uint64_t trace_id, const char *content,
+                                         bool visible_continuation) {
+    char *visible = build_thinking_visible_text(&j->req, content);
+    if (!visible) return;
+    remember_thinking_visible(s, slot, j, ctx, trace_id, visible, visible_continuation);
 }
 
 /* Match clients that omit reasoning, while keeping the exact sampled KV.
@@ -13137,6 +13143,29 @@ static bool glm_tool_turn_checkpoint_eligible(const request *r, const char *fini
     const size_t prompt_len = strlen(r->prompt_text);
     return prompt_len >= tag_len &&
            memcmp(r->prompt_text + prompt_len - tag_len, think_tag, tag_len) == 0;
+}
+
+/* The key must cover the whole visible turn the replay renders: closed empty
+ * think block, trimmed content, then the tool-call block exactly as
+ * append_glm_tool_calls_text() emits it (the sampled raw bytes, which tool
+ * memory restores by id, including the "\n\n" GLM samples before <tool_call>).
+ * A key that stops after the content matches too early and re-appends the
+ * tool call onto a live KV that already holds it; one that trims the raw
+ * separator never matches the raw replay and falls back to a disk checkpoint. */
+static char *build_glm_tool_turn_visible_text(const request *r, const char *content,
+                                              const tool_calls *calls) {
+    if (!r || !r->prompt_text || !calls || calls->len == 0) return NULL;
+    const char *think_tag = "<think>";
+    const size_t tag_len = strlen(think_tag);
+    const size_t pt_len = strlen(r->prompt_text);
+    if (pt_len < tag_len ||
+        memcmp(r->prompt_text + pt_len - tag_len, think_tag, tag_len) != 0) return NULL;
+    buf visible = {0};
+    buf_append(&visible, r->prompt_text, pt_len - tag_len);
+    buf_puts(&visible, "<think></think>");
+    append_trimmed_text(&visible, content);
+    append_glm_tool_calls_text(&visible, calls, &r->tool_orders);
+    return buf_take(&visible);
 }
 
 /* GLM + tools never hits should_remember_thinking_checkpoint (has_tools).
@@ -14869,9 +14898,12 @@ decode_again:
              * returns false once raw_tool_text is known) and no truncating rewind,
              * so without this the live checkpoint is cleared and every follow-up
              * turn rebuilds its prefix. */
-            remember_thinking_checkpoint(s, slot, j, ctx_span, trace_id,
-                                         tool_turn_content, false);
-            checkpoint_remembered = true;
+            char *visible = build_glm_tool_turn_visible_text(
+                    &j->req, parsed_content, &parsed_calls);
+            if (visible) {
+                remember_thinking_visible(s, slot, j, ctx_span, trace_id, visible, false);
+                checkpoint_remembered = true;
+            }
         }
         if (!checkpoint_remembered) {
             thinking_live_clear(s, slot);
@@ -21264,6 +21296,77 @@ static void test_model_metadata_clamps_completion_to_context(void) {
     buf_free(&b);
 }
 
+static void test_glm_tool_turn_visible_key_matches_replay(void) {
+    /* GLM samples "\n\n" before <tool_call>, optionally after prose.  The
+     * omit-reasoning replay (tool memory restores the raw block by id) must
+     * extend the key, and what follows the key must be the observation only:
+     * the tool call is already in the live KV. */
+    const char *tools = "[{\"type\":\"function\",\"function\":{\"name\":\"bash\","
+        "\"parameters\":{\"type\":\"object\",\"properties\":{\"command\":"
+        "{\"type\":\"string\"}},\"required\":[\"command\"]}}}]";
+    const char *gens[] = {
+        "<think>need ls</think>\n\n<tool_call>bash<arg_key>command</arg_key>"
+        "<arg_value>ls</arg_value></tool_call>",
+        "<think>need ls</think>Let me list files.\n\n<tool_call>bash"
+        "<arg_key>command</arg_key><arg_value>ls</arg_value></tool_call>",
+        "<think>need ls</think>Let me list files.<tool_call>bash"
+        "<arg_key>command</arg_key><arg_value>ls</arg_value></tool_call>",
+    };
+    for (size_t g = 0; g < sizeof(gens) / sizeof(gens[0]); g++) {
+        chat_msgs msgs = {0};
+        chat_msg user = {0};
+        user.role = xstrdup("user");
+        user.content = xstrdup("list files");
+        chat_msgs_push(&msgs, user);
+        char *prompt = render_chat_prompt_text_for_syntax(
+            SERVER_MODEL_SYNTAX_GLM, &msgs, tools, NULL, DS4_THINK_HIGH);
+        TEST_ASSERT(prompt != NULL);
+        request r;
+        request_init(&r, REQ_CHAT, 128);
+        r.api = API_OPENAI;
+        r.model_syntax = SERVER_MODEL_SYNTAX_GLM;
+        r.think_mode = DS4_THINK_HIGH;
+        r.prompt_text = xstrdup(prompt);
+
+        char *content = NULL, *reasoning = NULL;
+        tool_calls calls = {0};
+        TEST_ASSERT(parse_generated_message_ex_for_syntax(
+            SERVER_MODEL_SYNTAX_GLM, gens[g], true, &content, &reasoning, &calls));
+        TEST_ASSERT(calls.len == 1 && calls.raw_tool_text != NULL);
+        char *visible = build_glm_tool_turn_visible_text(&r, content, &calls);
+        TEST_ASSERT(visible != NULL);
+
+        chat_msg asst = {0};
+        asst.role = xstrdup("assistant");
+        asst.content = xstrdup(content ? content : "");
+        tool_call tc = {0};
+        tc.name = xstrdup(calls.v[0].name);
+        tc.arguments = xstrdup(calls.v[0].arguments);
+        tool_calls_push(&asst.calls, tc);
+        asst.calls.raw_tool_text = xstrdup(calls.raw_tool_text);
+        chat_msgs_push(&msgs, asst);
+        chat_msg tool = {0};
+        tool.role = xstrdup("tool");
+        tool.content = xstrdup("a.txt");
+        chat_msgs_push(&msgs, tool);
+        char *next = render_chat_prompt_text_for_syntax(
+            SERVER_MODEL_SYNTAX_GLM, &msgs, tools, NULL, DS4_THINK_HIGH);
+        TEST_ASSERT(next != NULL);
+        const size_t vl = strlen(visible);
+        TEST_ASSERT(byte_prefix_match(next, strlen(next), visible, vl));
+        TEST_ASSERT(!strncmp(next + vl, "<|observation|>", strlen("<|observation|>")));
+
+        free(next);
+        free(visible);
+        free(content);
+        free(reasoning);
+        free(prompt);
+        tool_calls_free(&calls);
+        chat_msgs_free(&msgs);
+        request_free(&r);
+    }
+}
+
 static void test_glm_tool_turn_checkpoint_eligible(void) {
     request r;
     memset(&r, 0, sizeof r);
@@ -23577,6 +23680,7 @@ static void ds4_server_unit_tests_run(void) {
     test_model_metadata_clamps_completion_to_context();
     test_live_prefix_rewind_target();
     test_glm_tool_turn_checkpoint_eligible();
+    test_glm_tool_turn_visible_key_matches_replay();
     test_glm_stop_thinking_checkpoint_eligible();
     test_client_socket_nonblocking_flag();
     test_client_disconnect_probe();
