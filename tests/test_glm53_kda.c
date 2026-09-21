@@ -53,6 +53,34 @@ static void require_ok(int ok, const char *what) {
     }
 }
 
+#ifdef __APPLE__
+/* The M5 enablement is a local deviation from upstream; a sync that drops it
+ * must fail here rather than fall back to the slower kernels unnoticed. */
+static void test_glm53_device_gate(void) {
+    static const struct { const char *name; int supported; } cases[] = {
+        {"Apple M3 Ultra", 1}, {"Apple M5", 1}, {"Apple M5 Max", 1},
+        {"Apple M5 Pro", 1},   {"Apple M3 Max", 0}, {"Apple M4 Max", 0},
+        {"Apple M50", 0},      {"Apple M3 Ultra ", 0}, {"", 0},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        if (ds4_gpu_glm53_device_name_supported(cases[i].name) !=
+            cases[i].supported) {
+            fprintf(stderr, "GLM 5.3 device gate: \"%s\" expected %d\n",
+                    cases[i].name, cases[i].supported);
+            exit(1);
+        }
+    }
+    /* Without the test override, the production gate must follow the device. */
+    ds4_gpu_test_set_flags(0);
+    if (ds4_gpu_glm53_measured_config() != ds4_gpu_glm53_device_supported()) {
+        fprintf(stderr, "GLM 5.3 tuning gate disagrees with device support\n");
+        exit(1);
+    }
+    fprintf(stderr, "GLM 5.3 device gate: supported=%d\n",
+            ds4_gpu_glm53_device_supported());
+}
+#endif
+
 static void require_close(const char *what, float actual, float expected, float tolerance) {
     if (!isfinite(actual) || fabsf(actual - expected) > tolerance) {
         fprintf(stderr, "%s: got %.9g, expected %.9g (tolerance %.9g)\n",
@@ -1854,6 +1882,9 @@ int main(void) {
     }
 
     require_ok(ds4_gpu_init(), "GPU initialization");
+#ifdef __APPLE__
+    test_glm53_device_gate();
+#endif
     require_ok(ds4_gpu_set_model_map(model, MODEL_BYTES), "model map registration");
 
     uint16_t *bf16_weights = (uint16_t *)(model + BF16_OFFSET);
@@ -2084,6 +2115,10 @@ int main(void) {
             out_fus, hc_fus, model, MODEL_BYTES, FUSED_W_OFFSET,
             FUSED_IN, FUSED_OUT, tx, tres, tpost, tcomb, FUSED_HC);
         if (fused == 0) {
+#ifdef __APPLE__
+            require_ok(!ds4_gpu_glm53_device_supported(),
+                       "BF16 matvec + HC expand on a supported device");
+#endif
             fprintf(stderr,
                     "BF16 matvec + HC expand: not available on this device, skipped\n");
         } else {

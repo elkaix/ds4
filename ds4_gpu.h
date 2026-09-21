@@ -244,6 +244,9 @@ void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled);
 int ds4_gpu_device_is_pre_m5_apple_silicon(void);
 int ds4_gpu_device_is_m5_apple_silicon(void);
 int ds4_gpu_device_is_m3_ultra(void);
+/* Devices where the GLM 5.3 tuning paths are measured exact: M3 Ultra, M5. */
+int ds4_gpu_glm53_device_name_supported(const char *name);
+int ds4_gpu_glm53_device_supported(void);
 int ds4_gpu_set_decode_pipeline_fast_lookup(int enabled);
 /* Strict test oracle for the fixed decode mul_mv pipeline lookup cache. */
 int ds4_gpu_test_decode_pipeline_fast_lookup(void);

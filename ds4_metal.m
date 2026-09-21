@@ -36656,14 +36656,23 @@ int ds4_gpu_dsv41_indexer_scores_batch(ds4_gpu_tensor *scores,
         keys, source_rows, rows, start, ratio, 32, 128, 1.0f / 64.0f, false, true);
 }
 
+int ds4_gpu_glm53_device_name_supported(const char *name) {
+    return strcmp(name, "Apple M3 Ultra") == 0 ||
+           (strncmp(name, "Apple M5", 8) == 0 &&
+            (name[8] == '\0' || name[8] == ' '));
+}
+
+int ds4_gpu_glm53_device_supported(void) {
+    return ds4_gpu_glm53_device_name_supported(g_metal_device_name);
+}
+
 static bool ds4_gpu_glm53_tuning_available(void) {
-    /* Defaults have been measured and checked for exactness on M3 Ultra only.
+    /* Defaults have been measured and checked for exactness on M3 Ultra and M5.
      * Test mode can exercise the same kernels on smaller fixtures; ownership
      * exclusions still apply so it cannot silently turn on TP or streaming. */
     return !g_ssd_streaming_mode && g_tp_split_world == 1 &&
         ((g_test_flags & DS4_GPU_TEST_GLM53_PREFILL) != 0u ||
-         [g_device.name isEqualToString:@"Apple M3 Ultra"] ||
-         [g_device.name hasPrefix:@"Apple M5"]);
+         ds4_gpu_glm53_device_supported());
 }
 
 /* The graph-local GLM 5.3 paths share the backend-local scope: resident,

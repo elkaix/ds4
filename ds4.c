@@ -45991,6 +45991,31 @@ static bool glm53_flash_feature_enabled(glm53_flash_feature feature) {
 #endif
 }
 
+static void glm53_flash_log_tuning(void) {
+    static const char *const names[GLM53_FLASH_FEATURE_COUNT] = {
+        [GLM53_FLASH_HC_PRODUCER_FUSE]      = "hc_fuse",
+        [GLM53_FLASH_KDA_GATE_PAIR]         = "kda_pair",
+        [GLM53_FLASH_KDA_GATE_TRIO]         = "kda_trio",
+        [GLM53_FLASH_KDA_OUT_HC_EXPAND]     = "kda_out_hc",
+        [GLM53_FLASH_ATTN_OUT_HC_EXPAND]    = "attn_out_hc",
+        [GLM53_FLASH_FFN_HC_EXPAND_ADD]     = "ffn_hc",
+        [GLM53_FLASH_SHARED_DOWN_HC_EXPAND] = "shared_down_hc",
+        [GLM53_FLASH_DSA_EXACT]             = "dsa_exact",
+    };
+    char line[256];
+    int n = 0;
+    for (int f = 0; f < GLM53_FLASH_FEATURE_COUNT && n < (int)sizeof(line); f++) {
+        n += snprintf(line + n, sizeof(line) - (size_t)n, " %s=%d", names[f],
+                      glm53_flash_feature_enabled((glm53_flash_feature)f) ? 1 : 0);
+    }
+#ifdef __APPLE__
+    fprintf(stderr, "ds4: glm53 tuning supported=%d%s\n",
+            ds4_gpu_glm53_measured_config(), line);
+#else
+    fprintf(stderr, "ds4: glm53 tuning%s\n", line);
+#endif
+}
+
 /* Rows per split block for indexed decode attention.  The 32/128 step at 1024
  * selected rows was never swept; DS4_GLM_DECODE_SPLIT_BLOCK_ROWS forces one
  * value so it can be.  A value the split path cannot honour is rejected by the
@@ -47405,6 +47430,7 @@ static bool glm_graph_alloc_slice(
     g->indexer_full_layers =
         glm_graph_full_indexer_layer_count_range(g->layer_start,
                                                  g->layer_end);
+    if (ds4_model_is_glm53()) glm53_flash_log_tuning();
     if (g->ctx_size > g->ctx_cap) {
         fprintf(stderr,
                 "ds4: GLM session ctx=%u (model max=%u); "
