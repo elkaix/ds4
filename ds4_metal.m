@@ -36666,6 +36666,13 @@ static bool ds4_gpu_glm53_tuning_available(void) {
          [g_device.name hasPrefix:@"Apple M5"]);
 }
 
+/* The graph-local GLM 5.3 paths share the backend-local scope: resident,
+ * single-device M3 Ultra (upstream) or Apple M5 (local enablement). */
+int ds4_gpu_glm53_measured_config(void) {
+    if (!g_initialized && !ds4_gpu_init()) return 0;
+    return ds4_gpu_glm53_tuning_available();
+}
+
 int ds4_gpu_glm_qk_lowrank_typed_tensor(
         ds4_gpu_tensor       *qk_low,
         const ds4_gpu_tensor *q,
@@ -37479,6 +37486,11 @@ int ds4_gpu_glm_attention_indexed_decode_exact_typed_tensor(
             ds4_gpu_hot_pipeline(g_glm_attention_indexed_decode_exact_value_pipeline,
                                  "kernel_glm_attention_indexed_decode_exact_value");
         if (!scores_pipeline || !weights_pipeline || !lora_pipeline || !value_pipeline) return 0;
+        if (scores_pipeline.maxTotalThreadsPerThreadgroup < (NSUInteger)n_head * stage_rows) {
+            fprintf(stderr, "ds4: Metal GLM exact indexed attention needs %u threads per threadgroup\n",
+                    n_head * stage_rows);
+            return 0;
+        }
         if (small_score_tile) ds4_gpu_note_glm53_prefill_dispatch(DS4_GPU_GLM53_DSA_SCORE_TILE);
 
         int owned = 0;
@@ -47494,8 +47506,9 @@ int ds4_gpu_glm53_matmul_bf16_pair(
         const ds4_gpu_tensor *x_a,
         const ds4_gpu_tensor *x_b) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
-    /* Same device scope as the qkv variant this shares a row helper with. */
-    if (!ds4_gpu_device_name_contains("M3 Ultra")) return 0;
+    /* Same measured scope as every other GLM 5.3 tuning: M3 Ultra or M5, resident,
+     * single device. */
+    if (!ds4_gpu_glm53_tuning_available()) return 0;
     uint64_t weights = 0;
     if (in_dim == 0 || out_dim == 0 ||
         !glm53_gpu_mul_u64(in_dim, out_dim, &weights) ||
@@ -47564,7 +47577,7 @@ int ds4_gpu_glm53_matmul_bf16_trio(
         uint32_t              out_dim_c,
         const ds4_gpu_tensor *x) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
-    if (!ds4_gpu_device_name_contains("M3 Ultra")) return 0;
+    if (!ds4_gpu_glm53_tuning_available()) return 0;
     uint64_t w_ab = 0, w_c = 0;
     if (in_dim == 0 || out_dim_ab == 0 || out_dim_c == 0 ||
         out_dim_c > out_dim_ab ||
@@ -47745,9 +47758,9 @@ int ds4_gpu_glm53_matmul_bf16_hc_expand4(
         const ds4_gpu_tensor *comb,
         uint32_t              n_hc) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
-    /* Same device scope as the qkv and pair variants this shares a row helper
-     * with; every other device keeps the separate matvec and expand. */
-    if (!ds4_gpu_device_name_contains("M3 Ultra")) return 0;
+    /* Same measured scope as every other GLM 5.3 tuning; everything else keeps
+     * the separate matvec and expand. */
+    if (!ds4_gpu_glm53_tuning_available()) return 0;
     if (n_hc != 4u) return 0;
     uint64_t weights = 0;
     if (in_dim == 0 || out_dim == 0 ||
@@ -48737,10 +48750,15 @@ int ds4_gpu_glm53_kda_decode(
             n_heads == 64u && n_rows == 1u &&
             getenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING") == NULL &&
             getenv("DS4_METAL_DISABLE_M3_ULTRA_GLM53_DECODE") == NULL &&
-            getenv("DS4_METAL_DISABLE_GLM53_DECODE_KDA_VALUES4") == NULL;
+            getenv("DS4_METAL_DISABLE_GLM53_DECODE_KDA_VALUES4") == NULL &&
+            getenv("DS4_METAL_GLM53_KDA_DECODE_REFERENCE") == NULL;
+        /* The reference kernel predates the shared decay term and the narrower
+         * barriers; it is both their rollback and their exactness oracle. */
         id<MTLComputePipelineState> pipeline =
-            ds4_gpu_get_pipeline(values4 ? "kernel_glm53_kda_decode_v4" :
-                                          "kernel_glm53_kda_decode");
+            ds4_gpu_get_pipeline(getenv("DS4_METAL_GLM53_KDA_DECODE_REFERENCE") ?
+                                     "kernel_glm53_kda_decode_reference" :
+                                 values4 ? "kernel_glm53_kda_decode_v4" :
+                                           "kernel_glm53_kda_decode");
         if (!qw || !kw || !vw || !a_log || !dt_bias || !output_norm ||
             !pipeline) {
             return 0;

@@ -45981,7 +45981,14 @@ static bool glm53_flash_feature_enabled(glm53_flash_feature feature) {
             getenv("DS4_METAL_DISABLE_GLM53_FLASH_TUNING") == NULL &&
             getenv(switches[feature]) == NULL ? 1 : -1;
     }
-    return state[feature] > 0;
+    if (state[feature] < 0) return false;
+#ifdef __APPLE__
+    /* Exactness was checked resident and single-device, on M3 Ultra and M5. The
+     * ownership half can change between sessions, so it is not cached. */
+    return ds4_gpu_glm53_measured_config() != 0;
+#else
+    return true;
+#endif
 }
 
 /* Rows per split block for indexed decode attention.  The 32/128 step at 1024
@@ -57396,7 +57403,7 @@ glm53_attention_done:
             }
             if (ok) ok = glm_graph_begin_commands_if_needed();
         }
-        if (!(glm_decode_ablate_mask() & DS4_GLM_ABLATE_HEAD)) {
+        if (ok && !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_HEAD)) {
             ok = glm_graph_encode_output_head(g, model, weights);
             if (ok && (glm_decode_repeat_mask() & DS4_GLM_REPEAT_HEAD)) {
                 ok = glm_graph_encode_output_head(g, model, weights);

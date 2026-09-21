@@ -3236,6 +3236,10 @@ int ds4_gpu_glm53_matmul_bf16_qkv(
         uint32_t              out_dim,
         const ds4_gpu_tensor *x);
 
+/* Nonzero when the GLM 5.3 exact tuning scope applies: M3 Ultra or M5, resident,
+ * single device. */
+int ds4_gpu_glm53_measured_config(void);
+
 int ds4_gpu_glm53_matmul_bf16_pair(
         ds4_gpu_tensor       *out_a,
         ds4_gpu_tensor       *out_b,
