@@ -7239,6 +7239,14 @@ typedef struct {
     openai_tool_stream tool;
 } openai_stream;
 
+/* A tool-enabled thinking model may keep reasoning past its first </think>
+ * and close a second time.  We hold the tentative answer for at most this
+ * many bytes so a short stray draft (or a </think> split across generated
+ * tokens) can still be rerouted to reasoning_content.  Past this window the
+ * text is treated as the answer and streamed, so ordinary responses keep
+ * flushing content incrementally instead of stalling until generation ends. */
+#define SECOND_REASONING_GUARD_BYTES 32
+
 static bool stream_needs_second_reasoning_guard(const request *r) {
     return ds4_think_mode_enabled(r->think_mode) && r->has_tools &&
            r->model_syntax != SERVER_MODEL_SYNTAX_QWEN;
@@ -8142,7 +8150,8 @@ static bool openai_sse_stream_update(int fd, server *s, const request *r, const 
                 if (limit > st->emit_pos) st->sent_reasoning = true;
                 st->emit_pos = limit + strlen("</think>");
                 st->guard_second_reasoning = false;
-            } else if (!tool && !final) {
+            } else if (!tool && !final &&
+                       raw_len - st->emit_pos <= SECOND_REASONING_GUARD_BYTES) {
                 return true;
             } else {
                 st->guard_second_reasoning = false;
@@ -9777,7 +9786,8 @@ static bool anthropic_sse_stream_update(int fd, server *s, const request *r, con
                 if (!anthropic_sse_close_block_live(fd, id, st)) return false;
                 st->emit_pos = limit + strlen("</think>");
                 st->guard_second_reasoning = false;
-            } else if (!tool && !final) {
+            } else if (!tool && !final &&
+                       raw_len - st->emit_pos <= SECOND_REASONING_GUARD_BYTES) {
                 return true;
             } else {
                 st->guard_second_reasoning = false;
@@ -13125,6 +13135,23 @@ static bool glm_tool_turn_checkpoint_eligible(const request *r, const char *fini
            memcmp(r->prompt_text + prompt_len - tag_len, think_tag, tag_len) == 0;
 }
 
+/* GLM + tools never hits should_remember_thinking_checkpoint (has_tools).
+ * finish=stop with an open "<think>" still needs a visible key so omit-reasoning
+ * follow-ups can keep the sampled KV (#1093 covers tool_calls only). */
+static bool glm_stop_thinking_checkpoint_eligible(const request *r,
+                                                  const char *finish) {
+    if (!r || r->model_syntax != SERVER_MODEL_SYNTAX_GLM) return false;
+    if (r->kind != REQ_CHAT || r->image_count != 0) return false;
+    if (r->api == API_RESPONSES || r->api == API_ANTHROPIC) return false;
+    if (!r->prompt_text || !r->prompt_text[0]) return false;
+    if (!finish || strcmp(finish, "stop")) return false;
+    const char *think_tag = "<think>";
+    const size_t tag_len = strlen(think_tag);
+    const size_t prompt_len = strlen(r->prompt_text);
+    return prompt_len >= tag_len &&
+           memcmp(r->prompt_text + prompt_len - tag_len, think_tag, tag_len) == 0;
+}
+
 /* After a successful tool-call finish, make the live checkpoint match what the
  * next request will render.  Usually that is just the exact DSML remembered by
  * tool id.  If a client sends a tool call without an id we know, the fallback
@@ -14846,9 +14873,14 @@ decode_again:
             thinking_live_clear(s, slot);
         }
     } else if (!parsed_calls.len &&
-               should_remember_thinking_checkpoint(&j->req, &thinking, final_finish)) {
+               (should_remember_thinking_checkpoint(&j->req, &thinking, final_finish) ||
+                glm_stop_thinking_checkpoint_eligible(&j->req, final_finish))) {
+        /* Unfinished thinking has no visible answer; omit-reasoning clients
+         * continue from a closed empty think block. */
+        const char *visible_content =
+            thinking.inside ? "" : (parsed_content ? parsed_content : "");
         remember_thinking_checkpoint(s, slot, j, ctx_span, trace_id,
-                                     parsed_content ? parsed_content : "",
+                                     visible_content,
                                      thinking_live_continuation ||
                                      (disk_cache_ext_flags & KV_EXT_THINKING_VISIBLE));
     } else if (!parsed_calls.len) {
@@ -17238,6 +17270,111 @@ static void test_anthropic_stream_reroutes_second_reasoning_pass(void) {
     TEST_ASSERT(strstr(out, "\"text\":\"final answer\"") != NULL);
     TEST_ASSERT(strstr(out, "\"text\":\"escaped draft") == NULL);
     TEST_ASSERT(strstr(out, "</think>") == NULL);
+
+    free(out);
+    anthropic_stream_free(&st);
+    request_free(&r);
+    close(sv[0]);
+    close(sv[1]);
+}
+
+static void test_openai_tools_stream_content_is_incremental(void) {
+    int sv[2];
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    if (sv[0] < 0 || sv[1] < 0) return;
+
+    request r;
+    request_init(&r, REQ_CHAT, 128);
+    r.api = API_OPENAI;
+    r.stream = true;
+    r.think_mode = DS4_THINK_HIGH;
+    r.has_tools = true;
+
+    openai_stream st;
+    openai_stream_start(&r, &st);
+
+    /* With tools enabled the answer must keep flowing as its own content
+     * deltas.  A regression held every byte until the final flush, so the
+     * client saw the whole answer appear at once after reasoning ended. */
+    const char *raw1 = "<think>reasoning</think>First part of a long answer ";
+    const char *raw2 =
+        "<think>reasoning</think>First part of a long answer that keeps going ";
+    const char *raw3 =
+        "<think>reasoning</think>First part of a long answer that keeps going "
+        "and only ends here";
+    TEST_ASSERT(openai_sse_stream_update(sv[0], NULL, &r, "chatcmpl_incremental",
+                                         &st, raw1, strlen(raw1), false));
+    TEST_ASSERT(openai_sse_stream_update(sv[0], NULL, &r, "chatcmpl_incremental",
+                                         &st, raw2, strlen(raw2), false));
+    TEST_ASSERT(openai_sse_stream_update(sv[0], NULL, &r, "chatcmpl_incremental",
+                                         &st, raw3, strlen(raw3), false));
+    TEST_ASSERT(openai_sse_finish_live(sv[0], NULL, &r, "chatcmpl_incremental", &st,
+                                       raw3, strlen(raw3), NULL, "stop", 5, 20));
+    shutdown(sv[0], SHUT_WR);
+    char *out = read_socket_text(sv[1]);
+
+    TEST_ASSERT(strstr(out, "\"reasoning_content\":\"reasoning\"") != NULL);
+    int content_deltas = 0;
+    for (const char *p = out; (p = strstr(p, "\"delta\":{\"content\":")) != NULL; p++) {
+        content_deltas++;
+    }
+    TEST_ASSERT(content_deltas >= 2);
+    TEST_ASSERT(strstr(out, "\"content\":\"First part of a long answer") != NULL);
+    TEST_ASSERT(strstr(out, "data: [DONE]") != NULL);
+
+    free(out);
+    openai_stream_free(&st);
+    request_free(&r);
+    close(sv[0]);
+    close(sv[1]);
+}
+
+/* Anthropic counterpart of test_openai_tools_stream_content_is_incremental:
+ * the guard applies to anthropic_sse_stream_update too, so a DeepSeek/GLM
+ * answer placed before a tool call must keep streaming as its own
+ * text_delta events on this API as well, not just on OpenAI-compatible
+ * streams. Regression: before bounding the wait to
+ * SECOND_REASONING_GUARD_BYTES, this API held every byte until finish. */
+static void test_anthropic_tools_stream_content_is_incremental(void) {
+    int sv[2];
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    if (sv[0] < 0 || sv[1] < 0) return;
+
+    request r;
+    request_init(&r, REQ_CHAT, 128);
+    r.api = API_ANTHROPIC;
+    r.stream = true;
+    r.think_mode = DS4_THINK_HIGH;
+    r.has_tools = true;
+
+    anthropic_stream st;
+    TEST_ASSERT(anthropic_sse_start_live(sv[0], &r, "msg_incremental", 7, &st));
+
+    const char *raw1 = "<think>reasoning</think>First part of a long answer ";
+    const char *raw2 =
+        "<think>reasoning</think>First part of a long answer that keeps going ";
+    const char *raw3 =
+        "<think>reasoning</think>First part of a long answer that keeps going "
+        "and only ends here";
+    TEST_ASSERT(anthropic_sse_stream_update(sv[0], NULL, &r, "msg_incremental",
+                                            &st, raw1, strlen(raw1), false));
+    TEST_ASSERT(anthropic_sse_stream_update(sv[0], NULL, &r, "msg_incremental",
+                                            &st, raw2, strlen(raw2), false));
+    TEST_ASSERT(anthropic_sse_stream_update(sv[0], NULL, &r, "msg_incremental",
+                                            &st, raw3, strlen(raw3), false));
+    TEST_ASSERT(anthropic_sse_finish_live(sv[0], NULL, &r, "msg_incremental", &st,
+                                          raw3, strlen(raw3), NULL, "end_turn", 20));
+    shutdown(sv[0], SHUT_WR);
+    char *out = read_socket_text(sv[1]);
+
+    TEST_ASSERT(strstr(out, "\"type\":\"thinking_delta\"") != NULL);
+    int text_deltas = 0;
+    for (const char *p = out; (p = strstr(p, "\"type\":\"text_delta\"")) != NULL; p++) {
+        text_deltas++;
+    }
+    TEST_ASSERT(text_deltas >= 2);
+    TEST_ASSERT(strstr(out, "\"text\":\"First part of a long answer") != NULL);
+    TEST_ASSERT(strstr(out, "event: message_stop") != NULL);
 
     free(out);
     anthropic_stream_free(&st);
@@ -21147,6 +21284,28 @@ static void test_glm_tool_turn_checkpoint_eligible(void) {
     TEST_ASSERT(!glm_tool_turn_checkpoint_eligible(NULL, "tool_calls", false, "<tool_call>x</tool_call>"));
 }
 
+static void test_glm_stop_thinking_checkpoint_eligible(void) {
+    request r;
+    memset(&r, 0, sizeof r);
+    r.kind = REQ_CHAT;
+    r.api = API_OPENAI;
+    r.model_syntax = SERVER_MODEL_SYNTAX_GLM;
+    r.prompt_text = "<|system|>\nhi<|user|>\nrun<|assistant|>\n<think>";
+    TEST_ASSERT(glm_stop_thinking_checkpoint_eligible(&r, "stop"));
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, "tool_calls"));
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, "length"));
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, NULL));
+    r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, "stop"));
+    r.model_syntax = SERVER_MODEL_SYNTAX_GLM;
+    r.api = API_RESPONSES;
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, "stop"));
+    r.api = API_OPENAI;
+    r.prompt_text = "<|assistant|>\nclosed";
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(&r, "stop"));
+    TEST_ASSERT(!glm_stop_thinking_checkpoint_eligible(NULL, "stop"));
+}
+
 static void test_live_prefix_rewind_target(void) {
     TEST_ASSERT(live_prefix_rewind_target(true, 17, 8, 8) == 7);
     TEST_ASSERT(live_prefix_rewind_target(true, 49826, 48379, 48379) == 48378);
@@ -23333,6 +23492,8 @@ static void ds4_server_unit_tests_run(void) {
     test_cors_sse_headers();
     test_anthropic_live_stream_sends_incremental_blocks();
     test_anthropic_stream_reroutes_second_reasoning_pass();
+    test_openai_tools_stream_content_is_incremental();
+    test_anthropic_tools_stream_content_is_incremental();
     test_anthropic_usage_reports_cache_details();
     test_anthropic_tool_stream_sends_live_tool_use();
     test_openai_tool_stream_sends_incremental_text();
@@ -23410,6 +23571,7 @@ static void ds4_server_unit_tests_run(void) {
     test_model_metadata_clamps_completion_to_context();
     test_live_prefix_rewind_target();
     test_glm_tool_turn_checkpoint_eligible();
+    test_glm_stop_thinking_checkpoint_eligible();
     test_client_socket_nonblocking_flag();
     test_client_disconnect_probe();
     test_cancelled_progress_callback_is_inert();
