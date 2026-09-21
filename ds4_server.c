@@ -6507,6 +6507,10 @@ static bool parse_glm_generated_message_ex(const char *text,
         p = next;
     }
 
+    /* A <tool_call> after trailing prose is not part of this call run and
+     * would otherwise be dropped silently; report failure so the caller's
+     * repair path runs. */
+    if (find_tool_structural_text(p, tool_start, false)) return false;
     if (calls->len == 0) return false;
     free(calls->raw_tool_text);
     calls->raw_tool_text = xstrndup(raw_block_start, (size_t)(p - raw_block_start));
@@ -19412,6 +19416,8 @@ static void test_parse_glm_prose_tool_call_not_restructured(void) {
         "</think>running it\n\n"
         "<tool_call>bash<arg_key>command</arg_key><arg_value>ls</arg_value></tool_call>\n\n"
         "then I said <tool_call>this is just prose, not a call</tool_call> done";
+    content = NULL;
+    reasoning = NULL;
     tool_calls calls2 = {0};
     TEST_ASSERT(!parse_generated_message_ex_for_syntax(
         SERVER_MODEL_SYNTAX_GLM, mixed, true,
