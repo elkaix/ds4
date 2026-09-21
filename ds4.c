@@ -74842,13 +74842,16 @@ static int ds4_session_glm_spec_cycle_impl(
 /* Restore the state immediately before the last two-token GLM-5.3 MTP cycle,
  * then replay the retained first row when the caller keeps it.  ds4-agent uses
  * this when a speculative block crosses into or out of greedy tool syntax. */
+/* GLM 5.3 DSA state can only be restored inside the last 2-token MTP cycle. */
+static bool ds4_session_glm_mtp_rewind_possible(const ds4_session *s, int pos) {
+    return s && s->glm_mtp_rollback_valid && s->glm_graph.glm53 &&
+           s->checkpoint.len == (int)s->glm_mtp_rollback_pos + 2 &&
+           (pos == (int)s->glm_mtp_rollback_pos ||
+            pos == (int)s->glm_mtp_rollback_pos + 1);
+}
+
 static bool ds4_session_glm_mtp_rewind(ds4_session *s, int pos) {
-    if (!s || !s->glm_mtp_rollback_valid || !s->glm_graph.glm53 ||
-        s->checkpoint.len != (int)s->glm_mtp_rollback_pos + 2 ||
-        (pos != (int)s->glm_mtp_rollback_pos &&
-         pos != (int)s->glm_mtp_rollback_pos + 1)) {
-        return false;
-    }
+    if (!ds4_session_glm_mtp_rewind_possible(s, pos)) return false;
     const uint32_t start = s->glm_mtp_rollback_pos;
     bool ok = glm53_graph_copy_spec_state(&s->glm_graph, false);
     s->glm_dense_cache_len = s->glm_mtp_rollback_dense_len;
@@ -86052,6 +86055,23 @@ void ds4_session_invalidate(ds4_session *s) {
 #endif
     ds4_session_glm_reset_dense_cache(s);
 #endif
+}
+
+/* True when ds4_session_rewind(s, pos) keeps a valid checkpoint, so callers can
+ * avoid a rewind that would discard the live state before it is persisted. */
+bool ds4_session_rewind_keeps_state(ds4_session *s, int pos) {
+    if (!s || !s->checkpoint_valid) return false;
+    if (pos < 0) pos = 0;
+    if (pos >= s->checkpoint.len) return true;
+#ifndef DS4_NO_GPU
+#ifdef DS4_HAS_QWEN4_GPU
+    if (ds4_session_is_qwen4(s)) return true;
+#endif
+    if (ds4_session_is_glm(s)) {
+        return !s->glm_graph.glm53 || ds4_session_glm_mtp_rewind_possible(s, pos);
+    }
+#endif
+    return false;
 }
 
 void ds4_session_rewind(ds4_session *s, int pos) {

@@ -13732,7 +13732,21 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         const int rewind_to = live_prefix_rewind_target(
             ds4_engine_is_glm_dsa(s->engine), old_pos,
             j->req.prompt.len, common);
+        bool rewind_keeps_state = false;
         if (rewind_to >= 0) {
+            pthread_mutex_lock(&s->inference_mu);
+            rewind_keeps_state =
+                ds4_session_rewind_keeps_state(slot->session, rewind_to);
+            pthread_mutex_unlock(&s->inference_mu);
+            if (!rewind_keeps_state) {
+                /* A GLM 5.3 rewind outside the MTP cycle destroys the live
+                 * checkpoint; keep it so the evict store below persists it. */
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: GLM live prefix rewind from %d to %d would discard live state; kept for evict",
+                           old_pos, rewind_to);
+            }
+        }
+        if (rewind_keeps_state) {
             pthread_mutex_lock(&s->inference_mu);
             ds4_session_rewind(slot->session, rewind_to);
             const bool rewind_valid =
@@ -13755,7 +13769,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                            "ds4-server: GLM live prefix rewind from %d to %d requires rebuild",
                            old_pos, rewind_to);
             }
-        } else {
+        } else if (rewind_to < 0) {
             cached = common == old_pos && j->req.prompt.len >= old_pos ? common : 0;
             cache_source = cached > 0 ? "memory-token" : "none";
         }
