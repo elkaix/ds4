@@ -158,6 +158,27 @@ class GLM53QuantizeTests(unittest.TestCase):
             QTYPE_Q8_0,
         )
 
+    def test_kda_q4k_selects_projections(self):
+        both = frozenset(("q", "k", "v", "output"))
+        for name in ("kda_q", "kda_k", "kda_v", "kda_output"):
+            self.assertEqual(
+                regular_qtype("q2", "linear_attention", f"blk.0.{name}.weight", QTYPE_BF16, both),
+                QTYPE_Q4_K,
+            )
+        for name in ("kda_f_a", "kda_beta", "kda_g_b"):
+            self.assertEqual(
+                regular_qtype("q2", "linear_attention", f"blk.0.{name}.weight", QTYPE_BF16, both),
+                QTYPE_Q8_0,
+            )
+        self.assertEqual(
+            regular_qtype("q2", "linear_attention", "blk.0.kda_q.weight", QTYPE_BF16, frozenset()),
+            QTYPE_Q8_0,
+        )
+        self.assertEqual(
+            regular_qtype("q2", "linear_attention", "blk.0.kda_v_conv.weight", QTYPE_F32, both),
+            QTYPE_F32,
+        )
+
     def test_full_glm_provisional_uses_q2k_experts(self):
         default = []
         provisional = []

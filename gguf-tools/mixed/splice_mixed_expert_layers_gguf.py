@@ -60,7 +60,9 @@ GGML_QUANT_SIZES = {
     10: (256, 84, "Q2_K"),
     12: (256, 144, "Q4_K"),
     16: (256, 66, "IQ2_XXS"),
+    24: (1, 1, "I8"),
     26: (1, 4, "I32"),
+    30: (1, 2, "BF16"),
 }
 
 EXPERT_TENSOR_RE = re.compile(r"^blk\.(\d+)\.ffn_(gate|up|down)_exps\.weight$")
@@ -244,8 +246,8 @@ def parse_layer_set(spec: str) -> set[int]:
     return layers
 
 
-def should_take_donor(name: str, q4_layers: set[int]) -> bool:
-    match = EXPERT_TENSOR_RE.match(name)
+def should_take_donor(name: str, q4_layers: set[int], pattern: re.Pattern[str] = EXPERT_TENSOR_RE) -> bool:
+    match = pattern.match(name)
     return match is not None and int(match.group(1)) in q4_layers
 
 
@@ -253,7 +255,8 @@ def qtype_name(ggml_type: int) -> str:
     return GGML_QUANT_SIZES.get(ggml_type, (0, 0, f"type_{ggml_type}"))[2]
 
 
-def build_plan(base: GGUFInfo, donor: GGUFInfo, q4_layers: set[int]) -> list[SplicePlan]:
+def build_plan(base: GGUFInfo, donor: GGUFInfo, q4_layers: set[int],
+               pattern: re.Pattern[str] = EXPERT_TENSOR_RE) -> list[SplicePlan]:
     if base.version != donor.version:
         raise ValueError(f"GGUF version mismatch: base={base.version} donor={donor.version}")
     if base.tensor_count != donor.tensor_count:
@@ -269,7 +272,7 @@ def build_plan(base: GGUFInfo, donor: GGUFInfo, q4_layers: set[int]) -> list[Spl
             raise ValueError(f"donor is missing tensor {base_tensor.name}")
         if base_tensor.dims != donor_tensor.dims:
             raise ValueError(f"shape mismatch for {base_tensor.name}: {base_tensor.dims} vs {donor_tensor.dims}")
-        use_donor = should_take_donor(base_tensor.name, q4_layers)
+        use_donor = should_take_donor(base_tensor.name, q4_layers, pattern)
         source_tensor = donor_tensor if use_donor else base_tensor
         plan.append(SplicePlan(
             name=base_tensor.name,
@@ -376,14 +379,21 @@ def main() -> int:
     parser.add_argument("--q4-layers", required=True, help="comma-separated layer IDs/ranges to take from donor, e.g. 37-42")
     parser.add_argument("--dry-run", action="store_true", help="print the plan without writing the output")
     parser.add_argument("--force", action="store_true", help="overwrite --out if it already exists")
+    parser.add_argument("--tensor-regex", default=EXPERT_TENSOR_RE.pattern,
+                        help="tensors to take from the donor; group 1 must capture the layer ID "
+                             "(default: routed expert gate/up/down)")
     args = parser.parse_args()
+
+    pattern = re.compile(args.tensor_regex)
+    if pattern.groups < 1:
+        parser.error("--tensor-regex needs a capture group for the layer ID")
 
     q4_layers = parse_layer_set(args.q4_layers)
     print("q4 layers:", ",".join(str(x) for x in sorted(q4_layers)))
 
     base = parse_gguf(args.base)
     donor = parse_gguf(args.donor)
-    plan = build_plan(base, donor, q4_layers)
+    plan = build_plan(base, donor, q4_layers, pattern)
     summarize(base, donor, plan)
 
     if args.dry_run:

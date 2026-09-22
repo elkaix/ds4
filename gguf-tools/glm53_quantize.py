@@ -89,16 +89,22 @@ def qtype_nbytes(qtype, shape):
     return shape[0] // block * block_bytes * product(shape[1:])
 
 
-def regular_qtype(artifact, role, name, source_qtype):
+KDA_Q4K_TARGETS = ("q", "k", "v", "output")
+
+
+def default_kda_q4k(artifact):
+    return frozenset(("q", "k")) if artifact == "q2" else frozenset()
+
+
+def regular_qtype(artifact, role, name, source_qtype, kda_q4k=None):
     if artifact not in ("q2", "q4") or source_qtype != QTYPE_BF16:
         return source_qtype
     if role in ("embedding", "output"):
         return QTYPE_Q8_0
     if role == "linear_attention":
-        if artifact == "q2" and (
-            name.endswith(".kda_q.weight") or
-            name.endswith(".kda_k.weight")
-        ):
+        if kda_q4k is None:
+            kda_q4k = default_kda_q4k(artifact)
+        if any(name.endswith(f".kda_{target}.weight") for target in kda_q4k):
             return QTYPE_Q4_K
         return QTYPE_Q8_0
     return source_qtype
@@ -428,7 +434,7 @@ def add_mhc(plan, db, layer):
         add_regular(plan, db, f"blk.{layer}.hc_{site}_scale.weight", f"{prefix}.hc_{site}_scale", QTYPE_F32, "mhc")
 
 
-def add_linear_attention(plan, db, layer, artifact):
+def add_linear_attention(plan, db, layer, artifact, kda_q4k):
     prefix = f"{source_prefix(layer)}.self_attn"
     mapping = (
         ("q", "q_proj.weight", QTYPE_BF16),
@@ -454,7 +460,7 @@ def add_linear_attention(plan, db, layer, artifact):
             db,
             name,
             f"{prefix}.{source}",
-            regular_qtype(artifact, "linear_attention", name, qtype),
+            regular_qtype(artifact, "linear_attention", name, qtype, kda_q4k),
             "linear_attention",
         )
 
@@ -634,7 +640,7 @@ def native_fp8_plan(db, plan):
     return native
 
 
-def build_plan(db, artifact):
+def build_plan(db, artifact, kda_q4k=None):
     plan = []
     embedding_name = "token_embd.weight"
     add_regular(
@@ -651,7 +657,7 @@ def build_plan(db, artifact):
             add_mhc(plan, db, layer)
         add_regular(plan, db, f"blk.{layer}.attn_norm.weight", f"{prefix}.input_layernorm.weight", QTYPE_F32, "norm")
         if layer < 45 and layer % 4 != 3:
-            add_linear_attention(plan, db, layer, artifact)
+            add_linear_attention(plan, db, layer, artifact, kda_q4k)
         else:
             add_dsa_attention(plan, db, layer)
         add_regular(
@@ -1185,11 +1191,26 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--resume", action="store_true", help="resume a matching per-tensor partial conversion")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--kda-q4k",
+        help="comma-separated KDA projections stored as Q4_K instead of Q8_0 "
+             f"({','.join(KDA_Q4K_TARGETS)}); default q,k for q2, none for q4",
+    )
     args = parser.parse_args()
     if args.threads < 1 or args.threads > 64:
         parser.error("--threads must be between 1 and 64")
     if not args.dry_run and not args.out:
         parser.error("--out is required unless --dry-run is used")
+    if args.kda_q4k is None:
+        args.kda_q4k = default_kda_q4k(args.artifact)
+    else:
+        if args.artifact == "fp8":
+            parser.error("--kda-q4k does not apply to the lossless FP8 artifact")
+        targets = [target for target in args.kda_q4k.split(",") if target]
+        unknown = sorted(set(targets) - set(KDA_Q4K_TARGETS))
+        if unknown:
+            parser.error(f"--kda-q4k: unknown projection(s) {','.join(unknown)}")
+        args.kda_q4k = frozenset(targets)
     if args.artifact == "q4" and args.imatrix:
         print("glm53-quantize: using the imatrix for Q4_K expert scale selection", file=sys.stderr)
     if args.artifact == "fp8" and args.imatrix:
@@ -1201,7 +1222,7 @@ def main():
     args = parse_args()
     db = SourceDB(args.hf)
     try:
-        plan = build_plan(db, args.artifact)
+        plan = build_plan(db, args.artifact, args.kda_q4k)
         tokenizer_records, template_tokens = load_tokenizer_records(args.tokenizer_template)
         validate_tokenizer_template(args.hf, template_tokens, 154880)
         kv_records = model_metadata(args.hf, args.source_revision)
