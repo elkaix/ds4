@@ -6861,7 +6861,26 @@ static bool parse_generated_message_for_response_for_syntax(server_model_syntax 
                                                            content_out,
                                                            reasoning_out,
                                                            calls);
-    if (parsed_ok) return true;
+    if (parsed_ok) {
+        /* Unclosed <think> is routed to reasoning_content with content emptied.
+         * Correct for finish=length: a cut-off chain must not look like an
+         * answer. Wrong for finish=stop: EOS without </think> deletes the
+         * answer (antirez/ds4#1088). Re-emit that buffer as content.
+         *
+         * Do not fire when tool calls were parsed. A normal tool turn has
+         * empty content, non-empty reasoning, and finish=stop; copying
+         * reasoning into content would change the client-visible transcript
+         * and the tool-turn cache key. #1088's measurement had no tool calls. */
+        const char *finish_final = (finish_io && *finish_io) ? *finish_io : "stop";
+        if (strcmp(finish_final, "stop") == 0
+                && calls && calls->len == 0
+                && content_out && *content_out && !**content_out
+                && reasoning_out && *reasoning_out && **reasoning_out) {
+            free(*content_out);
+            *content_out = xstrdup(*reasoning_out);
+        }
+        return true;
+    }
 
     free(*content_out);
     free(*reasoning_out);
@@ -19017,6 +19036,123 @@ static void test_qwen_tool_checkpoint_round_trip(void) {
     tool_calls_free(&calls);
 }
 
+static void test_unterminated_reasoning_content_recovered_on_stop(void) {
+    const char *generated =
+        "<think>\nStufe 1: 26,9% PPV, 670 Alarme.\nStufe 2: 220 Alarme.\n"
+        "Ergebnis: 890 / 29 / 15.025,00 EUR";
+    const char *finish = "stop";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, generated, false, false, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(content && content[0]);
+    TEST_ASSERT(reasoning && reasoning[0]);
+    TEST_ASSERT(!strncmp(content, "\nStufe 1:", 9));
+    TEST_ASSERT(!strcmp(finish, "stop"));
+    TEST_ASSERT(calls.len == 0);
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
+static void test_unterminated_reasoning_stays_empty_on_length(void) {
+    const char *generated = "<think>\nnoch am Rechnen, Schritt 7 von 12 ...";
+    const char *finish = "length";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, generated, false, false, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(content && !content[0]);
+    TEST_ASSERT(reasoning && reasoning[0]);
+    TEST_ASSERT(!strcmp(finish, "length"));
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
+static void test_unterminated_reasoning_recovered_on_qwen_syntax(void) {
+    const char *generated = "<think>\nOptimierung: Option 1 bei p>0.5 ...";
+    const char *finish = "stop";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_QWEN, generated, false, false, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(content && content[0]);
+    TEST_ASSERT(reasoning && reasoning[0]);
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
+static void test_unterminated_reasoning_recovered_on_deepseek_syntax(void) {
+    const char *generated = "<think>\nanswer lives in the unclosed think";
+    const char *finish = "stop";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_DEEPSEEK, generated, false, false, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(content && strstr(content, "answer lives in the unclosed think"));
+    TEST_ASSERT(reasoning && reasoning[0]);
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
+static void test_closed_thinking_split_is_unchanged(void) {
+    const char *generated = "<think>\nRechnung Schritt 1..3\n</think>\nAntwort: 42";
+    const char *finish = "stop";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, generated, false, false, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(content && strstr(content, "Antwort: 42"));
+    TEST_ASSERT(reasoning && strstr(reasoning, "Rechnung Schritt 1..3"));
+    TEST_ASSERT(!strstr(reasoning, "Antwort: 42"));
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
+static void test_tool_turn_empty_content_not_replaced_by_reasoning(void) {
+    /* Ungated #1088 would copy reasoning into content here. That rewrites the
+     * client-visible tool turn and the cache key. */
+    const char *generated =
+        "<think>need bash</think>\n\n"
+        "<tool_call>bash"
+        "<arg_key>command</arg_key><arg_value>echo hi</arg_value>"
+        "</tool_call>";
+    const char *finish = "stop";
+    char *content = NULL, *reasoning = NULL;
+    char err[128] = {0};
+    tool_calls calls = {0};
+    bool recovered = false;
+    TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, generated, true, true, true, &finish,
+        err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+    TEST_ASSERT(calls.len == 1);
+    TEST_ASSERT(reasoning && !strcmp(reasoning, "need bash"));
+    TEST_ASSERT(content && !content[0]);
+    TEST_ASSERT(!strcmp(finish, "stop"));
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+}
+
 static void test_qwen_sampled_tool_text_after_think_renders_exactly(void) {
     /* the model's own whitespace between </think> and its tool call is
      * replayed once, not stacked on the template separator */
@@ -23705,6 +23841,12 @@ static void ds4_server_unit_tests_run(void) {
     test_qwen_literal_tool_end_in_argument();
     test_qwen_string_arguments_follow_schema();
     test_qwen_tool_checkpoint_round_trip();
+    test_unterminated_reasoning_content_recovered_on_stop();
+    test_unterminated_reasoning_stays_empty_on_length();
+    test_unterminated_reasoning_recovered_on_qwen_syntax();
+    test_unterminated_reasoning_recovered_on_deepseek_syntax();
+    test_closed_thinking_split_is_unchanged();
+    test_tool_turn_empty_content_not_replaced_by_reasoning();
     test_qwen_sampled_tool_text_after_think_renders_exactly();
     test_qwen_parallel_tool_calls_parse_and_replay();
     test_qwen_plain_answer_keeps_trailing_whitespace();
