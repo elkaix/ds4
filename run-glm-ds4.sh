@@ -35,6 +35,15 @@ KV_COLD_MAX_TOKENS=65536
 # and expect ~0.5-0.9 s pauses at each frontier during decode.
 KV_CONTINUED_INTERVAL="${GLM_DS4_KV_CONTINUED_INTERVAL:-20480}"
 KV_ALIGN_TOKENS=2048
+# Idle TTL for disk checkpoints. ds4 evicts only when the budget is full and its
+# score favours large files, so finished sessions otherwise pin the whole budget
+# (2026-09-22: 73 files / 107.5 GiB idle >6h, crowding out small system-prompt
+# anchors). kv-cache-prune.py deletes checkpoints idle longer than this at start,
+# every KV_PRUNE_INTERVAL_SECONDS while running, and after the server stops.
+# The shutdown checkpoint is fresh, so restart-resume survives. 0 disables.
+KV_TTL_HOURS="${GLM_DS4_KV_TTL_HOURS:-6}"
+KV_PRUNE_INTERVAL_SECONDS=600
+KV_PRUNE="$ROOT_DIR/kv-cache-prune.py"
 # Model-embedded GLM 5.3 MTP speculation, OFF by default: the clean baseline
 # (PR #1090 lineage, glm53-m5-prod) is plain decode while the long-context
 # campaign re-measures where speculation pays. Set GLM_DS4_MTP=1 to enable.
@@ -94,6 +103,8 @@ Environment:
   GLM_DS4_KV_CONTINUED_INTERVAL=N
                               Continued KV snapshot interval in tokens (default:
                               20480; rounded up to a multiple of 2048; 0 disables)
+  GLM_DS4_KV_TTL_HOURS=N      Delete KV checkpoints idle longer than N hours at
+                              start, every 10 min, and on stop (default: 6; 0 disables)
   FAN_PROFILE=name            thermalforge watch profile (default: balanced)
   GLM_DS4_MTP=1               Enable model-embedded MTP speculation (default off)
   GLM_DS4_MTP_TIMING=1        Print MTP acceptance/verify timing (diagnostic)
@@ -124,6 +135,14 @@ export DS4_GLM_MTP_MAX_CTX="$MTP_MAX_CTX"
 if [[ ! $KV_CONTINUED_INTERVAL =~ ^(0|[1-9][0-9]*)$ ]]; then
     echo "GLM_DS4_KV_CONTINUED_INTERVAL must be a non-negative integer; got: $KV_CONTINUED_INTERVAL" >&2
     exit 2
+fi
+if [[ ! $KV_TTL_HOURS =~ ^(0|[1-9][0-9]{0,3})$ ]]; then
+    echo "GLM_DS4_KV_TTL_HOURS must be an integer between 0 and 9999; got: $KV_TTL_HOURS" >&2
+    exit 2
+fi
+if (( KV_TTL_HOURS > 0 )) && [[ ! -r $KV_PRUNE ]]; then
+    echo "KV prune helper not found: $KV_PRUNE (set GLM_DS4_KV_TTL_HOURS=0 to run without it)" >&2
+    exit 1
 fi
 
 for command in lsof macmon python3 ps sudo sysctl; do
@@ -312,6 +331,13 @@ fi
 
 mkdir -p "$KV_DIR"
 
+# Best effort: a prune failure is reported but never blocks start or shutdown.
+prune_kv_cache() {
+    (( KV_TTL_HOURS > 0 )) || return 0
+    python3 "$KV_PRUNE" --dir "$KV_DIR" --ttl-hours "$KV_TTL_HOURS" --label "$1" >&2 ||
+        echo "Warning: KV cache prune ($1) reported errors." >&2
+}
+
 # Launcher instance lock: closes the lsof→bind→start TOCTOU window between
 # concurrent launcher starts, and stops two wrappers from racing the same
 # port/KV dir. mkdir is atomic on APFS; a stale lock (crashed launcher) is
@@ -377,7 +403,11 @@ PY
     exit 1
 fi
 
+# Also covers checkpoints left behind by a launcher that was hard-killed.
+prune_kv_cache start
+
 server_pid=""
+server_started=false
 monitor_pid=""
 
 stop_monitor() {
@@ -442,6 +472,10 @@ cleanup() {
 
     restore_fans || true
     stop_monitor
+    # The server has exited, so its shutdown checkpoint is on disk and fresh.
+    if [[ $server_started == true ]]; then
+        prune_kv_cache stop
+    fi
     exit "$status"
 }
 
@@ -475,6 +509,9 @@ interval = int(sys.argv[6])
 fan_controller = sys.argv[7]
 fan_command_timeout = int(sys.argv[8])
 macmon = sys.argv[9]
+kv_prune = sys.argv[10]
+kv_ttl_hours = int(sys.argv[11])
+kv_prune_interval = int(sys.argv[12])
 base_url = f"http://{host}:{port}"
 ever_healthy = False
 log_path = os.path.expanduser("~/.ds4/monitor.log")
@@ -649,6 +686,30 @@ def restore_fans_after_server():
         )
 
 
+def prune_kv_cache(label):
+    """Idle-TTL prune; logs only when it removed something or failed."""
+    try:
+        result = subprocess.run(
+            [sys.executable, kv_prune, "--dir", kv_dir,
+             "--ttl-hours", str(kv_ttl_hours), "--label", label],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        emit(f"[monitor] kv-prune failed: {type(exc).__name__}")
+        return
+    summary = result.stdout.strip()
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()
+        emit(f"[monitor] {summary} errors={len(detail)}")
+    elif summary and " removed=0 " not in summary:
+        emit(f"[monitor] {summary}")
+
+
+next_prune = time.monotonic() + kv_prune_interval
+
 while server_alive():
     # /v1/models is the liveness probe; /stats carries the serving counters.
     health = fetch_json("/v1/models")
@@ -715,6 +776,10 @@ while server_alive():
         f"disk_free={free_gib:.1f}GiB{warning}"
     )
 
+    if kv_ttl_hours > 0 and time.monotonic() >= next_prune:
+        prune_kv_cache("running")
+        next_prune = time.monotonic() + kv_prune_interval
+
     deadline = time.monotonic() + interval
     while server_alive():
         remaining = deadline - time.monotonic()
@@ -722,6 +787,9 @@ while server_alive():
             break
         time.sleep(min(1, remaining))
 restore_fans_after_server()
+# Hard-kill fallback for the launcher-side stop prune.
+if kv_ttl_hours > 0:
+    prune_kv_cache("server-stopped")
 # Neutralize std streams so the interpreter shutdown flush cannot fail
 # against a dead terminal (CPython would otherwise exit with status 120).
 try:
@@ -730,7 +798,8 @@ except OSError:
     pass
 ' "$watched_pid" "$HOST" "$PORT" "$KV_DIR" "$KV_BUDGET_MB" \
         "$MONITOR_INTERVAL_SECONDS" "$THERMALFORGE" \
-        "$FAN_COMMAND_TIMEOUT_SECONDS" "$MACMON" &
+        "$FAN_COMMAND_TIMEOUT_SECONDS" "$MACMON" \
+        "$KV_PRUNE" "$KV_TTL_HOURS" "$KV_PRUNE_INTERVAL_SECONDS" &
     monitor_pid=$!
 }
 
@@ -799,7 +868,7 @@ Starting monitored ds4-server (GLM 5.3 Flash Q2, clean engine)
   endpoint:   http://$HOST:$PORT
   context:    $CTX
   max tokens: $TOKENS
-  KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens, continued ${kv_continued_state})
+  KV cache:   $KV_DIR (${KV_BUDGET_MB} MiB budget, min ${KV_MIN_TOKENS}, cold max ${KV_COLD_MAX_TOKENS} tokens, continued ${kv_continued_state}, idle TTL $(if (( KV_TTL_HOURS > 0 )); then echo "${KV_TTL_HOURS}h"; else echo off; fi))
   build:      ${ds4_branch:-unknown} @ ${ds4_commit:-unknown}
   repo:       $ds4_tree (code: $ds4_code)
   binary:     $binary_state, built $binary_stamp
@@ -833,6 +902,7 @@ os.execv(sys.argv[2], sys.argv[2:])
     --kv-cache-cold-max-tokens "$KV_COLD_MAX_TOKENS" \
     --kv-cache-continued-interval-tokens "$KV_CONTINUED_INTERVAL" &
 server_pid=$!
+server_started=true
 
 start_monitor "$server_pid"
 if ! set_fans_max; then
