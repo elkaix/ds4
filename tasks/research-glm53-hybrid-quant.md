@@ -53,7 +53,10 @@ parameters. Everything else totals 8.9B parameters.
   - KDA output 2.99 ms;
   - shared expert 2.54 ms.
 - **ds4 GLM loader:** accepts bf16/q8_0/q4_K/q4_0 for every dense role (`ds4.c:4904`).
-  - No Q5_K or Q6_K. The Q6_K layout in [aj9o9] cannot be built here.
+  - No Q5_K or Q6_K for dense roles. Routed experts are different: the loader and the GLM routed
+    kernels accept Q5_K gate/up and Q6_K down (`ds4.c:4990-4998`, `ds4_metal.m:38843-38857`), but
+    gguf-tools cannot emit either (`gguf-tools/quants.c:51-52`). The Q6_K layout in [aj9o9] still
+    cannot be built here.
   - The KDA fused paths need BF16 or all-Q8_0 q/k/v. O1 already mixes Q4_K q/k with
     Q8_0 v, so stage A loses no fusion.
 - **Fresh-scorer control (f95923c8):** O1 = 0.4525 token-weighted avg_nll, 88/100
@@ -75,9 +78,10 @@ parameters. Everything else totals 8.9B parameters.
 ## Recommended ladder (each step gated on the 100-case fixture plus the paired worst case)
 
 1. **A: kda_v and kda_output to Q4_K** — adopted 2026-09-22.
-   - Predicted decode ×1.077–1.086; measured ×1.080 at 2K, ×1.107 at 100K, ×1.032 at 32K.
-   - avg_nll 0.4525 → 0.4557 (paired CI includes 0). 32K prefill −9.5%, unexplained.
-   - Data: `tasks/data/glm-stageA-ab-20260922`.
+   - Predicted decode ×1.077–1.086; measured ×1.080 at 2K, ×1.110 at 32K, ×1.107 at 100K;
+     prefill unchanged.
+   - avg_nll 0.4525 → 0.4557 (paired CI includes 0).
+   - Data: `tasks/data/glm-stageA-ab-20260922` and `-mid` (32K rerun).
 2. **Spend the headroom on expert layers.** Measure the planned memory at 262K first.
    - The sweep ranks groups g17-23 and g10-16 best (0.4368 / 0.4372 for 7 layers).
    - Each extra layer costs about −0.54% decode.
@@ -90,10 +94,12 @@ parameters. Everything else totals 8.9B parameters.
 
 ## Not available or rejected
 
-- **Q5_K, Q6_K, IQ2_S, IQ3_XXS:** ds4 has no loader or kernel path for them on GLM.
-  They are the formats [aj9o9] uses.
-- **Q2_K gate/up everywhere:** costs about 0.42 GiB resident per layer (about 16 GiB
-  across 39 layers), with no measured gain.
+- **Q5_K, Q6_K experts:** loader and kernels exist; the gguf-tools emitter does not.
+- **IQ2_S, IQ3_XXS:** no ds4 loader or kernel path on GLM. [aj9o9] uses them.
+- **Q2_K gate/up everywhere:** IQ2_XXS 2.0625 → Q2_K 2.625 bpw costs 0.316 GiB per layer
+  (4.832e9 gate/up weights × 0.5625/8), about 12.7 GiB across 40 layers, with no measured
+  gain. It would move those layers off the generic IQ2_XXS routed kernel onto the GLM
+  specialized one, which is the kernel lever L1 in `~/models/docs/ds4-m5max-systems-blueprint.md`.
 - **imatrix for Q2:** no gain on this line (`glm.quality.imatrix-q2-no-gain`).
 
 [ds4-618]: https://github.com/antirez/ds4/issues/618
