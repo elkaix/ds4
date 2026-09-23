@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the Qwen3.8-Flash-Next Uncensored server on antirez main (this worktree;
+# Start the Qwen3.8-Flash-Next Uncensored server (this checkout, branch m5-prod;
 # branch/commit printed at startup) and print one-line health/resource snapshots
 # while it runs. Server logs remain attached to this terminal.
 #

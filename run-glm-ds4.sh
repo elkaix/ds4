@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the GLM 5.3 Flash server (this worktree: ds4-glm53-clean on glm53-m5-prod;
+# Start the GLM 5.3 Flash server (this checkout, branch m5-prod;
 # branch/commit printed at startup) and print one-line health/resource snapshots
 # while it runs. Server logs remain attached to this terminal.
 #
