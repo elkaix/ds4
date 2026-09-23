@@ -6,6 +6,7 @@
 #   ./run-ds4-monitored.sh
 #   MONITOR_INTERVAL_SECONDS=30 ./run-ds4-monitored.sh
 #   DS4_ARM=o1 ./run-ds4-monitored.sh   # fallback: O1 (layers 37-42 Q4_K experts) with its own KV dir
+#   DS4_CTX=262144 ./run-ds4-monitored.sh  # context tokens (default 371712 = 363K; model max 1048576)
 # Fans run at verified maximum while ds4-server runs, then return to Apple auto.
 
 set -Eeuo pipefail
@@ -30,7 +31,12 @@ esac
 VISION_ENCODER="$HOME/models/gguf/DeepSeek-V4-Flash-Vision-Encoder.gguf"
 HOST="127.0.0.1"
 PORT=8000
-CTX=262144
+# 363K (363 x 1024) tokens; the model's native limit is 1,048,576.
+CTX="${DS4_CTX:-371712}"
+if [[ ! $CTX =~ ^[1-9][0-9]*$ ]] || (( CTX > 1048576 )); then
+    echo "DS4_CTX must be a positive integer <= 1048576, got: $CTX" >&2
+    exit 2
+fi
 TOKENS=32768
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
