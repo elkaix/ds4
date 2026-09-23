@@ -1,0 +1,108 @@
+Starting monitored ds4-server (Qwen3.8 Uncensored native BF16 n-grams, Q4_K/Q8_0, main)
+  model:      /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-Q4KQ8-NativeBF16Ngrams.gguf
+  n-grams:    native BF16 (embedded; disk-backed pread)
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  rope:       native rope (262144 tokens, no rescaling needed)
+  max tokens: 65536
+  prefill:    1024 tokens/chunk
+  KV cache:   /Users/panda/.ds4/server-kv/qwen38-flash-next-uncen-q4kq8-native-bf16 (131072 MiB budget, min 512, cold max 131072 tokens, continued every 20480 tokens)
+  build:      m5-prod @ 99f3a3409e50
+  repo:       dirty (code: clean)
+  binary:     current, built 2026-09-23T12:59:33
+  model file: 198514933760 bytes, mtime 2026-09-16T13:38:57
+  MTP:        enabled (--mtp-draft 1)
+  batched:    1 session(s)
+  tools RAM:  200000 tool-call IDs
+  CORS:       on
+  trace:      off
+  profile:    agentic full-ctx
+  monitor:    every 15s
+  fans:       ThermalForge 'performance' profile (temperature-driven); Apple auto on stop
+  wired limit: 122880 MiB
+
+API:        http://127.0.0.1:8000/v1/chat/completions
+Models:     http://127.0.0.1:8000/v1/models
+Dashboard:  http://127.0.0.1:8000/dashboard   # this branch LOCAL PATCH
+Health:     http://127.0.0.1:8000/health      # this branch LOCAL PATCH; pure main: /v1/models
+Stats:      http://127.0.0.1:8000/stats       # this branch LOCAL PATCH
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: Qwen BF16 n-grams: 95.37 GiB, disk reads only
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+[monitor 2026-09-23 13:01:29] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=0.0% mem=0.0% rss=0.0GiB fans=fan0=1344/5349,fan1=1460/5777RPM kv=21.9/128.0GiB(17.1%) disk_free=675.7GiB
+Fans under ThermalForge 'performance' profile (watch pid 26642).
+ds4: Metal model views created in 2.391 ms, residency requested in 14016.452 ms, warmup 3.553 ms (mapped 91651.38 MiB from offset 10.52 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 8.33 GiB (raw 6.50 + compressed 1.83) + buffers 1.69 GiB + resident model 89.50 GiB = 99.53 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=1024 raw_kv_rows=262144 compressed_kv_rows=65537 backend=metal
+0923 13:01:43 ds4-server: context buffers 10265.67 MiB (ctx=262144, backend=metal, prefill_chunk=1024, raw_kv_rows=262144, compressed_kv_rows=65537)
+0923 13:01:43 ds4-server: KV disk cache /Users/panda/.ds4/server-kv/qwen38-flash-next-uncen-q4kq8-native-bf16 (budget=131072 MiB, cross-quant=reject, min=512, cold_max=131072, continued=20480, trim=32, align=2048, hit_half_life=21600s)
+0923 13:01:43 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-23 13:01:44] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=1.1% mem=2.2% rss=2.9GiB fans=fan0=1350/5349,fan1=1459/5777RPM kv=21.9/128.0GiB(17.1%) disk_free=675.7GiB
+0923 13:01:52 ds4-server: chat ctx=0..331:331 TOOLS prompt start
+0923 13:01:53 ds4-server: chat ctx=0..331:331 TOOLS prefill chunk 331/331 (100.0%) chunk=0.00 t/s avg=530.98 t/s 0.623s
+0923 13:01:53 ds4-server: chat ctx=0..331:331 TOOLS prompt done 0.623s lookup=0.000s cold=0.000s sync=0.623s store=0.000s source=none
+0923 13:01:53 ds4-server: chat ctx=331..378:47 gen=47 TOOLS DSML_START DSML_END decoding chunk=73.66 t/s avg=73.66 t/s 0.638s
+0923 13:01:53 ds4-server: tool calls ctx=0..331:331 n=1 raw_tool_text=1 ids=[call_2a32cfb3d210741989e46c03bab89ce0] names=[read_file]
+0923 13:01:53 ds4-server: qwen tool-turn visible checkpoint remembered ctx=0..331:331 live=378 visible=1639
+0923 13:01:53 ds4-server: chat ctx=0..331:331 gen=47 TOOLS DSML_START DSML_END finish=tool_calls 1.262s
+0923 13:01:53 ds4-server: thinking live continuation match=visible-prefix cached=378 prompt=414
+0923 13:01:53 ds4-server: chat ctx=378..414:36 TOOLS prompt start
+0923 13:01:54 ds4-server: chat ctx=378..414:36 TOOLS prefill chunk 36/36 (100.0%) chunk=0.00 t/s avg=195.81 t/s 0.184s
+0923 13:01:54 ds4-server: chat ctx=378..414:36 TOOLS prompt done 0.184s lookup=0.000s cold=0.000s sync=0.184s store=0.000s source=thinking-visible
+0923 13:01:54 ds4-server: chat ctx=414..464:50 gen=50 TOOLS THINKING decoding chunk=63.70 t/s avg=63.70 t/s 0.785s
+0923 13:01:55 ds4-server: chat ctx=464..498:34 gen=84 TOOLS decoding chunk=67.32 t/s avg=65.12 t/s 1.290s
+0923 13:01:55 ds4-server: thinking live checkpoint remembered ctx=378..414:36 live=498 visible=1902
+0923 13:01:55 ds4-server: chat ctx=378..414:36 gen=84 TOOLS finish=stop 1.474s
+0923 13:01:55 ds4-server: thinking live continuation match=visible-prefix cached=498 prompt=523
+0923 13:01:55 ds4-server: chat ctx=498..523:25 TOOLS prompt start
+0923 13:01:55 ds4-server: chat ctx=498..523:25 TOOLS prefill chunk 25/25 (100.0%) chunk=0.00 t/s avg=201.38 t/s 0.124s
+0923 13:01:55 ds4-server: chat ctx=498..523:25 TOOLS prompt done 0.124s lookup=0.000s cold=0.000s sync=0.124s store=0.000s source=thinking-visible
+0923 13:01:56 ds4-server: chat ctx=523..573:50 gen=50 TOOLS THINKING decoding chunk=63.45 t/s avg=63.45 t/s 0.788s
+0923 13:01:57 ds4-server: chat ctx=573..622:49 gen=99 TOOLS DSML_START DSML_END decoding chunk=71.24 t/s avg=67.08 t/s 1.476s
+0923 13:01:57 ds4-server: tool calls ctx=498..523:25 n=1 raw_tool_text=1 ids=[call_31eb61bd501047be047e3c2732acc262] names=[read_file]
+0923 13:01:57 ds4-server: qwen tool-turn visible checkpoint remembered ctx=498..523:25 live=622 visible=2141
+0923 13:01:57 ds4-server: chat ctx=498..523:25 gen=99 TOOLS DSML_START DSML_END finish=tool_calls 1.600s
+0923 13:01:57 ds4-server: thinking live continuation match=visible-prefix cached=622 prompt=661
+0923 13:01:57 ds4-server: chat ctx=622..661:39 TOOLS prompt start
+0923 13:01:57 ds4-server: chat ctx=622..661:39 TOOLS prefill chunk 39/39 (100.0%) chunk=0.00 t/s avg=208.87 t/s 0.187s
+0923 13:01:57 ds4-server: chat ctx=622..661:39 TOOLS prompt done 0.187s lookup=0.000s cold=0.000s sync=0.187s store=0.000s source=thinking-visible
+0923 13:01:57 ds4-server: chat ctx=661..709:48 gen=48 TOOLS decoding chunk=67.57 t/s avg=67.57 t/s 0.710s
+0923 13:01:57 ds4-server: thinking live checkpoint remembered ctx=622..661:39 live=709 visible=2447
+0923 13:01:57 ds4-server: chat ctx=622..661:39 gen=48 TOOLS finish=stop 0.897s
+0923 13:01:57 ds4-server: thinking live continuation match=visible-prefix cached=709 prompt=732
+0923 13:01:57 ds4-server: chat ctx=709..732:23 TOOLS prompt start
+0923 13:01:58 ds4-server: chat ctx=709..732:23 TOOLS prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=193.91 t/s 0.119s
+0923 13:01:58 ds4-server: chat ctx=709..732:23 TOOLS prompt done 0.119s lookup=0.000s cold=0.000s sync=0.119s store=0.000s source=thinking-visible
+0923 13:01:58 ds4-server: chat ctx=732..782:50 gen=50 TOOLS DSML_START decoding chunk=66.47 t/s avg=66.47 t/s 0.752s
+0923 13:01:58 ds4-server: chat ctx=782..788:6 gen=56 TOOLS DSML_START DSML_END decoding chunk=73.30 t/s avg=67.14 t/s 0.834s
+0923 13:01:58 ds4-server: tool calls ctx=709..732:23 n=1 raw_tool_text=1 ids=[call_4399ff7511c313fe75b183b34800efc4] names=[read_file]
+0923 13:01:58 ds4-server: qwen tool-turn visible checkpoint remembered ctx=709..732:23 live=788 visible=2672
+0923 13:01:58 ds4-server: chat ctx=709..732:23 gen=56 TOOLS DSML_START DSML_END finish=tool_calls 0.953s
+0923 13:01:58 ds4-server: thinking live continuation match=visible-prefix cached=788 prompt=816
+0923 13:01:58 ds4-server: chat ctx=788..816:28 TOOLS prompt start
+0923 13:01:58 ds4-server: chat ctx=788..816:28 TOOLS prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=202.55 t/s 0.138s
+0923 13:01:58 ds4-server: chat ctx=788..816:28 TOOLS prompt done 0.138s lookup=0.000s cold=0.000s sync=0.138s store=0.000s source=thinking-visible
+0923 13:01:59 ds4-server: chat ctx=816..862:46 gen=46 TOOLS decoding chunk=68.50 t/s avg=68.50 t/s 0.671s
+0923 13:01:59 ds4-server: thinking live checkpoint remembered ctx=788..816:28 live=862 visible=2879
+0923 13:01:59 ds4-server: chat ctx=788..816:28 gen=46 TOOLS finish=stop 0.810s
+0923 13:01:59 ds4-server: thinking live continuation match=visible-prefix cached=862 prompt=886
+0923 13:01:59 ds4-server: chat ctx=862..886:24 TOOLS prompt start
+0923 13:01:59 ds4-server: chat ctx=862..886:24 TOOLS prefill chunk 24/24 (100.0%) chunk=0.00 t/s avg=194.65 t/s 0.123s
+0923 13:01:59 ds4-server: chat ctx=862..886:24 TOOLS prompt done 0.123s lookup=0.000s cold=0.000s sync=0.123s store=0.000s source=thinking-visible
+0923 13:02:00 ds4-server: chat ctx=886..921:35 gen=35 TOOLS decoding chunk=73.51 t/s avg=73.51 t/s 0.476s
+0923 13:02:00 ds4-server: thinking live checkpoint remembered ctx=862..886:24 live=921 visible=3067
+0923 13:02:00 ds4-server: chat ctx=862..886:24 gen=35 TOOLS finish=stop 0.600s
+[monitor 2026-09-23 13:02:00] health=ok stats=ok state=busy queue=0 clients=2 live=897 requests=7 hits=6 cold=1 cached=3857 prefill=194.6t/s decode=68.5t/s cpu=8.6% mem=2.4% rss=3.0GiB fans=fan0=1337/5349,fan1=1451/5777RPM kv=21.9/128.0GiB(17.1%) disk_free=675.7GiB
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+Stopping ds4-server (PID 26640)...
+0923 13:02:06 ds4-server: shutdown requested, draining requests
+0923 13:02:06 ds4-server: persisting resident KV cache before shutdown slot=0 tokens=921
+0923 13:02:06 ds4-server: kv cache stored tokens=921 trimmed=0 reason=shutdown key=thinking-visible size=143.50 MiB save=28.4 ms
+[monitor 2026-09-23 13:02:06] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-23 13:02:06] fans=auto reason=server-stopped

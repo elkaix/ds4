@@ -1,0 +1,13 @@
+turn 1 hop 1: finish=tool_calls prompt=180 cached=0 completion=12 wall=2.0s
+turn 1 hop 2: finish=stop prompt=217 cached=192 completion=25 wall=1.2s
+  answer: 'The entry point is **`src/main.py`** (per README.md; config lives in `config.toml`).'
+turn 2 hop 1: finish=tool_calls prompt=260 cached=242 completion=13 wall=0.6s
+turn 2 hop 2: finish=stop prompt=300 cached=273 completion=28 wall=1.0s
+  answer: "It prints the **`port`** key from `config.toml` (`cfg['port']`)."
+turn 3 hop 1: finish=tool_calls prompt=344 cached=328 completion=13 wall=0.5s
+turn 3 hop 2: finish=stop prompt=374 cached=357 completion=14 wall=0.6s
+  answer: 'The value of `port` is **8123**.'
+turn 4 hop 1: finish=stop prompt=405 cached=388 completion=34 wall=1.1s
+  answer: '**4** workers are configured (from `config.toml`, which I already read).'
+tool_calls: 3
+stats: {"last_decode_tps": 39.74, "last_prefill_tps": 71.56, "prefill_cancelled": 0}

@@ -1,0 +1,13 @@
+turn 1 hop 1: finish=tool_calls prompt=364 cached=0 completion=67 wall=2.8s
+turn 1 hop 2: finish=stop prompt=442 cached=0 completion=10 wall=1.3s
+  answer: 'The entry point is `src/main.py`.'
+turn 2 hop 1: finish=tool_calls prompt=471 cached=452 completion=46 wall=1.3s
+turn 2 hop 2: finish=stop prompt=554 cached=517 completion=10 wall=0.7s
+  answer: 'It prints the `port` config key.'
+turn 3 hop 1: finish=tool_calls prompt=581 cached=564 completion=47 wall=1.4s
+turn 3 hop 2: finish=stop prompt=651 cached=628 completion=12 wall=0.6s
+  answer: 'The value of `port` is `8123`.'
+turn 4 hop 1: finish=stop prompt=681 cached=663 completion=6 wall=0.4s
+  answer: '4 workers are configured.'
+tool_calls: 3
+stats: {"last_decode_tps": 43.1, "last_prefill_tps": 73.6, "prefill_cancelled": 0}
