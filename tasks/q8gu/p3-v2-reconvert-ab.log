@@ -1,0 +1,64 @@
+ab start 2026-09-15T20:51:47-04:00
+=== launch v2-reconvert 2026-09-15T20:51:47-04:00 model=/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP-imatrix.gguf kv=/Users/panda/.ds4/server-kv/qwen38-v2-reconvert ===
+{"status":"ok","model":"Qwen3.8 Flash Next","uptime_s":1}
+
+server pid=55805 launcher=55748
+=== speed 8K+64K v2-reconvert ===
+P0-8192-0 prompt=8250 cached=0 prefill=31094.88 decode=54.10 mtp_acc=61.5 ttft=0.0447s thermal=nominal
+P0-8192-1 prompt=8250 cached=0 prefill=31156.06 decode=57.74 mtp_acc=67.6 ttft=0.0424s thermal=nominal
+P0-8192-2 prompt=8250 cached=0 prefill=31705.04 decode=60.28 mtp_acc=72.2 ttft=0.0443s thermal=nominal
+P0-65536-0 prompt=65594 cached=0 prefill=658.99 decode=45.66 mtp_acc=65.8 ttft=0.1403s thermal=fair
+P0-65536-1 prompt=65593 cached=0 prefill=585.29 decode=51.64 mtp_acc=70.3 ttft=0.1272s thermal=fair
+P0-65536-2 prompt=65594 cached=0 prefill=634.36 decode=54.33 mtp_acc=82.4 ttft=0.0855s thermal=fair
+WROTE p3-v2-reconvert-longctx.json
+median 8192: prefill=31156.059759210868 decode=57.73896035588852 mtp=57.73896035588852 acc=67.56756756756756 ttft=0.044305
+median 65536: prefill=634.358422334337 decode=51.63555628568949 mtp=51.63555628568949 acc=70.27027027027027 ttft=0.127226999
+=== quality v2-reconvert ===
+case_000 chars=156 finish=length
+case_001 chars=130 finish=length
+case_002 chars=165 finish=length
+case_003 chars=152 finish=length
+case_004 chars=178 finish=length
+case_005 chars=120 finish=length
+case_006 chars=143 finish=length
+case_007 chars=190 finish=length
+case_008 chars=145 finish=length
+case_009 chars=152 finish=length
+case_010 chars=139 finish=length
+case_011 chars=149 finish=length
+case_012 chars=106 finish=length
+case_013 chars=130 finish=length
+case_014 chars=128 finish=length
+case_015 chars=113 finish=length
+case_016 chars=139 finish=length
+case_017 chars=135 finish=length
+case_018 chars=140 finish=length
+case_019 chars=163 finish=length
+case_020 chars=159 finish=length
+case_021 chars=94 finish=length
+case_022 chars=158 finish=length
+case_023 chars=179 finish=length
+case_024 chars=170 finish=length
+case_025 chars=143 finish=length
+case_026 chars=140 finish=length
+case_027 chars=134 finish=length
+case_028 chars=177 finish=length
+case_029 chars=108 finish=length
+case_030 chars=119 finish=length
+case_031 chars=119 finish=length
+case_032 chars=131 finish=length
+case_033 chars=132 finish=length
+case_034 chars=139 finish=length
+case_035 chars=155 finish=length
+case_036 chars=113 finish=length
+case_037 chars=149 finish=length
+case_038 chars=137 finish=length
+case_039 chars=134 finish=length
+quality n=40 exact=20/40 first=37/40 mean_lcp_norm=0.7097
+WROTE p3-v2-reconvert-quality.json
+=== stop v2-reconvert ===
+No matching processes belonging to you were found
+fans ['auto', 'auto']
+control still 96114378688 1789208337
+DONE v2-reconvert (GGUF kept)
+ab exit 0 2026-09-15T20:58:45-04:00

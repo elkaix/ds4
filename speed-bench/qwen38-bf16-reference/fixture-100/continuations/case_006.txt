@@ -1,1 +1,0 @@
-To understand the tradeoffs between **Top-p sampling** (also known as Nucleus Sampling) and **Temperature Zero

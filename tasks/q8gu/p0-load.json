@@ -1,0 +1,147 @@
+{
+  "captured_at": "2026-09-15T13:25:58-0400",
+  "server_pid": 62368,
+  "ps_cpu_pct": "13.7",
+  "ps_mem_pct": "0.6",
+  "rss_bytes": 874430464,
+  "rss_gib": 0.814,
+  "swap": "total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)",
+  "wired_limit_mb": 118000,
+  "planned_gib": 99.2,
+  "resident_model_gib": 89.5,
+  "health": {
+    "status": "ok",
+    "model": "Qwen3.8 Flash Next",
+    "uptime_s": 27
+  },
+  "models": {
+    "object": "list",
+    "data": [
+      {
+        "id": "qwen3.8-flash-next",
+        "object": "model",
+        "created": 1767225600,
+        "owned_by": "ds4.c",
+        "name": "Qwen3.8 Flash Next",
+        "context_length": 262144,
+        "top_provider": {
+          "context_length": 262144,
+          "max_completion_tokens": 32768,
+          "is_moderated": false
+        },
+        "supported_parameters": [
+          "tools",
+          "tool_choice",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "ignore_eos",
+          "stop",
+          "seed",
+          "stream",
+          "reasoning_effort"
+        ]
+      },
+      {
+        "id": "qwen3.8-flash-next-chat",
+        "object": "model",
+        "created": 1767225600,
+        "owned_by": "ds4.c",
+        "name": "Qwen3.8 Flash Next",
+        "context_length": 262144,
+        "top_provider": {
+          "context_length": 262144,
+          "max_completion_tokens": 32768,
+          "is_moderated": false
+        },
+        "supported_parameters": [
+          "tools",
+          "tool_choice",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "ignore_eos",
+          "stop",
+          "seed",
+          "stream",
+          "reasoning_effort"
+        ]
+      },
+      {
+        "id": "qwen3.8-flash-next-reasoner",
+        "object": "model",
+        "created": 1767225600,
+        "owned_by": "ds4.c",
+        "name": "Qwen3.8 Flash Next",
+        "context_length": 262144,
+        "top_provider": {
+          "context_length": 262144,
+          "max_completion_tokens": 32768,
+          "is_moderated": false
+        },
+        "supported_parameters": [
+          "tools",
+          "tool_choice",
+          "max_tokens",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "ignore_eos",
+          "stop",
+          "seed",
+          "stream",
+          "reasoning_effort"
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "model": "Qwen3.8 Flash Next",
+    "model_path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+    "uptime_s": 27,
+    "busy": false,
+    "queue_depth": 0,
+    "clients": 1,
+    "live_tokens": 0,
+    "ctx_size": 262144,
+    "slot_count": 1,
+    "rss_mb": 833.9,
+    "footprint_mb": 3030.4,
+    "swap_used_mb": 0.0,
+    "tensor_route": "auto",
+    "requests": 0,
+    "last_prefill_tps": 0.0,
+    "last_decode_tps": 0.0,
+    "mem": {
+      "footprint_mb": 3030.4,
+      "peak_footprint_mb": 3030.5,
+      "rss_mb": 833.9,
+      "metal_allocated_mb": 102223.8,
+      "metal_working_set_mb": 118000.0,
+      "swap_used_mb": 0.0,
+      "pressure": "normal",
+      "thermal": "nominal"
+    },
+    "mtp": {
+      "enabled": true,
+      "active": true,
+      "max_ctx": 0,
+      "pos": 0,
+      "cycles": 0,
+      "accepted": 0,
+      "committed": 0
+    },
+    "kv_disk": {
+      "enabled": true,
+      "dir": "/Users/panda/.ds4/server-kv/qwen38-flash-next-uncen-q4k-q8down",
+      "used_mb": 10557.0,
+      "budget_mb": 131072.0,
+      "files": 12
+    }
+  }
+}

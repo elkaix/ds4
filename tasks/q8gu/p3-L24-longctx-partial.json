@@ -1,0 +1,262 @@
+{
+  "started_at": "2026-09-15T16:34:46-0400",
+  "ds4_sha": "9b483585f65e402d232ed4cf84d19d25cb08b506",
+  "model_sha256": "33f3ea38de52b2918842cbe73a0f084abe33c3ed6fb83c7d652a6cdd5d5bb7be",
+  "ple_sha256": "4b3d72a087cb8e4587a3807b3934bb413d4f04b0a51e06c515431ea6aec9b89d",
+  "model_path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+  "server_pid": 42838,
+  "swap_before": "total = 1024.00M  used = 1.94M  free = 1022.06M  (encrypted)",
+  "health": {
+    "status": "ok",
+    "model": "Qwen3.8 Flash Next",
+    "uptime_s": 86
+  },
+  "sizes": {
+    "8192": {
+      "runs": [
+        {
+          "salt": "P0-8192-0",
+          "planned_prompt_tokens": 8192,
+          "prompt_tokens": 8250,
+          "cached_tokens": 0,
+          "fresh_tokens": 8250,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 8250,
+            "completion_tokens": 64,
+            "total_tokens": 8314,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 8250
+            }
+          },
+          "wall_s": 18.5608,
+          "prefill_tps": 30924.705019265923,
+          "decode_tps": 49.86761709919107,
+          "mtp_effective_tps": 49.86761709919107,
+          "mtp_cycles": 38,
+          "mtp_committed": 24,
+          "mtp_acceptance_pct": 63.1578947368421,
+          "ttft_s": 0.117786999,
+          "prefill_ns": 266776999,
+          "decode_ns": 1283397999,
+          "first_token_ns": 117786999,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 4912316416,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10022.1,
+          "swap_used_mb": 1.9,
+          "pressure": "normal",
+          "thermal": "nominal"
+        },
+        {
+          "salt": "P0-8192-1",
+          "planned_prompt_tokens": 8192,
+          "prompt_tokens": 8250,
+          "cached_tokens": 0,
+          "fresh_tokens": 8250,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 8250,
+            "completion_tokens": 64,
+            "total_tokens": 8314,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 8250
+            }
+          },
+          "wall_s": 16.0562,
+          "prefill_tps": 30395.58471894216,
+          "decode_tps": 60.11015190972784,
+          "mtp_effective_tps": 60.11015190972784,
+          "mtp_cycles": 35,
+          "mtp_committed": 27,
+          "mtp_acceptance_pct": 77.14285714285714,
+          "ttft_s": 0.042601999,
+          "prefill_ns": 271421000,
+          "decode_ns": 1064711999,
+          "first_token_ns": 42601999,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 6344278016,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10022.0,
+          "swap_used_mb": 1.9,
+          "pressure": "normal",
+          "thermal": "nominal"
+        },
+        {
+          "salt": "P0-8192-2",
+          "planned_prompt_tokens": 8192,
+          "prompt_tokens": 8250,
+          "cached_tokens": 0,
+          "fresh_tokens": 8250,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 8250,
+            "completion_tokens": 64,
+            "total_tokens": 8314,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 8250
+            }
+          },
+          "wall_s": 15.6964,
+          "prefill_tps": 32589.88883885189,
+          "decode_tps": 57.04099826830748,
+          "mtp_effective_tps": 57.04099826830748,
+          "mtp_cycles": 36,
+          "mtp_committed": 26,
+          "mtp_acceptance_pct": 72.22222222222223,
+          "ttft_s": 0.083529999,
+          "prefill_ns": 253146000,
+          "decode_ns": 1121999999,
+          "first_token_ns": 83529999,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 7507476480,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10022.2,
+          "swap_used_mb": 1.9,
+          "pressure": "normal",
+          "thermal": "nominal"
+        }
+      ],
+      "median": {
+        "n": 3,
+        "prefill_tps_median": 30924.705019265923,
+        "decode_tps_median": 57.04099826830748,
+        "mtp_effective_tps_median": 57.04099826830748,
+        "mtp_acceptance_pct_median": 72.22222222222223,
+        "ttft_s_median": 0.083529999,
+        "peak_rss_bytes_max": 7507476480,
+        "prompt_tokens": [
+          8250,
+          8250,
+          8250
+        ],
+        "cached_tokens": [
+          0,
+          0,
+          0
+        ]
+      },
+      "swap_before": "total = 1024.00M  used = 1.94M  free = 1022.06M  (encrypted)",
+      "swap_after": "total = 1024.00M  used = 1.94M  free = 1022.06M  (encrypted)"
+    },
+    "65536": {
+      "runs": [
+        {
+          "salt": "P0-65536-0",
+          "planned_prompt_tokens": 65536,
+          "prompt_tokens": 65594,
+          "cached_tokens": 0,
+          "fresh_tokens": 65594,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 65594,
+            "completion_tokens": 64,
+            "total_tokens": 65658,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 65594
+            }
+          },
+          "wall_s": 128.5744,
+          "prefill_tps": 516.6370780870708,
+          "decode_tps": 45.56051896278631,
+          "mtp_effective_tps": 45.56051896278631,
+          "mtp_cycles": 36,
+          "mtp_committed": 27,
+          "mtp_acceptance_pct": 75.0,
+          "ttft_s": 0.139658,
+          "prefill_ns": 126963400000,
+          "decode_ns": 1404725000,
+          "first_token_ns": 139658000,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 9113157632,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10023.8,
+          "swap_used_mb": 1.9,
+          "pressure": "warn",
+          "thermal": "fair"
+        },
+        {
+          "salt": "P0-65536-1",
+          "planned_prompt_tokens": 65536,
+          "prompt_tokens": 65594,
+          "cached_tokens": 0,
+          "fresh_tokens": 65594,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 65594,
+            "completion_tokens": 64,
+            "total_tokens": 65658,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 65594
+            }
+          },
+          "wall_s": 148.8821,
+          "prefill_tps": 449.756663159638,
+          "decode_tps": 37.72937544324647,
+          "mtp_effective_tps": 37.72937544324647,
+          "mtp_cycles": 37,
+          "mtp_committed": 26,
+          "mtp_acceptance_pct": 70.27027027027027,
+          "ttft_s": 0.080823999,
+          "prefill_ns": 145843309000,
+          "decode_ns": 1696291000,
+          "first_token_ns": 80823999,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 8909766656,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10025.4,
+          "swap_used_mb": 1.9,
+          "pressure": "normal",
+          "thermal": "fair"
+        },
+        {
+          "salt": "P0-65536-2",
+          "planned_prompt_tokens": 65536,
+          "prompt_tokens": 65594,
+          "cached_tokens": 0,
+          "fresh_tokens": 65594,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 65594,
+            "completion_tokens": 64,
+            "total_tokens": 65658,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 65594
+            }
+          },
+          "wall_s": 183.2962,
+          "prefill_tps": 365.6315261756113,
+          "decode_tps": 53.051937017403525,
+          "mtp_effective_tps": 53.051937017403525,
+          "mtp_cycles": 36,
+          "mtp_committed": 27,
+          "mtp_acceptance_pct": 75.0,
+          "ttft_s": 0.058056,
+          "prefill_ns": 179399191000,
+          "decode_ns": 1206365000,
+          "first_token_ns": 58056000,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 8000110592,
+          "metal_allocated_mb": 103041.3,
+          "footprint_mb": 10026.5,
+          "swap_used_mb": 1862.1,
+          "pressure": "normal",
+          "thermal": "fair"
+        }
+      ],
+      "swap_before": "total = 1024.00M  used = 1.94M  free = 1022.06M  (encrypted)"
+    }
+  }
+}

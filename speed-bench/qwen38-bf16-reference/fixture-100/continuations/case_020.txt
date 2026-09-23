@@ -1,5 +1,0 @@
-# Binary Search for Finding the Insertion Point
-
-## Core Idea
-
-When a target value is **not found** in

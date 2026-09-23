@@ -1,0 +1,6 @@
+start 2026-09-15T17:21:26Z main
+33f3ea38de52b2918842cbe73a0f084abe33c3ed6fb83c7d652a6cdd5d5bb7be  /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf
+done main 2026-09-15T17:24:22Z
+start 2026-09-15T17:24:22Z ple
+4b3d72a087cb8e4587a3807b3934bb413d4f04b0a51e06c515431ea6aec9b89d  /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf
+done ple 2026-09-15T17:25:21Z

@@ -1,5 +1,0 @@
-# How a Trie Represents a Set of Strings
-
-## Core Concept
-
-A **trie** (from "re**trie

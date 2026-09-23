@@ -1,0 +1,13 @@
+{
+  "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP-L24Q8GU.gguf",
+  "tensor_count": 1255,
+  "type_counts": {
+    "0": 400,
+    "1": 298,
+    "8": 435,
+    "12": 96,
+    "30": 26
+  },
+  "q8_gate_up": [],
+  "q4_gate_up_n": 0
+}

@@ -1,0 +1,208 @@
+{
+  "control": {
+    "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+    "bytes": 96114378688,
+    "mtime": 1789208337
+  },
+  "candidate": {
+    "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP-imatrix.gguf",
+    "bytes": 96114378688,
+    "mtime": 1789516901
+  },
+  "n_gate_q4k": 49,
+  "n_up_q4k": 49,
+  "n_down_q8": 49,
+  "samples": [
+    {
+      "name": "blk.0.ffn_gate_exps.weight",
+      "control_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471110965,
+        "u8_sum_head4k": 530539,
+        "sha256_head1m": "f551c6b8a842892c5be872c56601974742c8e3f9888d70cb7009e5185b80b299"
+      },
+      "cand_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471100590,
+        "u8_sum_head4k": 531689,
+        "sha256_head1m": "ed003c863c574d4065c36e98affd2ed989025051343c1fa4a99a8a163d2e7664"
+      },
+      "packed_identical": false,
+      "control_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.013381143915536563,
+        "finite": true,
+        "min": -0.686370849609375,
+        "max": 0.39597558975219727
+      },
+      "cand_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.013362321143875188,
+        "finite": true,
+        "min": -0.6868515014648438,
+        "max": 0.39617300033569336
+      }
+    },
+    {
+      "name": "blk.0.ffn_up_exps.weight",
+      "control_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471105455,
+        "u8_sum_head4k": 534015,
+        "sha256_head1m": "a704aa515466281bf0680ed028a5f98f9073de8aa697ddc6bd3e4686e1044713"
+      },
+      "cand_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471094909,
+        "u8_sum_head4k": 533880,
+        "sha256_head1m": "02915ed1d38a3cde8c9c1939073b06e526a34d6580cd239f315ff4ee9680b422"
+      },
+      "packed_identical": false,
+      "control_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.01310180321306189,
+        "finite": true,
+        "min": -0.4912261962890625,
+        "max": 0.531153678894043
+      },
+      "cand_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.013083893480228283,
+        "finite": true,
+        "min": -0.490264892578125,
+        "max": 0.531437873840332
+      }
+    },
+    {
+      "name": "blk.24.ffn_gate_exps.weight",
+      "control_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471088970,
+        "u8_sum_head4k": 526202,
+        "sha256_head1m": "c66192a1bcfc50e22ee37b0fc28349b72edda117fc04107280e808824f4728a7"
+      },
+      "cand_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471080061,
+        "u8_sum_head4k": 528385,
+        "sha256_head1m": "266d83e6e6ff24ff64d6b0e8acc1a42367d10d075acdce3d6884249c41a5e48c"
+      },
+      "packed_identical": false,
+      "control_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.012468560341086565,
+        "finite": true,
+        "min": -0.4150428771972656,
+        "max": 0.3369169235229492
+      },
+      "cand_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.01245704446198533,
+        "finite": true,
+        "min": -0.41576385498046875,
+        "max": 0.3377854824066162
+      }
+    },
+    {
+      "name": "blk.47.ffn_gate_exps.weight",
+      "control_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471090413,
+        "u8_sum_head4k": 533467,
+        "sha256_head1m": "23f74038c3bd50910a586a3d9058819d30f9af0f1959c7e3f610df5263fac782"
+      },
+      "cand_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471075922,
+        "u8_sum_head4k": 533305,
+        "sha256_head1m": "c0ce74b52f363d57bc86a78d76eb4e02b808070b3847ef67687f9656dd74a43e"
+      },
+      "packed_identical": false,
+      "control_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.013812778106650287,
+        "finite": true,
+        "min": -0.6123504638671875,
+        "max": 0.9012336730957031
+      },
+      "cand_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.013794212831120907,
+        "finite": true,
+        "min": -0.6129226684570312,
+        "max": 0.8994455337524414
+      }
+    },
+    {
+      "name": "blk.48.ffn_gate_exps.weight",
+      "control_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471095307,
+        "u8_sum_head4k": 534683,
+        "sha256_head1m": "54a2a2521a331bb911f462f61a6a383d97647feec0871b250c040879cf863c9a"
+      },
+      "cand_packed": {
+        "nbytes": 471859200,
+        "nonzero": 471095307,
+        "u8_sum_head4k": 534683,
+        "sha256_head1m": "54a2a2521a331bb911f462f61a6a383d97647feec0871b250c040879cf863c9a"
+      },
+      "packed_identical": true,
+      "control_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.01829915287378355,
+        "finite": true,
+        "min": -1.1006927490234375,
+        "max": 1.3904056549072266
+      },
+      "cand_dequant": {
+        "shape": [
+          512,
+          640,
+          2560
+        ],
+        "rms": 0.01829915287378355,
+        "finite": true,
+        "min": -1.1006927490234375,
+        "max": 1.3904056549072266
+      }
+    }
+  ],
+  "ok": true
+}

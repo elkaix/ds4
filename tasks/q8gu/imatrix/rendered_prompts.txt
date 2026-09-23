@@ -1,0 +1,2732 @@
+===== DS4_IMATRIX_PROMPT code-000-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain B-tree insertion, including splits and the root special case.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-000-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain B-tree insertion, including splits and the root special case.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-001-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a concise design for a TCP echo server that handles slow clients.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-001-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a concise design for a TCP echo server that handles slow clients.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-002-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Compare mmaped model weights with copying all weights into private buffers on macOS.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-002-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Compare mmaped model weights with copying all weights into private buffers on macOS.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-003-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Derive why RMSNorm needs a sum of squares and a scaling pass.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-003-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Derive why RMSNorm needs a sum of squares and a scaling pass.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-004-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why KV cache checkpointing helps agentic sessions.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-004-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why KV cache checkpointing helps agentic sessions.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-005-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Give pseudocode for a binary heap push operation.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-005-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Give pseudocode for a binary heap push operation.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-006-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+What are the tradeoffs between top-p sampling and temperature zero decoding?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-006-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+What are the tradeoffs between top-p sampling and temperature zero decoding?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-007-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Summarize how speculative decoding preserves exact greedy output.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-007-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Summarize how speculative decoding preserves exact greedy output.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-008-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why a GPU prefill path can be faster than single-token decode.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-008-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why a GPU prefill path can be faster than single-token decode.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-009-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write three invariants for a tokenizer special-token table.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-009-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write three invariants for a tokenizer special-token table.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-010-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega come funziona l'inserimento in un B-tree, inclusi split e radice.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-010-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega come funziona l'inserimento in un B-tree, inclusi split e radice.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-011-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi un progetto conciso per un server TCP echo con client lenti.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-011-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi un progetto conciso per un server TCP echo con client lenti.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-012-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Confronta mmap dei pesi e copia completa dei pesi su macOS.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-012-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Confronta mmap dei pesi e copia completa dei pesi su macOS.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-013-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Deriva perche RMSNorm richiede somma dei quadrati e riscalamento.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-013-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Deriva perche RMSNorm richiede somma dei quadrati e riscalamento.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-014-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega perche la cache KV su disco aiuta nelle sessioni agentiche.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-014-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega perche la cache KV su disco aiuta nelle sessioni agentiche.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-015-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi pseudocodice per inserire un elemento in un heap binario.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-015-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi pseudocodice per inserire un elemento in un heap binario.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-016-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Quali sono i pro e contro di top-p rispetto a temperatura zero?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-016-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Quali sono i pro e contro di top-p rispetto a temperatura zero?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-017-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Riassumi perche la decodifica speculativa puo mantenere l'output esatto.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-017-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Riassumi perche la decodifica speculativa puo mantenere l'output esatto.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-018-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega perche il prefill GPU puo essere piu veloce del decode token singolo.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-018-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega perche il prefill GPU puo essere piu veloce del decode token singolo.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-019-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi tre invarianti per una tabella di token speciali.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-019-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Scrivi tre invarianti per una tabella di token speciali.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-020-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Given a sorted array, describe how binary search finds the insertion point.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-020-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Given a sorted array, describe how binary search finds the insertion point.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-021-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a short C function that clamps an integer to a range.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-021-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a short C function that clamps an integer to a range.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-022-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain the difference between a mutex and an atomic counter.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-022-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain the difference between a mutex and an atomic counter.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-023-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+What does backpressure mean in a network server?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-023-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+What does backpressure mean in a network server?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-rust-own-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a Rust function that takes ownership of a Vec<u8> and returns a hex string without extra copies.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-rust-own-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a Rust function that takes ownership of a Vec<u8> and returns a hex string without extra copies.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-py-gil-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Show a ctypes call that releases the GIL while a C encoder runs over float32 blocks.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-py-gil-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Show a ctypes call that releases the GIL while a C encoder runs over float32 blocks.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-go-race-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Fix a Go data race on a map written from two goroutines. Small example.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-go-race-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Fix a Go data race on a map written from two goroutines. Small example.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-sql-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a Postgres query that finds duplicate (user_id, day) rows and keeps the latest updated_at.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-sql-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Write a Postgres query that finds duplicate (user_id, day) rows and keeps the latest updated_at.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-metal-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why a Metal kernel might use threadgroup memory for a 256-wide Q4_K dequant.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-metal-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain why a Metal kernel might use threadgroup memory for a 256-wide Q4_K dequant.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT code-review-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this: `for i in range(len(xs)):
+    if xs[i] in seen: return True` — name the bug and rewrite.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT code-review-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this: `for i in range(len(xs)):
+    if xs[i] in seen: return True` — name the bug and rewrite.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT src-qwen4_exp_convert-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env python3
+"""Convert a Qwen3.8-Flash-Next (qwen4_exp) HF checkpoint into a DS4 GGUF.
+
+Wraps llama.cpp's conversion package, so the file keeps the upstream
+`qwen4exp` schema, and adds the MTP block as the trailing blk.<n_layer>
+(nextn.* tensors plus `qwen4exp.nextn_predict_layers`); --no-mtp leaves it
+out for stock llama.cpp.  Norms, conv kernels, ssm_a, dt biases and the
+routers stay F32; the other tensor types follow the options below.
+
+Needs a llama.cpp master checkout (--llama-cpp or $LLAMA_CPP) and a Python
+with torch, safetensors and transformers.  The output is written to
+<out>.incomplete and renamed when complete.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+from pathlib import Path
+
+# Trunk has 48 layers (blk.0..47). blk.48 is the MTP block and is never
+# selected by --q8-gate-up-layers.
+TRUNK_LAYERS = 48
+
+
+def parse_layer_spec(spec: str, *, n_trunk: int = TRUNK_LAYERS) -> frozenset[int]:
+    """Parse '24' or '3,7,11-13' into trunk layer ids. Rejects MTP (id >= n_trunk)."""
+    layers: set[int] = set()
+    if spec is None:
+        return frozenset()
+    text = spec.strip()
+    if not text:
+        return frozenset()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part[1:] and not part.startswith("-"):
+            left, right = part.split("-", 1)
+            lo, hi = int(left), int(right)
+            if lo > hi:
+                raise ValueError(f"empty layer range {part!r}")
+            chunk = range(lo, hi + 1)
+        else:
+            chunk = (int(part),)
+        for i in chunk:
+            if i < 0 or i >= n_trunk:
+                raise ValueError(
+                    f"layer {i} is outside trunk 0..{n_trunk - 1} "
+                    f"(MTP blk.{n_trunk} is never selected)"
+                )
+            layers.add(i)
+    return frozenset(layers)
+
+
+def _install_native_kquants(gguf, library_path=None):
+    """gguf-py implements only 32-block quantizers in Python; K-quant writes
+    raise NotImplementedError.  DS4 ships the same GGML block packers as a C
+    library, so bind Q4_K/Q2_K/Q8_K to it and let the converter emit them."""
+    import ctypes
+    import os
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    if library_path is None:
+        suffix = "dylib" if sys.platform == "darwin" else "so"
+        library_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    f"libds4quants.{suffix}")
+    if not os.path.isfile(library_path):
+        sys.exit(f"{library_path} not found: run make -C gguf-tools libds4quants.dylib")
+
+    lib = ctypes.CDLL(library_path)
+    lib.ds4q_can_quantize.argtypes = [ctypes.c_int]
+    lib.ds4q_can_quantize.restype = ctypes.c_bool
+    lib.ds4q_block_size.argtypes = [ctypes.c_int]
+    lib.ds4q_block_size.restype = ctypes.c_int64
+    lib.ds4q_row_size.argtypes = [ctypes.c_int, ctypes.c_int64]
+    lib.ds4q_row_size.restype = ctypes.c_size_t
+    lib.ds4q_quantize_init.argtypes = [ctypes.c_int]
+    lib.ds4q_quantize_init.restype = None
+    lib.ds4q_quantize_chunk.argtypes = [
+        ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p,
+        ctypes.c_int64, ctypes.c_int64, ctypes.c_int64,
+        ctypes.POINTER(ctypes.c_float)]
+    lib.ds4q_quantize_chunk.restype = ctypes.c_size_t
+
+    workers = max(1, min(16, (os.cpu_count() or 4)))
+    pool = ThreadPoolExecutor(max_workers=workers)
+
+    def make(qtype_id, type_size):
+        def quantize_blocks(cls, blocks):
+            # blocks: (n_blocks, block_size) float32; one GGML block per row
+            src = np.ascontiguousarray(blocks, dtype="<f4")
+            n, ncols = src.shape
+            out = np.empty(n * type_size, dtype=np.uint8)
+            lib.ds4q_quantize_init(qtype_id)
+            src_p = src.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+            out_p = ctypes.cast(out.ctypes.data, ctypes.c_void_p).value
+
+            def run(lo, hi):
+                # ctypes releases the GIL, so the C encoder threads cleanly
+                return lib.ds4q_quantize_chunk(
+                    qtype_id,
+                    ctypes.cast(ctypes.addressof(src_p.contents) + lo * ncols * 4,
+                                ctypes.POINTER(ctypes.c_float)),
+                    ctypes.c_void_p(out_p + lo * type_size),
+                    0, hi - lo, ncols, None)
+
+            if n < 4 * workers:
+                written = run(0, n)
+            else:
+                step = (n + workers - 1) // workers
+                bounds = [(i, min(i + step, n)) for i in range(0, n, step)]
+                written = sum(pool.map(lambda b: run(*b), bounds))
+            if written != out.nbytes:
+                raise RuntimeError(
+                    f"native quantization wrote {written} bytes, expected {out.nbytes}")
+            return out.reshape(n, type_size)
+        return classmethod(quantize_blocks)
+
+    installed = []
+    for name, qtype_id in (("Q4_K", 12), ("Q2_K", 10), ("Q6_K", 14), ("Q5_K", 13)):
+        cls = getattr(gguf.quants, name, None)
+        if cls is None or not lib.ds4q_can_quantize(qtype_id):
+            continue
+        if lib.ds4q_block_size(qtype_id) != cls.block_size:
+            continue
+        cls.quantize_blocks = make(qtype_id, cls.type_size)
+        installed.append(name)
+    print(f"native K-quant encoders from {library_path}: {', '.join(installed) or 'none'}",
+          flush=True)
+    return lib
+
+
+def _load_legacy_imatrix(path: str):
+    """llama.cpp / DS4 legacy .dat: name -> f32 vector (n_expert * ncols)."""
+    import struct
+    import numpy as np
+    entries = {}
+    with open(path, "rb") as fp:
+        n_entries = struct.unpack("<i", fp.read(4))[0]
+        if n_entries <= 0:
+            raise SystemExit(f"imatrix {path} has no entries")
+        for _ in range(n_entries):
+            nlen = struct.unpack("<i", fp.read(4))[0]
+            name = fp.read(nlen).decode("utf-
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT src-qwen4_exp_convert-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env python3
+"""Convert a Qwen3.8-Flash-Next (qwen4_exp) HF checkpoint into a DS4 GGUF.
+
+Wraps llama.cpp's conversion package, so the file keeps the upstream
+`qwen4exp` schema, and adds the MTP block as the trailing blk.<n_layer>
+(nextn.* tensors plus `qwen4exp.nextn_predict_layers`); --no-mtp leaves it
+out for stock llama.cpp.  Norms, conv kernels, ssm_a, dt biases and the
+routers stay F32; the other tensor types follow the options below.
+
+Needs a llama.cpp master checkout (--llama-cpp or $LLAMA_CPP) and a Python
+with torch, safetensors and transformers.  The output is written to
+<out>.incomplete and renamed when complete.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+from pathlib import Path
+
+# Trunk has 48 layers (blk.0..47). blk.48 is the MTP block and is never
+# selected by --q8-gate-up-layers.
+TRUNK_LAYERS = 48
+
+
+def parse_layer_spec(spec: str, *, n_trunk: int = TRUNK_LAYERS) -> frozenset[int]:
+    """Parse '24' or '3,7,11-13' into trunk layer ids. Rejects MTP (id >= n_trunk)."""
+    layers: set[int] = set()
+    if spec is None:
+        return frozenset()
+    text = spec.strip()
+    if not text:
+        return frozenset()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part[1:] and not part.startswith("-"):
+            left, right = part.split("-", 1)
+            lo, hi = int(left), int(right)
+            if lo > hi:
+                raise ValueError(f"empty layer range {part!r}")
+            chunk = range(lo, hi + 1)
+        else:
+            chunk = (int(part),)
+        for i in chunk:
+            if i < 0 or i >= n_trunk:
+                raise ValueError(
+                    f"layer {i} is outside trunk 0..{n_trunk - 1} "
+                    f"(MTP blk.{n_trunk} is never selected)"
+                )
+            layers.add(i)
+    return frozenset(layers)
+
+
+def _install_native_kquants(gguf, library_path=None):
+    """gguf-py implements only 32-block quantizers in Python; K-quant writes
+    raise NotImplementedError.  DS4 ships the same GGML block packers as a C
+    library, so bind Q4_K/Q2_K/Q8_K to it and let the converter emit them."""
+    import ctypes
+    import os
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    import numpy as np
+
+    if library_path is None:
+        suffix = "dylib" if sys.platform == "darwin" else "so"
+        library_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    f"libds4quants.{suffix}")
+    if not os.path.isfile(library_path):
+        sys.exit(f"{library_path} not found: run make -C gguf-tools libds4quants.dylib")
+
+    lib = ctypes.CDLL(library_path)
+    lib.ds4q_can_quantize.argtypes = [ctypes.c_int]
+    lib.ds4q_can_quantize.restype = ctypes.c_bool
+    lib.ds4q_block_size.argtypes = [ctypes.c_int]
+    lib.ds4q_block_size.restype = ctypes.c_int64
+    lib.ds4q_row_size.argtypes = [ctypes.c_int, ctypes.c_int64]
+    lib.ds4q_row_size.restype = ctypes.c_size_t
+    lib.ds4q_quantize_init.argtypes = [ctypes.c_int]
+    lib.ds4q_quantize_init.restype = None
+    lib.ds4q_quantize_chunk.argtypes = [
+        ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p,
+        ctypes.c_int64, ctypes.c_int64, ctypes.c_int64,
+        ctypes.POINTER(ctypes.c_float)]
+    lib.ds4q_quantize_chunk.restype = ctypes.c_size_t
+
+    workers = max(1, min(16, (os.cpu_count() or 4)))
+    pool = ThreadPoolExecutor(max_workers=workers)
+
+    def make(qtype_id, type_size):
+        def quantize_blocks(cls, blocks):
+            # blocks: (n_blocks, block_size) float32; one GGML block per row
+            src = np.ascontiguousarray(blocks, dtype="<f4")
+            n, ncols = src.shape
+            out = np.empty(n * type_size, dtype=np.uint8)
+            lib.ds4q_quantize_init(qtype_id)
+            src_p = src.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+            out_p = ctypes.cast(out.ctypes.data, ctypes.c_void_p).value
+
+            def run(lo, hi):
+                # ctypes releases the GIL, so the C encoder threads cleanly
+                return lib.ds4q_quantize_chunk(
+                    qtype_id,
+                    ctypes.cast(ctypes.addressof(src_p.contents) + lo * ncols * 4,
+                                ctypes.POINTER(ctypes.c_float)),
+                    ctypes.c_void_p(out_p + lo * type_size),
+                    0, hi - lo, ncols, None)
+
+            if n < 4 * workers:
+                written = run(0, n)
+            else:
+                step = (n + workers - 1) // workers
+                bounds = [(i, min(i + step, n)) for i in range(0, n, step)]
+                written = sum(pool.map(lambda b: run(*b), bounds))
+            if written != out.nbytes:
+                raise RuntimeError(
+                    f"native quantization wrote {written} bytes, expected {out.nbytes}")
+            return out.reshape(n, type_size)
+        return classmethod(quantize_blocks)
+
+    installed = []
+    for name, qtype_id in (("Q4_K", 12), ("Q2_K", 10), ("Q6_K", 14), ("Q5_K", 13)):
+        cls = getattr(gguf.quants, name, None)
+        if cls is None or not lib.ds4q_can_quantize(qtype_id):
+            continue
+        if lib.ds4q_block_size(qtype_id) != cls.block_size:
+            continue
+        cls.quantize_blocks = make(qtype_id, cls.type_size)
+        installed.append(name)
+    print(f"native K-quant encoders from {library_path}: {', '.join(installed) or 'none'}",
+          flush=True)
+    return lib
+
+
+def _load_legacy_imatrix(path: str):
+    """llama.cpp / DS4 legacy .dat: name -> f32 vector (n_expert * ncols)."""
+    import struct
+    import numpy as np
+    entries = {}
+    with open(path, "rb") as fp:
+        n_entries = struct.unpack("<i", fp.read(4))[0]
+        if n_entries <= 0:
+            raise SystemExit(f"imatrix {path} has no entries")
+        for _ in range(n_entries):
+            nlen = struct.unpack("<i", fp.read(4))[0]
+            name = fp.read(nlen).decode("utf-
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT src-p2_reconstruction-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env python3
+"""P2 weight-reconstruction sensitivity proxy.
+
+For each trunk layer L=0..47, split HF fused gate_up_proj [512,1280,2560]
+the same way llama.cpp conversion/qwen.py does (gate = [:, :640], up = [:, 640:]),
+quantize with the production DS4 encoders, dequantize with ggml-py, score Q4_K
+vs Q8_0 against the exact uncensored BF16.
+
+Not activation sensitivity. This pack has no imatrix (F6).
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+
+QSA_LAYERS = frozenset({3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47})
+N_TRUNK = 48
+N_EXPERTS = 512
+N_FF = 640
+N_EMBD = 2560
+HF_KEY = "model.language_model.layers.{L}.mlp.experts.gate_up_proj"
+DOCUMENTED_REV = "8336e613ea508b13c2159bd0f68965d97a606b95"
+P99_EDGES = np.geomspace(1e-12, 10.0, 2049)
+Q8_ROW_BYTES = 2720  # 2560/32 * 34
+Q4_ROW_BYTES = 1440  # 2560/256 * 144
+
+
+def layer_kind(layer: int) -> str:
+    return "QSA" if layer in QSA_LAYERS else "GDN"
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def resolve_hf_revision(hf_dir: Path) -> dict:
+    refs = Path.home() / (
+        ".cache/huggingface/hub/models--orcarouter--Qwen3.8-Flash-Next-Uncensored/refs/main"
+    )
+    rev = refs.read_text().strip() if refs.is_file() else None
+    if rev != DOCUMENTED_REV:
+        raise SystemExit(f"HF revision {rev!r} != documented {DOCUMENTED_REV}")
+    return {
+        "path": str(hf_dir),
+        "revision": rev,
+        "documented_rev": DOCUMENTED_REV,
+        "config_sha256": sha256_file(hf_dir / "config.json"),
+        "index_sha256": sha256_file(hf_dir / "model.safetensors.index.json"),
+    }
+
+
+def install_native_q4k(gguf, library_path: str) -> str:
+    """Same libds4quants hook as qwen4_exp_convert._install_native_kquants, Q4_K only."""
+    import ctypes
+    from concurrent.futures import ThreadPoolExecutor
+
+    lib = ctypes.CDLL(library_path)
+    lib.ds4q_can_quantize.argtypes = [ctypes.c_int]
+    lib.ds4q_can_quantize.restype = ctypes.c_bool
+    lib.ds4q_block_size.argtypes = [ctypes.c_int]
+    lib.ds4q_block_size.restype = ctypes.c_int64
+    lib.ds4q_quantize_init.argtypes = [ctypes.c_int]
+    lib.ds4q_quantize_init.restype = None
+    lib.ds4q_quantize_chunk.argtypes = [
+        ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p,
+        ctypes.c_int64, ctypes.c_int64, ctypes.c_int64,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    lib.ds4q_quantize_chunk.restype = ctypes.c_size_t
+    if not lib.ds4q_can_quantize(12):
+        raise SystemExit("libds4quants cannot encode Q4_K")
+    cls = gguf.quants.Q4_K
+    if lib.ds4q_block_size(12) != cls.block_size:
+        raise SystemExit("Q4_K block size mismatch")
+    type_size = cls.type_size
+    workers = max(1, min(16, (os.cpu_count() or 4)))
+    pool = ThreadPoolExecutor(max_workers=workers)
+
+    def quantize_blocks(_cls, blocks):
+        src = np.ascontiguousarray(blocks, dtype="<f4")
+        n, ncols = src.shape
+        out = np.empty(n * type_size, dtype=np.uint8)
+        lib.ds4q_quantize_init(12)
+        src_p = src.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        out_p = ctypes.cast(out.ctypes.data, ctypes.c_void_p).value
+
+        def run(lo, hi):
+            return lib.ds4q_quantize_chunk(
+                12,
+                ctypes.cast(
+                    ctypes.addressof(src_p.contents) + lo * ncols * 4,
+                    ctypes.POINTER(ctypes.c_float),
+                ),
+                ctypes.c_void_p(out_p + lo * type_size),
+                0, hi - lo, ncols, None,
+            )
+
+        if n < 4 * workers:
+            written = run(0, n)
+        else:
+            step = (n + workers - 1) // workers
+            bounds = [(i, min(i + step, n)) for i in range(0, n, step)]
+            written = sum(pool.map(lambda b: run(*b), bounds))
+        if written != out.nbytes:
+            raise RuntimeError(f"native Q4_K wrote {written}, expected {out.nbytes}")
+        return out.reshape(n, type_size)
+
+    cls.quantize_blocks = classmethod(quantize_blocks)
+    return library_path
+
+
+class ErrAcc:
+    def __init__(self) -> None:
+        self.n = 0
+        self.sum_sq_x = 0.0
+        self.sum_sq_e = 0.0
+        self.sum_dot = 0.0
+        self.sum_sq_q = 0.0
+        self.max_abs = 0.0
+        self.hist = np.zeros(len(P99_EDGES) - 1, dtype=np.int64)
+        self.finite = True
+
+    def add(self, x: np.ndarray, xq: np.ndarray) -> None:
+        if not (np.isfinite(x).all() and np.isfinite(xq).all()):
+            self.finite = False
+        err = xq - x
+        abs_e = np.abs(err)
+        self.n += int(x.size)
+        self.sum_sq_x += float(np.square(x, dtype=np.float64).sum())
+        self.sum_sq_e += float(np.square(err, dtype=np.float64).sum())
+        self.sum_dot += float((x.astype(np.float64) * xq.astype(np.float64)).sum())
+        self.sum_sq_q += float(np.square(xq, dtype=np.float64).sum())
+        self.max_abs = max(self.max_abs, float(abs_e.max(initial=0.0)))
+        counts, _ = np.histogram(abs_e.ravel(), bins=P99_EDGES)
+        self.hist += counts
+
+    def finish(self) -> dict:
+        nmse = self.sum_sq_e / self.sum_sq_x if self.sum_sq_x else float("nan")
+        rel_f = float(np.sqrt(nmse)) if nmse == nmse else float("nan")
+        denom = float(np.sqrt(self.sum_sq_x * self.sum_sq_q))
+        cos = self.sum_dot / denom if denom else float("nan")
+        return {
+            "n": self.n,
+            "nmse": nmse,
+            "rel_frobenius": rel_f,
+            "cosine": cos,
+            "cos_error": (1.0 - cos) if cos == cos else float("nan"),
+            "max_abs": self.max_abs,
+            "p99_abs": self._p99(),
+            "finite": self.finite,
+            "energy": self.sum_sq_x,
+        }
+
+    def _p99(self) -> float:
+        target = 0.99 * self.n
+        c = 0
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT src-p2_reconstruction-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env python3
+"""P2 weight-reconstruction sensitivity proxy.
+
+For each trunk layer L=0..47, split HF fused gate_up_proj [512,1280,2560]
+the same way llama.cpp conversion/qwen.py does (gate = [:, :640], up = [:, 640:]),
+quantize with the production DS4 encoders, dequantize with ggml-py, score Q4_K
+vs Q8_0 against the exact uncensored BF16.
+
+Not activation sensitivity. This pack has no imatrix (F6).
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+
+QSA_LAYERS = frozenset({3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47})
+N_TRUNK = 48
+N_EXPERTS = 512
+N_FF = 640
+N_EMBD = 2560
+HF_KEY = "model.language_model.layers.{L}.mlp.experts.gate_up_proj"
+DOCUMENTED_REV = "8336e613ea508b13c2159bd0f68965d97a606b95"
+P99_EDGES = np.geomspace(1e-12, 10.0, 2049)
+Q8_ROW_BYTES = 2720  # 2560/32 * 34
+Q4_ROW_BYTES = 1440  # 2560/256 * 144
+
+
+def layer_kind(layer: int) -> str:
+    return "QSA" if layer in QSA_LAYERS else "GDN"
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def resolve_hf_revision(hf_dir: Path) -> dict:
+    refs = Path.home() / (
+        ".cache/huggingface/hub/models--orcarouter--Qwen3.8-Flash-Next-Uncensored/refs/main"
+    )
+    rev = refs.read_text().strip() if refs.is_file() else None
+    if rev != DOCUMENTED_REV:
+        raise SystemExit(f"HF revision {rev!r} != documented {DOCUMENTED_REV}")
+    return {
+        "path": str(hf_dir),
+        "revision": rev,
+        "documented_rev": DOCUMENTED_REV,
+        "config_sha256": sha256_file(hf_dir / "config.json"),
+        "index_sha256": sha256_file(hf_dir / "model.safetensors.index.json"),
+    }
+
+
+def install_native_q4k(gguf, library_path: str) -> str:
+    """Same libds4quants hook as qwen4_exp_convert._install_native_kquants, Q4_K only."""
+    import ctypes
+    from concurrent.futures import ThreadPoolExecutor
+
+    lib = ctypes.CDLL(library_path)
+    lib.ds4q_can_quantize.argtypes = [ctypes.c_int]
+    lib.ds4q_can_quantize.restype = ctypes.c_bool
+    lib.ds4q_block_size.argtypes = [ctypes.c_int]
+    lib.ds4q_block_size.restype = ctypes.c_int64
+    lib.ds4q_quantize_init.argtypes = [ctypes.c_int]
+    lib.ds4q_quantize_init.restype = None
+    lib.ds4q_quantize_chunk.argtypes = [
+        ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_void_p,
+        ctypes.c_int64, ctypes.c_int64, ctypes.c_int64,
+        ctypes.POINTER(ctypes.c_float),
+    ]
+    lib.ds4q_quantize_chunk.restype = ctypes.c_size_t
+    if not lib.ds4q_can_quantize(12):
+        raise SystemExit("libds4quants cannot encode Q4_K")
+    cls = gguf.quants.Q4_K
+    if lib.ds4q_block_size(12) != cls.block_size:
+        raise SystemExit("Q4_K block size mismatch")
+    type_size = cls.type_size
+    workers = max(1, min(16, (os.cpu_count() or 4)))
+    pool = ThreadPoolExecutor(max_workers=workers)
+
+    def quantize_blocks(_cls, blocks):
+        src = np.ascontiguousarray(blocks, dtype="<f4")
+        n, ncols = src.shape
+        out = np.empty(n * type_size, dtype=np.uint8)
+        lib.ds4q_quantize_init(12)
+        src_p = src.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        out_p = ctypes.cast(out.ctypes.data, ctypes.c_void_p).value
+
+        def run(lo, hi):
+            return lib.ds4q_quantize_chunk(
+                12,
+                ctypes.cast(
+                    ctypes.addressof(src_p.contents) + lo * ncols * 4,
+                    ctypes.POINTER(ctypes.c_float),
+                ),
+                ctypes.c_void_p(out_p + lo * type_size),
+                0, hi - lo, ncols, None,
+            )
+
+        if n < 4 * workers:
+            written = run(0, n)
+        else:
+            step = (n + workers - 1) // workers
+            bounds = [(i, min(i + step, n)) for i in range(0, n, step)]
+            written = sum(pool.map(lambda b: run(*b), bounds))
+        if written != out.nbytes:
+            raise RuntimeError(f"native Q4_K wrote {written}, expected {out.nbytes}")
+        return out.reshape(n, type_size)
+
+    cls.quantize_blocks = classmethod(quantize_blocks)
+    return library_path
+
+
+class ErrAcc:
+    def __init__(self) -> None:
+        self.n = 0
+        self.sum_sq_x = 0.0
+        self.sum_sq_e = 0.0
+        self.sum_dot = 0.0
+        self.sum_sq_q = 0.0
+        self.max_abs = 0.0
+        self.hist = np.zeros(len(P99_EDGES) - 1, dtype=np.int64)
+        self.finite = True
+
+    def add(self, x: np.ndarray, xq: np.ndarray) -> None:
+        if not (np.isfinite(x).all() and np.isfinite(xq).all()):
+            self.finite = False
+        err = xq - x
+        abs_e = np.abs(err)
+        self.n += int(x.size)
+        self.sum_sq_x += float(np.square(x, dtype=np.float64).sum())
+        self.sum_sq_e += float(np.square(err, dtype=np.float64).sum())
+        self.sum_dot += float((x.astype(np.float64) * xq.astype(np.float64)).sum())
+        self.sum_sq_q += float(np.square(xq, dtype=np.float64).sum())
+        self.max_abs = max(self.max_abs, float(abs_e.max(initial=0.0)))
+        counts, _ = np.histogram(abs_e.ravel(), bins=P99_EDGES)
+        self.hist += counts
+
+    def finish(self) -> dict:
+        nmse = self.sum_sq_e / self.sum_sq_x if self.sum_sq_x else float("nan")
+        rel_f = float(np.sqrt(nmse)) if nmse == nmse else float("nan")
+        denom = float(np.sqrt(self.sum_sq_x * self.sum_sq_q))
+        cos = self.sum_dot / denom if denom else float("nan")
+        return {
+            "n": self.n,
+            "nmse": nmse,
+            "rel_frobenius": rel_f,
+            "cosine": cos,
+            "cos_error": (1.0 - cos) if cos == cos else float("nan"),
+            "max_abs": self.max_abs,
+            "p99_abs": self._p99(),
+            "finite": self.finite,
+            "energy": self.sum_sq_x,
+        }
+
+    def _p99(self) -> float:
+        target = 0.99 * self.n
+        c = 0
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT src-run-qwen38-ds4-nothink coding nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env bash
+# Start the Qwen3.8-Flash-Next Uncensored server (this worktree; branch/commit printed at startup) and print
+# one-line health/resource snapshots while it runs. Server logs remain attached to this terminal.
+#
+# Usage:
+#   ./run-qwen38-ds4.sh
+#   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
+#   QWEN_DS4_MODEL=~/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4K-MXFP4Down-MTP.gguf ./run-qwen38-ds4.sh
+# Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
+#
+# The model REQUIRES the external Q4_1 PLE sidecar (--ple). The main GGUF carries no
+# n-gram table; without the sidecar the engine refuses to load.
+
+set -Eeuo pipefail
+
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+QWEN_DIR="${QWEN_DS4_DIR:-$ROOT_DIR}"
+SERVER_BIN="$QWEN_DIR/ds4-server"
+MODEL="${QWEN_DS4_MODEL:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf}"
+PLE="${QWEN_DS4_PLE:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf}"
+HOST="127.0.0.1"
+PORT=8000
+# Full native context. The checkpoint declares 262144 tokens; this allocates all
+# of it -- 9.70 GiB of context state, 99.20 GiB planned against a 115.23 GiB
+# Metal working set, and zero swapouts under load on this machine.
+#
+# Going further is possible but measured to swap here: QWEN_DS4_CTX=393216
+# (1.5x native, YaRN) plans 103.62 GiB and produced 104k swapouts under the same
+# load that produces none at 262144. Use it only if you genuinely need >262144
+# tokens and can accept the paging.
+CTX="${QWEN_DS4_CTX:-262144}"
+NATIVE_CTX=262144
+# Set QWEN_DS4_YARN=0 to allocate the long context without rescaling rope
+# (ds4 then warns, and prompts past 262144 tokens degrade).
+YARN="${QWEN_DS4_YARN:-auto}"
+TOKENS=32768
+KV_DIR="${QWEN_DS4_KV_DIR:-$HOME/.ds4/server-kv/qwen38-flash-next-uncen-q4k-q8down}"
+KV_BUDGET_MB=131072
+KV_MIN_TOKENS=2048
+KV_COLD_MAX_TOKENS=65536
+# Continued-frontier snapshot interval. Every frontier is a full prefix file
+# (32.2-37.9 KiB/token, measured from the checkpoint headers in KV_DIR), and
+# older frontiers are only evicted when the budget fills. ds4 rounds the interval up to a multiple of
+# --kv-cache-boundary-align-tokens (2048); its default 10000 becomes 10240, which
+# writes 21 files (~77 GiB) during one cold 218k prefill. 20480 writes 10 (~38 GiB)
+# at the cost of re-prefilling up to 20480 tokens (~35 s) on a cold resume.
+# 0 disables continued frontiers.
+KV_CONTINUED_INTERVAL="${QWEN_DS4_KV_CONTINUED_INTERVAL:-20480}"
+KV_ALIGN_TOKENS=2048
+# Model-embedded Qwen3.8 MTP speculation (the pack ships the MTP block).
+# Set QWEN_DS4_MTP=0 to fall back to plain decode.
+MTP="${QWEN_DS4_MTP:-1}"
+# Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
+# perturbs the decode rate it measures, so leave it off for benchmarks.
+MTP_TIMING="${QWEN_DS4_MTP_TIMING:-0}"
+# Multi-token MTP draft width. LEAVE THIS AT 1. Measured 2026-09-12 on the
+# Q4_K/Q8_0-down pack over 3 interleaved drift-normalised passes: draft 2 gave
+# 0.986x, draft 4 gave 0.953x and draft 8 gave 0.960x of draft-1 throughput,
+# and omitting --mtp entirely gave 0.785x.
+# Why: Qwen speculation runs whenever --mtp is set, one draft per verify cycle,
+# and ignores this width. In ds4.c, decode reaches ds4_session_qwen4_spec_cycle
+# whenever glm_mtp and qwen4_graph_ready hold, with no width term; the cycle
+# counter is incremented inside that function. --mtp-timing agrees: draft 1 and
+# draft 2 both logged 110 verify cycles, 88 drafts accepted (80%), on the same
+# greedy request. That cycle accepts on exact argmax match, while --mtp-margin
+# is read only in ds4_session_eval_speculative_argmax_impl, so the margin flag
+# is inert here too. ds4 caps the width at 16.
+MTP_DRAFT="${QWEN_DS4_MTP_DRAFT:-1}"
+MTP_DRAFT_MAX=16
+PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-1024}"
+WIRED_LIMIT_MIN_MB=114688
+MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
+THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
+FAN_COMMAND_TIMEOUT_SECONDS=5
+FAN_RESTORE_TIMEOUT_SECONDS=5
+FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
+FAN_WATCH_INTERVAL_SECONDS=2
+fan_max_owned=false
+fan_watch_pid=""
+
+usage() {
+    cat <<EOF
+Usage: ./run-qwen38-ds4.sh
+
+Starts this worktree's ds4-server with Qwen3.8-Flash-Next Uncensored
+(Q4_K expert gate/up + Q8_0 expert down + Q8_0 dense, BF16 embeddings,
+native MTP) plus its mandatory external Q4_1 PLE sidecar, and
+prints health, throughput, process memory, KV disk-cache use and free disk.
+Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
+server runs and return to Apple auto when it stops.
+
+Memory at the default ctx 262144: 89.50 GiB resident model + 9.70 GiB context =
+99.20 GiB planned, against a 115.23 GiB Metal working set. Measured zero swapouts
+under load. The PLE sidecar is CPU-side and demand-paged, so it is not counted.
+
+Beyond native: ctx 393216 (QWEN_DS4_CTX=393216) plans 103.62 GiB and measured
+104k swapouts under the same load that produces none at 262144. It also rescales
+rope via YaRN for EVERY position, not just those past the native window, so it is
+not free for short prompts either.
+
+Environment:
+  MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
+  QWEN_DS4_MODEL=PATH         Override the GGUF (default: the Q8_0-down pack)
+                              MXFP4-down baseline arm:
+                              Qwen3.8-Flash-Next-Uncensored-DS4-Q4K-MXFP4Down-MTP.gguf
+                              (pair it with QWEN_DS4_KV_DIR -- the KV cache is per-quant)
+  QWEN_DS4_PLE=PATH           Override the PLE sidecar GGUF (required by the model)
+  QWEN_DS4_KV_DIR=PATH        Override the KV disk-cache directory
+  QWEN_DS4_KV_CONTINUED_INTERVAL=N
+                              Continued KV snapshot interval in tokens (default:
+                              20480; rounded up to a multiple of 2048; 0 disables)
+  QWEN_D
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT src-run-qwen38-ds4-think coding think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Review this file for correctness. Quote the risky lines.
+
+```
+#!/usr/bin/env bash
+# Start the Qwen3.8-Flash-Next Uncensored server (this worktree; branch/commit printed at startup) and print
+# one-line health/resource snapshots while it runs. Server logs remain attached to this terminal.
+#
+# Usage:
+#   ./run-qwen38-ds4.sh
+#   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
+#   QWEN_DS4_MODEL=~/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4K-MXFP4Down-MTP.gguf ./run-qwen38-ds4.sh
+# Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
+#
+# The model REQUIRES the external Q4_1 PLE sidecar (--ple). The main GGUF carries no
+# n-gram table; without the sidecar the engine refuses to load.
+
+set -Eeuo pipefail
+
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+QWEN_DIR="${QWEN_DS4_DIR:-$ROOT_DIR}"
+SERVER_BIN="$QWEN_DIR/ds4-server"
+MODEL="${QWEN_DS4_MODEL:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf}"
+PLE="${QWEN_DS4_PLE:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf}"
+HOST="127.0.0.1"
+PORT=8000
+# Full native context. The checkpoint declares 262144 tokens; this allocates all
+# of it -- 9.70 GiB of context state, 99.20 GiB planned against a 115.23 GiB
+# Metal working set, and zero swapouts under load on this machine.
+#
+# Going further is possible but measured to swap here: QWEN_DS4_CTX=393216
+# (1.5x native, YaRN) plans 103.62 GiB and produced 104k swapouts under the same
+# load that produces none at 262144. Use it only if you genuinely need >262144
+# tokens and can accept the paging.
+CTX="${QWEN_DS4_CTX:-262144}"
+NATIVE_CTX=262144
+# Set QWEN_DS4_YARN=0 to allocate the long context without rescaling rope
+# (ds4 then warns, and prompts past 262144 tokens degrade).
+YARN="${QWEN_DS4_YARN:-auto}"
+TOKENS=32768
+KV_DIR="${QWEN_DS4_KV_DIR:-$HOME/.ds4/server-kv/qwen38-flash-next-uncen-q4k-q8down}"
+KV_BUDGET_MB=131072
+KV_MIN_TOKENS=2048
+KV_COLD_MAX_TOKENS=65536
+# Continued-frontier snapshot interval. Every frontier is a full prefix file
+# (32.2-37.9 KiB/token, measured from the checkpoint headers in KV_DIR), and
+# older frontiers are only evicted when the budget fills. ds4 rounds the interval up to a multiple of
+# --kv-cache-boundary-align-tokens (2048); its default 10000 becomes 10240, which
+# writes 21 files (~77 GiB) during one cold 218k prefill. 20480 writes 10 (~38 GiB)
+# at the cost of re-prefilling up to 20480 tokens (~35 s) on a cold resume.
+# 0 disables continued frontiers.
+KV_CONTINUED_INTERVAL="${QWEN_DS4_KV_CONTINUED_INTERVAL:-20480}"
+KV_ALIGN_TOKENS=2048
+# Model-embedded Qwen3.8 MTP speculation (the pack ships the MTP block).
+# Set QWEN_DS4_MTP=0 to fall back to plain decode.
+MTP="${QWEN_DS4_MTP:-1}"
+# Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
+# perturbs the decode rate it measures, so leave it off for benchmarks.
+MTP_TIMING="${QWEN_DS4_MTP_TIMING:-0}"
+# Multi-token MTP draft width. LEAVE THIS AT 1. Measured 2026-09-12 on the
+# Q4_K/Q8_0-down pack over 3 interleaved drift-normalised passes: draft 2 gave
+# 0.986x, draft 4 gave 0.953x and draft 8 gave 0.960x of draft-1 throughput,
+# and omitting --mtp entirely gave 0.785x.
+# Why: Qwen speculation runs whenever --mtp is set, one draft per verify cycle,
+# and ignores this width. In ds4.c, decode reaches ds4_session_qwen4_spec_cycle
+# whenever glm_mtp and qwen4_graph_ready hold, with no width term; the cycle
+# counter is incremented inside that function. --mtp-timing agrees: draft 1 and
+# draft 2 both logged 110 verify cycles, 88 drafts accepted (80%), on the same
+# greedy request. That cycle accepts on exact argmax match, while --mtp-margin
+# is read only in ds4_session_eval_speculative_argmax_impl, so the margin flag
+# is inert here too. ds4 caps the width at 16.
+MTP_DRAFT="${QWEN_DS4_MTP_DRAFT:-1}"
+MTP_DRAFT_MAX=16
+PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-1024}"
+WIRED_LIMIT_MIN_MB=114688
+MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
+THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
+FAN_COMMAND_TIMEOUT_SECONDS=5
+FAN_RESTORE_TIMEOUT_SECONDS=5
+FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
+FAN_WATCH_INTERVAL_SECONDS=2
+fan_max_owned=false
+fan_watch_pid=""
+
+usage() {
+    cat <<EOF
+Usage: ./run-qwen38-ds4.sh
+
+Starts this worktree's ds4-server with Qwen3.8-Flash-Next Uncensored
+(Q4_K expert gate/up + Q8_0 expert down + Q8_0 dense, BF16 embeddings,
+native MTP) plus its mandatory external Q4_1 PLE sidecar, and
+prints health, throughput, process memory, KV disk-cache use and free disk.
+Fans follow the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the
+server runs and return to Apple auto when it stops.
+
+Memory at the default ctx 262144: 89.50 GiB resident model + 9.70 GiB context =
+99.20 GiB planned, against a 115.23 GiB Metal working set. Measured zero swapouts
+under load. The PLE sidecar is CPU-side and demand-paged, so it is not counted.
+
+Beyond native: ctx 393216 (QWEN_DS4_CTX=393216) plans 103.62 GiB and measured
+104k swapouts under the same load that produces none at 262144. It also rescales
+rope via YaRN for EVERY position, not just those past the native window, so it is
+not free for short prompts either.
+
+Environment:
+  MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
+  QWEN_DS4_MODEL=PATH         Override the GGUF (default: the Q8_0-down pack)
+                              MXFP4-down baseline arm:
+                              Qwen3.8-Flash-Next-Uncensored-DS4-Q4K-MXFP4Down-MTP.gguf
+                              (pair it with QWEN_DS4_KV_DIR -- the KV cache is per-quant)
+  QWEN_DS4_PLE=PATH           Override the PLE sidecar GGUF (required by the model)
+  QWEN_DS4_KV_DIR=PATH        Override the KV disk-cache directory
+  QWEN_DS4_KV_CONTINUED_INTERVAL=N
+                              Continued KV snapshot interval in tokens (default:
+                              20480; rounded up to a multiple of 2048; 0 disables)
+  QWEN_D
+```<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT agent-read-nothink agent nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: open tasks/ledger.md and quote the F11 finding.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT agent-read-think agent think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: open tasks/ledger.md and quote the F11 finding.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT agent-json-nothink agent nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: return ONLY a JSON object {"ok":true,"layer":0}.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT agent-json-think agent think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: return ONLY a JSON object {"ok":true,"layer":0}.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT agent-multi-nothink agent nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: grep q8-gate-up-layers in gguf-tools and then read the matching file.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT agent-multi-think agent think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: grep q8-gate-up-layers in gguf-tools and then read the matching file.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT agent-strict-nothink agent nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: do not invent a path. If read_file fails, say so in JSON.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT agent-strict-think agent think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: do not invent a path. If read_file fails, say so in JSON.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT agent-tool-result-nothink agent nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: after a tool error 'ENOENT', retry once with a relative path.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT agent-tool-result-think agent think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.
+Prefer tool calls over guessing.<|im_end|>
+<|im_start|>user
+Tools (JSON):
+{"name":"read_file","parameters":{"path":"string"}}
+{"name":"bash","parameters":{"command":"string"}}
+Call tools as:
+<tool_call>
+<function=NAME>
+<parameter=path>VALUE</parameter>
+</function>
+</tool_call>
+User: after a tool error 'ENOENT', retry once with a relative path.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT math-mod-nothink reasoning nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Compute 2^16 - 1, then the number of Q4_K blocks in a 2560-wide row (block 256).<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT math-mod-think reasoning think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Compute 2^16 - 1, then the number of Q4_K blocks in a 2560-wide row (block 256).<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT math-prob-nothink reasoning nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+A MoE layer routes top-10 of 512 experts. If each token hits experts uniformly, expected hits per expert per 1024 tokens?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT math-prob-think reasoning think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+A MoE layer routes top-10 of 512 experts. If each token hits experts uniformly, expected hits per expert per 1024 tokens?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT math-nmse-nothink reasoning nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+NMSE = ||x-xq||^2 / ||x||^2. If NMSE_Q4=0.0057 and NMSE_Q8=3.4e-5, what is ΔNMSE?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT math-nmse-think reasoning think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+NMSE = ||x-xq||^2 / ||x||^2. If NMSE_Q4=0.0057 and NMSE_Q8=3.4e-5, what is ΔNMSE?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT reason-kv-nothink reasoning nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Why does 8K /stats.prefill_ns of 0.26s not match wall-clock prefill at 64K?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT reason-kv-think reasoning think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Why does 8K /stats.prefill_ns of 0.26s not match wall-clock prefill at 64K?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT reason-swap-nothink reasoning nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+On unified memory, why can Metal allocated be 99 GiB while process RSS is 9 GiB?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT reason-swap-think reasoning think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+On unified memory, why can Metal allocated be 99 GiB while process RSS is 9 GiB?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT long-it-0-nothink long_context nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+                           I PROMESSI SPOSI
+
+
+
+
+                             INTRODUZIONE
+
+
+_L'historia si può veramente deffinire una guerra illustre contro il
+Tempo, perchè togliendoli di mano gl'anni suoi prigionieri, anzi già
+fatti cadaueri, li richiama in vita, li passa in rassegna, e li schiera
+di nuovo in battaglia. Ma gl'illustri Campioni che in tal Arringo fanno
+messe di Palme e d'Allori, rapiscono solo che le sole spoglie più
+sfarzose e brillanti, imbalsamando co' loro inchiostri le Imprese de
+Prencipi e Potentati, e qualificati Personaggi, e trapuntando coll'ago
+finissimo dell'ingegno i fili d'oro e di seta, che formano un perpetuo
+ricamo di Attioni gloriose. Però alla mia debolezza non è lecito
+solleuarsi a tal'argomenti, e sublimità pericolose, con aggirarsi tra
+Labirinti de' Politici maneggj, et il rimbombo de' bellici Oricalchi:
+solo che hauendo hauuto notitia di fatti memorabili, se ben capitorno a
+gente meccaniche, e di piccol affare, mi accingo di lasciarne memoria
+a Posteri, con far di tutto schietta e genuinamente il Racconto,
+ouuero sia Relatione. Nella quale si vedrà in angusto Teatro luttuose
+Traggedie d'horrori, e Scene di malvaggità grandiosa, con intermezzi
+d'Imprese virtuose e buontà angeliche, opposte alle operationi
+diaboliche. E veramente, considerando che questi nostri climi sijno
+sotto l'amparo del Re Cattolico nostro Signore, che è quel Sole che mai
+tramonta, e che, sopra di essi, con riflesso Lume, qual Luna giamai
+calante, risplenda l'Heroe di nobil Prosapia che_ pro tempore _ne tiene
+le sue parti, e gl'Amplissimi Senatori quali Stelle fisse, e gl'altri
+Spettabili Magistrati qual'erranti Pianeti spandino la luce per ogni
+doue, venendo così a formare un nobilissimo Cielo, altra causale
+trouar non si può del vederlo tramutato in inferno d'atti tenebrosi,
+malvaggità e sevitie che dagl'huomini temerarij si vanno moltiplicando,
+se non se arte e fattura diabolica, attesochè l'humana malitia per sè
+sola bastar non dourebbe a resistere a tanti Heroi, che con occhij
+d'Argo e braccj di Briareo, si vanno trafficando per li pubblici
+emolumenti. Per locchè descriuendo questo Racconto auuenuto ne' tempi
+di mia verde staggione, abbenchè la più parte delle persone che vi
+rappresentano le loro parti, sijno sparite dalla Scena del Mondo, con
+rendersi tributarij delle Parche, pure per degni rispetti, si tacerà
+li loro nomi, cioè la parentela, et il medemo si farà de' luochi,
+solo indicando li Territorij_ generaliter. _Nè alcuno dirà questa <|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT long-it-0-think long_context think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+                           I PROMESSI SPOSI
+
+
+
+
+                             INTRODUZIONE
+
+
+_L'historia si può veramente deffinire una guerra illustre contro il
+Tempo, perchè togliendoli di mano gl'anni suoi prigionieri, anzi già
+fatti cadaueri, li richiama in vita, li passa in rassegna, e li schiera
+di nuovo in battaglia. Ma gl'illustri Campioni che in tal Arringo fanno
+messe di Palme e d'Allori, rapiscono solo che le sole spoglie più
+sfarzose e brillanti, imbalsamando co' loro inchiostri le Imprese de
+Prencipi e Potentati, e qualificati Personaggi, e trapuntando coll'ago
+finissimo dell'ingegno i fili d'oro e di seta, che formano un perpetuo
+ricamo di Attioni gloriose. Però alla mia debolezza non è lecito
+solleuarsi a tal'argomenti, e sublimità pericolose, con aggirarsi tra
+Labirinti de' Politici maneggj, et il rimbombo de' bellici Oricalchi:
+solo che hauendo hauuto notitia di fatti memorabili, se ben capitorno a
+gente meccaniche, e di piccol affare, mi accingo di lasciarne memoria
+a Posteri, con far di tutto schietta e genuinamente il Racconto,
+ouuero sia Relatione. Nella quale si vedrà in angusto Teatro luttuose
+Traggedie d'horrori, e Scene di malvaggità grandiosa, con intermezzi
+d'Imprese virtuose e buontà angeliche, opposte alle operationi
+diaboliche. E veramente, considerando che questi nostri climi sijno
+sotto l'amparo del Re Cattolico nostro Signore, che è quel Sole che mai
+tramonta, e che, sopra di essi, con riflesso Lume, qual Luna giamai
+calante, risplenda l'Heroe di nobil Prosapia che_ pro tempore _ne tiene
+le sue parti, e gl'Amplissimi Senatori quali Stelle fisse, e gl'altri
+Spettabili Magistrati qual'erranti Pianeti spandino la luce per ogni
+doue, venendo così a formare un nobilissimo Cielo, altra causale
+trouar non si può del vederlo tramutato in inferno d'atti tenebrosi,
+malvaggità e sevitie che dagl'huomini temerarij si vanno moltiplicando,
+se non se arte e fattura diabolica, attesochè l'humana malitia per sè
+sola bastar non dourebbe a resistere a tanti Heroi, che con occhij
+d'Argo e braccj di Briareo, si vanno trafficando per li pubblici
+emolumenti. Per locchè descriuendo questo Racconto auuenuto ne' tempi
+di mia verde staggione, abbenchè la più parte delle persone che vi
+rappresentano le loro parti, sijno sparite dalla Scena del Mondo, con
+rendersi tributarij delle Parche, pure per degni rispetti, si tacerà
+li loro nomi, cioè la parentela, et il medemo si farà de' luochi,
+solo indicando li Territorij_ generaliter. _Nè alcuno dirà questa <|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT long-it-1-nothink long_context nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+ta uno per volta, quando non è d'avanzo.
+
+
+
+
+                           I PROMESSI SPOSI
+
+
+
+
+                            CAPITOLO PRIMO.
+
+
+Quel ramo del lago di Como, che volge a mezzogiorno, tra due catene
+non interrotte di monti, tutte a seni e a golfi, a seconda dello
+sporgere e del rientrare di quelli, vien, quasi a un tratto, a
+ristringersi, e a prender corso e figura di fiume, tra un promontorio
+a destra, e un'ampia costiera dall'altra parte; e il ponte, che ivi
+congiunge le due rive, par che renda ancor più sensibile all'occhio
+questa trasformazione, e segni il punto in cui il lago cessa, e
+l'Adda rincomincia, per ripigliar poi nome di lago dove le rive,
+allontanandosi di nuovo, lascian l'acqua distendersi e rallentarsi in
+nuovi golfi e in nuovi seni. La costiera, formata dal deposito di tre
+grossi torrenti, scende appoggiata a due monti contigui, l'uno detto di
+san Martino, l'altro, con voce lombarda, il _Resegone_, dai molti suoi
+cocuzzoli in fila, che in vero lo fanno somigliare a una sega: talchè
+non è chi, al primo vederlo, purchè sia di fronte, come per esempio
+di su le mura di Milano che guardano a settentrione, non lo discerna
+tosto, a un tal contrassegno, in quella lunga e vasta giogaia, dagli
+altri monti di nome più oscuro e di forma più comune. Per un buon
+pezzo, la costa sale con un pendio lento e continuo; poi si rompe in
+poggi e in valloncelli, in erte e in ispianate, secondo l'ossatura de'
+due monti, e il lavoro dell'acque. Il lembo estremo, tagliato dalle
+foci de' torrenti, è quasi tutto ghiaia e ciottoloni; il resto, campi
+e vigne, sparse di terre, di ville, di casali; in qualche parte boschi,
+che si prolungano su per la montagna. Lecco, la principale di quelle
+terre, e che dà nome al territorio, giace poco discosto dal ponte, alla
+riva del lago, anzi viene in parte a trovarsi nel lago stesso, quando
+questo ingrossa: un gran borgo al giorno d'oggi, e che s'incammina
+a diventar città. Ai tempi in cui accaddero i fatti che prendiamo a
+raccontare, quel borgo, già considerabile, era anche un castello, e
+aveva perciò l'onore d'alloggiare un comandante, e il vantaggio di
+possedere una stabile guarnigione di soldati spagnoli, che insegnavan
+la modestia alle fanciulle e alle donne del paese, accarezzavan di
+tempo in tempo le spalle a qualche marito, a qualche padre; e, sul
+finir dell'estate, non mancavan mai di spandersi nelle vigne, per
+diradar l'uve, e alleggerire a' contadini le fatiche della vendemmia.
+Dall'una all'altra di quelle terre<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT long-it-1-think long_context think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+ta uno per volta, quando non è d'avanzo.
+
+
+
+
+                           I PROMESSI SPOSI
+
+
+
+
+                            CAPITOLO PRIMO.
+
+
+Quel ramo del lago di Como, che volge a mezzogiorno, tra due catene
+non interrotte di monti, tutte a seni e a golfi, a seconda dello
+sporgere e del rientrare di quelli, vien, quasi a un tratto, a
+ristringersi, e a prender corso e figura di fiume, tra un promontorio
+a destra, e un'ampia costiera dall'altra parte; e il ponte, che ivi
+congiunge le due rive, par che renda ancor più sensibile all'occhio
+questa trasformazione, e segni il punto in cui il lago cessa, e
+l'Adda rincomincia, per ripigliar poi nome di lago dove le rive,
+allontanandosi di nuovo, lascian l'acqua distendersi e rallentarsi in
+nuovi golfi e in nuovi seni. La costiera, formata dal deposito di tre
+grossi torrenti, scende appoggiata a due monti contigui, l'uno detto di
+san Martino, l'altro, con voce lombarda, il _Resegone_, dai molti suoi
+cocuzzoli in fila, che in vero lo fanno somigliare a una sega: talchè
+non è chi, al primo vederlo, purchè sia di fronte, come per esempio
+di su le mura di Milano che guardano a settentrione, non lo discerna
+tosto, a un tal contrassegno, in quella lunga e vasta giogaia, dagli
+altri monti di nome più oscuro e di forma più comune. Per un buon
+pezzo, la costa sale con un pendio lento e continuo; poi si rompe in
+poggi e in valloncelli, in erte e in ispianate, secondo l'ossatura de'
+due monti, e il lavoro dell'acque. Il lembo estremo, tagliato dalle
+foci de' torrenti, è quasi tutto ghiaia e ciottoloni; il resto, campi
+e vigne, sparse di terre, di ville, di casali; in qualche parte boschi,
+che si prolungano su per la montagna. Lecco, la principale di quelle
+terre, e che dà nome al territorio, giace poco discosto dal ponte, alla
+riva del lago, anzi viene in parte a trovarsi nel lago stesso, quando
+questo ingrossa: un gran borgo al giorno d'oggi, e che s'incammina
+a diventar città. Ai tempi in cui accaddero i fatti che prendiamo a
+raccontare, quel borgo, già considerabile, era anche un castello, e
+aveva perciò l'onore d'alloggiare un comandante, e il vantaggio di
+possedere una stabile guarnigione di soldati spagnoli, che insegnavan
+la modestia alle fanciulle e alle donne del paese, accarezzavan di
+tempo in tempo le spalle a qualche marito, a qualche padre; e, sul
+finir dell'estate, non mancavan mai di spandersi nelle vigne, per
+diradar l'uve, e alleggerire a' contadini le fatiche della vendemmia.
+Dall'una all'altra di quelle terre<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT long-it-2-nothink long_context nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+la per la
+cena. Era Perpetua, come ognun se n'avvede, la serva di don Abbondio:
+serva affezionata e fedele, che sapeva ubbidire e comandare, secondo
+l'occasione, tollerare a tempo il brontolío e le fantasticaggini del
+padrone, e fargli a tempo tollerar le proprie, che divenivan di giorno
+in giorno più frequenti, da che aveva passata l'età sinodale dei
+quaranta, rimanendo celibe, per aver rifiutati tutti i partiti che le
+si erano offerti, come diceva lei, o per non aver mai trovato un cane
+che la volesse, come dicevan le sue amiche.
+
+«Vengo,» rispose, mettendo sul tavolino, al luogo solito, il
+fiaschetto del vino prediletto di don Abbondio, e si mosse lentamente;
+ma non aveva ancor toccata la soglia del salotto, ch'egli v'entrò, con
+un passo così legato, con uno sguardo così adombrato, con un viso così
+stravolto, che non ci sarebbero nemmen bisognati gli occhi esperti di
+Perpetua, per iscoprire a prima vista che gli era accaduto qualche cosa
+di straordinario davvero.
+
+«Misericordia! cos'ha, signor padrone?»
+
+«Niente, niente,» rispose don Abbondio, lasciandosi andar tutto ansante
+sul suo seggiolone.
+
+«Come, niente? La vuol dare ad intendere a me? così brutto com'è?
+Qualche gran caso è avvenuto.»
+
+«Oh, per amor del cielo! Quando dico niente, o è niente, o è cosa che
+non posso dire.»
+
+«Che non può dir neppure a me? Chi si prenderà cura della sua salute?
+Chi le darà un parere?...»
+
+«Ohimè! tacete, e non apparecchiate altro: datemi un bicchiere del mio
+vino.»
+
+«E lei mi vorrà sostenere che non ha niente!» disse Perpetua, empiendo
+il bicchiere, e tenendolo poi in mano, come se non volesse darlo che in
+premio della confidenza che si faceva tanto aspettare.
+
+«Date qui, date qui,» disse don Abbondio, prendendole il bicchiere, con
+la mano non ben ferma, e votandolo poi in fretta, come se fosse una
+medicina.
+
+«Vuol dunque ch'io sia costretta di domandar qua e là cosa sia accaduto
+al mio padrone?» disse Perpetua, ritta dinanzi a lui, con le mani
+arrovesciate sui fianchi, e le gomita appuntate davanti, guardandolo
+fisso, quasi volesse succhiargli dagli occhi il segreto.
+
+«Per amor del cielo! non fate pettegolezzi, non fate schiamazzi: ne
+va.... ne va la vita!»
+
+«La vita!»
+
+«La vita.»
+
+«Lei sa bene, che ogni volta che m'ha detto qualche cosa sinceramente,
+in confidenza, io non ho mai....»
+
+«Brava! come quando....»
+
+Perpetua s'avvide d'aver toccato un tasto falso; onde, cambiando subito
+il tono, «signor padrone,» disse, con voce commossa e da commovere,
+«io le sono sempre<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT long-it-2-think long_context think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+la per la
+cena. Era Perpetua, come ognun se n'avvede, la serva di don Abbondio:
+serva affezionata e fedele, che sapeva ubbidire e comandare, secondo
+l'occasione, tollerare a tempo il brontolío e le fantasticaggini del
+padrone, e fargli a tempo tollerar le proprie, che divenivan di giorno
+in giorno più frequenti, da che aveva passata l'età sinodale dei
+quaranta, rimanendo celibe, per aver rifiutati tutti i partiti che le
+si erano offerti, come diceva lei, o per non aver mai trovato un cane
+che la volesse, come dicevan le sue amiche.
+
+«Vengo,» rispose, mettendo sul tavolino, al luogo solito, il
+fiaschetto del vino prediletto di don Abbondio, e si mosse lentamente;
+ma non aveva ancor toccata la soglia del salotto, ch'egli v'entrò, con
+un passo così legato, con uno sguardo così adombrato, con un viso così
+stravolto, che non ci sarebbero nemmen bisognati gli occhi esperti di
+Perpetua, per iscoprire a prima vista che gli era accaduto qualche cosa
+di straordinario davvero.
+
+«Misericordia! cos'ha, signor padrone?»
+
+«Niente, niente,» rispose don Abbondio, lasciandosi andar tutto ansante
+sul suo seggiolone.
+
+«Come, niente? La vuol dare ad intendere a me? così brutto com'è?
+Qualche gran caso è avvenuto.»
+
+«Oh, per amor del cielo! Quando dico niente, o è niente, o è cosa che
+non posso dire.»
+
+«Che non può dir neppure a me? Chi si prenderà cura della sua salute?
+Chi le darà un parere?...»
+
+«Ohimè! tacete, e non apparecchiate altro: datemi un bicchiere del mio
+vino.»
+
+«E lei mi vorrà sostenere che non ha niente!» disse Perpetua, empiendo
+il bicchiere, e tenendolo poi in mano, come se non volesse darlo che in
+premio della confidenza che si faceva tanto aspettare.
+
+«Date qui, date qui,» disse don Abbondio, prendendole il bicchiere, con
+la mano non ben ferma, e votandolo poi in fretta, come se fosse una
+medicina.
+
+«Vuol dunque ch'io sia costretta di domandar qua e là cosa sia accaduto
+al mio padrone?» disse Perpetua, ritta dinanzi a lui, con le mani
+arrovesciate sui fianchi, e le gomita appuntate davanti, guardandolo
+fisso, quasi volesse succhiargli dagli occhi il segreto.
+
+«Per amor del cielo! non fate pettegolezzi, non fate schiamazzi: ne
+va.... ne va la vita!»
+
+«La vita!»
+
+«La vita.»
+
+«Lei sa bene, che ogni volta che m'ha detto qualche cosa sinceramente,
+in confidenza, io non ho mai....»
+
+«Brava! come quando....»
+
+Perpetua s'avvide d'aver toccato un tasto falso; onde, cambiando subito
+il tono, «signor padrone,» disse, con voce commossa e da commovere,
+«io le sono sempre<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT long-it-3-nothink long_context nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+icolavan di
+popolo curioso: ma, giunta la sbirraglia, fece smaltir la folla, e
+si postò a una certa distanza dalla porta, in modo però che nessuno
+potesse uscirne inosservato. Un fratello del morto, due suoi cugini
+e un vecchio zio, vennero pure, armati da capo a piedi, con grande
+accompagnamento di bravi; e si misero a far la ronda intorno,
+guardando, con aria e con atti di dispetto minaccioso, que' curiosi,
+che non osavan dire: gli sta bene; ma l'avevano scritto in viso.
+
+Appena Lodovico ebbe potuto raccogliere i suoi pensieri, chiamato un
+frate confessore, lo pregò che cercasse della vedova di Cristoforo, le
+chiedesse in suo nome perdono d'essere stato lui la cagione, quantunque
+ben certo involontaria, di quella desolazione, e, nello stesso tempo,
+l'assicurasse ch'egli prendeva la famiglia sopra di sè. Riflettendo
+quindi a' casi suoi, sentì rinascere più che mai vivo e serio quel
+pensiero di farsi frate, che altre volte gli era passato per la mente:
+gli parve che Dio medesimo l'avesse messo sulla strada, e datogli un
+segno del suo volere, facendolo capitare in un convento, in quella
+congiuntura; e il partito fu preso. Fece chiamare il guardiano, e gli
+manifestò il suo desiderio. N'ebbe in risposta, che bisognava guardarsi
+dalle risoluzioni precipitate; ma che, se persisteva, non sarebbe
+rifiutato. Allora, fatto venire un notaro, dettò una donazione di tutto
+ciò che gli rimaneva (ch'era tuttavia un bel patrimonio) alla famiglia
+di Cristoforo: una somma alla vedova, come se le costituisse una
+contraddote, e il resto a otto figliuoli che Cristoforo aveva lasciati.
+
+La risoluzione di Lodovico veniva molto a proposito per i suoi ospiti,
+i quali, per cagion sua, erano in un bell'intrigo. Rimandarlo dal
+convento, ed esporlo così alla giustizia, cioè alla vendetta de'
+suoi nemici, non era partito da metter neppure in consulta. Sarebbe
+stato lo stesso che rinunziare a' propri privilegi, screditare
+il convento presso il popolo, attirarsi il biasimo di tutti i
+cappuccini dell'universo, per aver lasciato violare il diritto di
+tutti, concitarsi contro tutte l'autorità ecclesiastiche, le quali
+si consideravan come tutrici di questo diritto. Dall'altra parte, la
+famiglia dell'ucciso, potente assai, e per sè, e per le sue aderenze,
+s'era messa al punto di voler vendetta; e dichiarava suo nemico
+chiunque s'attentasse di mettervi ostacolo. La storia non dice che
+a loro dolesse molto dell'ucciso, e nemmeno che una lagrima fosse
+stata sparsa per lui, in tutto il parentado:<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT long-it-3-think long_context think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Retrieve the first proper name in this passage and quote the sentence.
+
+icolavan di
+popolo curioso: ma, giunta la sbirraglia, fece smaltir la folla, e
+si postò a una certa distanza dalla porta, in modo però che nessuno
+potesse uscirne inosservato. Un fratello del morto, due suoi cugini
+e un vecchio zio, vennero pure, armati da capo a piedi, con grande
+accompagnamento di bravi; e si misero a far la ronda intorno,
+guardando, con aria e con atti di dispetto minaccioso, que' curiosi,
+che non osavan dire: gli sta bene; ma l'avevano scritto in viso.
+
+Appena Lodovico ebbe potuto raccogliere i suoi pensieri, chiamato un
+frate confessore, lo pregò che cercasse della vedova di Cristoforo, le
+chiedesse in suo nome perdono d'essere stato lui la cagione, quantunque
+ben certo involontaria, di quella desolazione, e, nello stesso tempo,
+l'assicurasse ch'egli prendeva la famiglia sopra di sè. Riflettendo
+quindi a' casi suoi, sentì rinascere più che mai vivo e serio quel
+pensiero di farsi frate, che altre volte gli era passato per la mente:
+gli parve che Dio medesimo l'avesse messo sulla strada, e datogli un
+segno del suo volere, facendolo capitare in un convento, in quella
+congiuntura; e il partito fu preso. Fece chiamare il guardiano, e gli
+manifestò il suo desiderio. N'ebbe in risposta, che bisognava guardarsi
+dalle risoluzioni precipitate; ma che, se persisteva, non sarebbe
+rifiutato. Allora, fatto venire un notaro, dettò una donazione di tutto
+ciò che gli rimaneva (ch'era tuttavia un bel patrimonio) alla famiglia
+di Cristoforo: una somma alla vedova, come se le costituisse una
+contraddote, e il resto a otto figliuoli che Cristoforo aveva lasciati.
+
+La risoluzione di Lodovico veniva molto a proposito per i suoi ospiti,
+i quali, per cagion sua, erano in un bell'intrigo. Rimandarlo dal
+convento, ed esporlo così alla giustizia, cioè alla vendetta de'
+suoi nemici, non era partito da metter neppure in consulta. Sarebbe
+stato lo stesso che rinunziare a' propri privilegi, screditare
+il convento presso il popolo, attirarsi il biasimo di tutti i
+cappuccini dell'universo, per aver lasciato violare il diritto di
+tutti, concitarsi contro tutte l'autorità ecclesiastiche, le quali
+si consideravan come tutrici di questo diritto. Dall'altra parte, la
+famiglia dell'ucciso, potente assai, e per sè, e per le sue aderenze,
+s'era messa al punto di voler vendetta; e dichiarava suo nemico
+chiunque s'attentasse di mettervi ostacolo. La storia non dice che
+a loro dolesse molto dell'ucciso, e nemmeno che una lagrima fosse
+stata sparsa per lui, in tutto il parentado:<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT long-p2-nothink long_context nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Summarize the knee finding in one paragraph.
+
+# P2 weight-reconstruction sensitivity proxy
+
+Not activation sensitivity. No imatrix. Ranking is ΔNMSE of Q4_K vs Q8_0
+on the uncensored BF16 gate/up tensors; gate and up are normalized separately, then summed.
+
+- source: `/Users/panda/models/hf/Qwen3.8-Flash-Next-Uncensored`
+- revision: `8336e613ea508b13c2159bd0f68965d97a606b95`
+- Q4_K encoder: `libds4quants Q4_K (/Users/panda/Projects/open-source/ds4-qwen38-ivan/gguf-tools/libds4quants.dylib) — production convert path`
+- Q8_0 encoder: `gguf-py Q8_0 (bit-exact ggml-quants.c; production convert path — convert does not patch Q8_0)`
+- dequant: `llama.cpp gguf-py dequantize_blocks (ggml decoder)`
+- L24 Q8 byte match: **True**
+- Q4_K control byte match (blk.0): **True**
+- layers: 48/48  tensors: 96/96  finite: True
+
+## Rankings
+
+### Overall top 16
+
+| rank | layer | type | combined ΔNMSE | gate ΔNMSE | up ΔNMSE |
+| ---: | ---: | --- | ---: | ---: | ---: |
+| 1 | 0 | GDN | 0.0112391 | 0.00568098 | 0.00555813 |
+| 2 | 2 | GDN | 0.0107044 | 0.00538677 | 0.00531764 |
+| 3 | 1 | GDN | 0.0106777 | 0.00537188 | 0.00530582 |
+| 4 | 3 | QSA | 0.0105742 | 0.00530852 | 0.0052657 |
+| 5 | 5 | GDN | 0.0105638 | 0.00529638 | 0.00526744 |
+| 6 | 4 | GDN | 0.010552 | 0.00529967 | 0.00525235 |
+| 7 | 38 | GDN | 0.0105178 | 0.00528308 | 0.00523475 |
+| 8 | 47 | QSA | 0.0105122 | 0.0052715 | 0.00524071 |
+| 9 | 6 | GDN | 0.0104823 | 0.00526877 | 0.00521354 |
+| 10 | 9 | GDN | 0.0104812 | 0.0052474 | 0.00523376 |
+| 11 | 46 | GDN | 0.0104691 | 0.00526865 | 0.00520041 |
+| 12 | 25 | GDN | 0.0104381 | 0.0052241 | 0.00521398 |
+| 13 | 14 | GDN | 0.0104192 | 0.00521501 | 0.00520421 |
+| 14 | 15 | QSA | 0.0104146 | 0.00520359 | 0.00521096 |
+| 15 | 34 | GDN | 0.0104004 | 0.00521717 | 0.00518324 |
+| 16 | 22 | GDN | 0.0103971 | 0.00521815 | 0.00517897 |
+
+### Top GDN
+
+| rank | layer | combined ΔNMSE |
+| ---: | ---: | ---: |
+| 1 | 0 | 0.0112391 |
+| 2 | 2 | 0.0107044 |
+| 3 | 1 | 0.0106777 |
+| 5 | 5 | 0.0105638 |
+| 6 | 4 | 0.010552 |
+| 7 | 38 | 0.0105178 |
+| 9 | 6 | 0.0104823 |
+| 10 | 9 | 0.0104812 |
+| 11 | 46 | 0.0104691 |
+| 12 | 25 | 0.0104381 |
+| 13 | 14 | 0.0104192 |
+| 15 | 34 | 0.0104004 |
+| 16 | 22 | 0.0103971 |
+| 17 | 16 | 0.0103951 |
+| 18 | 45 | 0.0103944 |
+| 19 | 30 | 0.0103898 |
+
+### Top QSA
+
+| rank | layer | combined ΔNMSE |
+| ---: | ---: | ---: |
+| 4 | 3 | 0.0105742 |
+| 8 | 47 | 0.0105122 |
+| 14 | 15 | 0.0104146 |
+| 21 | 31 | 0.010384 |
+| 22 | 7 | 0.0103797 |
+| 28 | 39 | 0.0103549 |
+| 34 | 27 | 0.0103283 |
+| 37 | 35 | 0.0103202 |
+| 40 | 11 | 0.0103131 |
+| 41 | 23 | 0.0103119 |
+| 44 | 43 | 0.010297 |
+| 45 | 19 | 0.0102912 |
+
+## Pattern
+
+- GDN n=36 median ΔNMSE 0.0103716
+- QSA n=12 median ΔNMSE 0.0103416
+- overall min/median/max 0.010285 / 0.0103659 / 0.0112391
+- top-16 composition: {'GDN': 13, 'QSA': 3}
+
+## Knee
+
+There is **no sharp sensitivity knee**. Combined ΔNMSE spans only **0.010285–0.011239** (max/min = 1.093). Layer **0** is a mild outlier (+0.000535 above rank 2); after that the ranked list is almost flat (drops ~1e-5). GDN and QSA medians match to ~0.3%. Top-16 is 13 GDN / 3 QSA, close to the 36/12 base rate (would expect 12/4). Layer 24 plumbing sits at rank **31** — not a quality-sensitive layer under this proxy.
+
+P3 must **not** build 16 full GGUFs. Suggested empirical set (one-at-a-time, generate→test→delete):
+
+| role | layer | type | rank | why |
+| --- | ---: | --- | ---: | --- |
+| top outlier | 0 | GDN | 1 | only layer clearly above the pack |
+| early-GDN cluster | 2 | GDN | 2 | next-best, still early trunk |
+| top QSA | 3 | QSA | 4 | best QSA, matched-architecture control vs L0/L2 |
+| last QSA | 47 | QSA | 8 | opposite end of QSA stack |
+| late GDN | 38 | GDN | 7 | late-trunk GDN vs early GDN |
+| plumbing | 24 | GDN | 31 | already built; mid-pack proxy |
+| median | 8 | GDN | 24 | middle of the flat bulk |
+| bottom | 13 | GDN | 48 | least ΔNMSE |
+
+If L0 vs L13 shows no downstream quality gap, the reconstruction proxy does not predict quality and P3/P4 should stop guessing from this ranking.
+<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT long-p2-think long_context think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Summarize the knee finding in one paragraph.
+
+# P2 weight-reconstruction sensitivity proxy
+
+Not activation sensitivity. No imatrix. Ranking is ΔNMSE of Q4_K vs Q8_0
+on the uncensored BF16 gate/up tensors; gate and up are normalized separately, then summed.
+
+- source: `/Users/panda/models/hf/Qwen3.8-Flash-Next-Uncensored`
+- revision: `8336e613ea508b13c2159bd0f68965d97a606b95`
+- Q4_K encoder: `libds4quants Q4_K (/Users/panda/Projects/open-source/ds4-qwen38-ivan/gguf-tools/libds4quants.dylib) — production convert path`
+- Q8_0 encoder: `gguf-py Q8_0 (bit-exact ggml-quants.c; production convert path — convert does not patch Q8_0)`
+- dequant: `llama.cpp gguf-py dequantize_blocks (ggml decoder)`
+- L24 Q8 byte match: **True**
+- Q4_K control byte match (blk.0): **True**
+- layers: 48/48  tensors: 96/96  finite: True
+
+## Rankings
+
+### Overall top 16
+
+| rank | layer | type | combined ΔNMSE | gate ΔNMSE | up ΔNMSE |
+| ---: | ---: | --- | ---: | ---: | ---: |
+| 1 | 0 | GDN | 0.0112391 | 0.00568098 | 0.00555813 |
+| 2 | 2 | GDN | 0.0107044 | 0.00538677 | 0.00531764 |
+| 3 | 1 | GDN | 0.0106777 | 0.00537188 | 0.00530582 |
+| 4 | 3 | QSA | 0.0105742 | 0.00530852 | 0.0052657 |
+| 5 | 5 | GDN | 0.0105638 | 0.00529638 | 0.00526744 |
+| 6 | 4 | GDN | 0.010552 | 0.00529967 | 0.00525235 |
+| 7 | 38 | GDN | 0.0105178 | 0.00528308 | 0.00523475 |
+| 8 | 47 | QSA | 0.0105122 | 0.0052715 | 0.00524071 |
+| 9 | 6 | GDN | 0.0104823 | 0.00526877 | 0.00521354 |
+| 10 | 9 | GDN | 0.0104812 | 0.0052474 | 0.00523376 |
+| 11 | 46 | GDN | 0.0104691 | 0.00526865 | 0.00520041 |
+| 12 | 25 | GDN | 0.0104381 | 0.0052241 | 0.00521398 |
+| 13 | 14 | GDN | 0.0104192 | 0.00521501 | 0.00520421 |
+| 14 | 15 | QSA | 0.0104146 | 0.00520359 | 0.00521096 |
+| 15 | 34 | GDN | 0.0104004 | 0.00521717 | 0.00518324 |
+| 16 | 22 | GDN | 0.0103971 | 0.00521815 | 0.00517897 |
+
+### Top GDN
+
+| rank | layer | combined ΔNMSE |
+| ---: | ---: | ---: |
+| 1 | 0 | 0.0112391 |
+| 2 | 2 | 0.0107044 |
+| 3 | 1 | 0.0106777 |
+| 5 | 5 | 0.0105638 |
+| 6 | 4 | 0.010552 |
+| 7 | 38 | 0.0105178 |
+| 9 | 6 | 0.0104823 |
+| 10 | 9 | 0.0104812 |
+| 11 | 46 | 0.0104691 |
+| 12 | 25 | 0.0104381 |
+| 13 | 14 | 0.0104192 |
+| 15 | 34 | 0.0104004 |
+| 16 | 22 | 0.0103971 |
+| 17 | 16 | 0.0103951 |
+| 18 | 45 | 0.0103944 |
+| 19 | 30 | 0.0103898 |
+
+### Top QSA
+
+| rank | layer | combined ΔNMSE |
+| ---: | ---: | ---: |
+| 4 | 3 | 0.0105742 |
+| 8 | 47 | 0.0105122 |
+| 14 | 15 | 0.0104146 |
+| 21 | 31 | 0.010384 |
+| 22 | 7 | 0.0103797 |
+| 28 | 39 | 0.0103549 |
+| 34 | 27 | 0.0103283 |
+| 37 | 35 | 0.0103202 |
+| 40 | 11 | 0.0103131 |
+| 41 | 23 | 0.0103119 |
+| 44 | 43 | 0.010297 |
+| 45 | 19 | 0.0102912 |
+
+## Pattern
+
+- GDN n=36 median ΔNMSE 0.0103716
+- QSA n=12 median ΔNMSE 0.0103416
+- overall min/median/max 0.010285 / 0.0103659 / 0.0112391
+- top-16 composition: {'GDN': 13, 'QSA': 3}
+
+## Knee
+
+There is **no sharp sensitivity knee**. Combined ΔNMSE spans only **0.010285–0.011239** (max/min = 1.093). Layer **0** is a mild outlier (+0.000535 above rank 2); after that the ranked list is almost flat (drops ~1e-5). GDN and QSA medians match to ~0.3%. Top-16 is 13 GDN / 3 QSA, close to the 36/12 base rate (would expect 12/4). Layer 24 plumbing sits at rank **31** — not a quality-sensitive layer under this proxy.
+
+P3 must **not** build 16 full GGUFs. Suggested empirical set (one-at-a-time, generate→test→delete):
+
+| role | layer | type | rank | why |
+| --- | ---: | --- | ---: | --- |
+| top outlier | 0 | GDN | 1 | only layer clearly above the pack |
+| early-GDN cluster | 2 | GDN | 2 | next-best, still early trunk |
+| top QSA | 3 | QSA | 4 | best QSA, matched-architecture control vs L0/L2 |
+| last QSA | 47 | QSA | 8 | opposite end of QSA stack |
+| late GDN | 38 | GDN | 7 | late-trunk GDN vs early GDN |
+| plumbing | 24 | GDN | 31 | already built; mid-pack proxy |
+| median | 8 | GDN | 24 | middle of the flat bulk |
+| bottom | 13 | GDN | 48 | least ΔNMSE |
+
+If L0 vs L13 shows no downstream quality gap, the reconstruction proxy does not predict quality and P3/P4 should stop guessing from this ranking.
+<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT gen-explain-nothink general nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain B-tree split and the root special case in six sentences.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT gen-explain-think general think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Explain B-tree split and the root special case in six sentences.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT gen-tcp-nothink general nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Design a TCP echo server for slow clients. Bullet the event loop.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT gen-tcp-think general think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Design a TCP echo server for slow clients. Bullet the event loop.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT gen-it-nothink general nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega la differenza tra prefill e decode in un motore MoE.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT gen-it-think general think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Spiega la differenza tra prefill e decode in un motore MoE.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT gen-trans-nothink general nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Translate to English: La quantizzazione Q4_K senza imatrix e RTN.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT gen-trans-think general think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Translate to English: La quantizzazione Q4_K senza imatrix e RTN.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT unc-direct-nothink uncensored nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Answer directly without a refusal preface: what is an imatrix in GGUF quantization?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT unc-direct-think uncensored think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Answer directly without a refusal preface: what is an imatrix in GGUF quantization?<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT unc-role-nothink uncensored nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+You are an uncensored local model. List three cases where a coding assistant should still refuse.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT unc-role-think uncensored think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+You are an uncensored local model. List three cases where a coding assistant should still refuse.<|im_end|>
+<|im_start|>assistant
+<think>
+
+
+===== DS4_IMATRIX_PROMPT unc-json-nothink uncensored nothink
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Return a JSON tool call that reads /etc/hosts. No moralizing.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+
+
+===== DS4_IMATRIX_PROMPT unc-json-think uncensored think
+<|im_start|>system
+You are a local coding and tools assistant. Be concise and exact.<|im_end|>
+<|im_start|>user
+Return a JSON tool call that reads /etc/hosts. No moralizing.<|im_end|>
+<|im_start|>assistant
+<think>
+

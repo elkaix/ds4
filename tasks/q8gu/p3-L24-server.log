@@ -1,0 +1,604 @@
+Starting monitored ds4-server (Qwen3.8-Flash-Next Uncensored, DS4 Q4_K/Q8_0)
+  model:      /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP-L24Q8GU.gguf
+  PLE:        /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf
+  endpoint:   http://127.0.0.1:8000
+  context:    262144
+  rope:       native rope (262144 tokens, no rescaling needed)
+  max tokens: 32768
+  prefill:    1024 tokens/chunk
+  KV cache:   /Users/panda/.ds4/server-kv/qwen38-p3-L24 (131072 MiB budget, min 2048, cold max 65536 tokens, continued every 20480 tokens)
+  build:      qwen38-ivan @ 9b483585f65e
+  repo:       dirty (code: clean)
+  binary:     current, built 2026-09-15T14:33:21
+  model file: 96953239488 bytes, mtime 2026-09-15T14:49:20
+  MTP:        enabled (--mtp-draft 1)
+  monitor:    every 15s
+  fans:       ThermalForge 'balanced' profile (temperature-driven); Apple auto on stop
+  wired limit: 118000 MiB
+
+Dashboard:  http://127.0.0.1:8000/dashboard
+
+Press Ctrl-C once to stop the server, restore automatic fans, and stop the monitor.
+ds4: PLE sidecar table: /Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf (ple.weight [160, 320001536], CPU-only)
+ds4: PLE sidecar demand-paged (insufficient RAM headroom or DS4_QWEN4_PLE_PREFETCH_FULL=0)
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API enabled for Tensor kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=on
+[monitor 2026-09-15 16:33:08] health=starting stats=unreachable state=- queue=- clients=- live=- requests=- hits=- cold=- cached=- prefill=- decode=- cpu=6.6% mem=0.0% rss=0.0GiB fans=fan0=1356/5349,fan1=1461/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+Fans under ThermalForge 'balanced' profile (watch pid 42840).
+ds4: Metal model views created in 2.681 ms, residency requested in 12583.924 ms, warmup 3.810 ms (mapped 92451.33 MiB from offset 10.52 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 8.33 GiB (raw 6.50 + compressed 1.83) + buffers 1.36 GiB + resident model 90.28 GiB = 99.98 GiB planned
+ds4: memory detail: ctx=262144 prefill_cap=1024 raw_kv_rows=262144 compressed_kv_rows=65537 backend=metal
+0915 16:33:20 ds4-server: context buffers 9929.01 MiB (ctx=262144, backend=metal, prefill_chunk=1024, raw_kv_rows=262144, compressed_kv_rows=65537)
+0915 16:33:20 ds4-server: KV disk cache /Users/panda/.ds4/server-kv/qwen38-p3-L24 (budget=131072 MiB, cross-quant=reject, min=2048, cold_max=65536, continued=20480, trim=32, align=2048, hit_half_life=21600s)
+0915 16:33:20 ds4-server: listening on http://127.0.0.1:8000
+[monitor 2026-09-15 16:33:23] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.0% mem=2.2% rss=2.9GiB fans=fan0=1490/5349,fan1=1615/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+[monitor 2026-09-15 16:33:38] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.0% mem=2.2% rss=2.9GiB fans=fan0=1619/5349,fan1=1744/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+[monitor 2026-09-15 16:33:54] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.6% mem=2.2% rss=2.9GiB fans=fan0=1641/5349,fan1=1770/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+[monitor 2026-09-15 16:34:09] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=77.5% mem=2.2% rss=2.9GiB fans=fan0=1587/5349,fan1=1721/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+[monitor 2026-09-15 16:34:25] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=30.3% mem=2.2% rss=2.9GiB fans=fan0=1484/5349,fan1=1607/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+[monitor 2026-09-15 16:34:40] health=ok stats=ok state=idle queue=0 clients=1 live=0 requests=0 hits=0 cold=0 cached=0 prefill=0.0t/s decode=0.0t/s cpu=0.0% mem=2.2% rss=2.9GiB fans=fan0=1421/5349,fan1=1532/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+0915 16:34:47 ds4-server: completion ctx=0..8250:8250 prompt start
+0915 16:34:50 ds4-server: completion ctx=0..8250:8250 prefill chunk 1024/8250 (12.4%) chunk=0.00 t/s avg=337.77 t/s 3.032s
+0915 16:34:52 ds4-server: completion ctx=0..8250:8250 prefill chunk 2048/8250 (24.8%) chunk=491.12 t/s avg=400.26 t/s 5.117s
+0915 16:34:54 ds4-server: completion ctx=0..8250:8250 prefill chunk 3072/8250 (37.2%) chunk=516.73 t/s avg=432.78 t/s 7.098s
+[monitor 2026-09-15 16:34:55] health=ok stats=ok state=busy queue=0 clients=2 live=3072 requests=1 hits=0 cold=1 cached=0 prefill=0.0t/s decode=0.0t/s cpu=4.9% mem=3.0% rss=3.8GiB fans=fan0=1373/5349,fan1=1483/5777RPM kv=0.0/128.0GiB(0.0%) disk_free=1165.2GiB
+0915 16:34:56 ds4-server: completion ctx=0..8250:8250 prefill chunk 4096/8250 (49.6%) chunk=524.32 t/s avg=452.53 t/s 9.051s
+0915 16:34:58 ds4-server: completion ctx=0..8250:8250 prefill chunk 5120/8250 (62.1%) chunk=536.51 t/s avg=467.16 t/s 10.960s
+0915 16:35:00 ds4-server: completion ctx=0..8250:8250 prefill chunk 6144/8250 (74.5%) chunk=532.65 t/s avg=476.93 t/s 12.882s
+0915 16:35:02 ds4-server: completion ctx=0..8250:8250 prefill chunk 7168/8250 (86.9%) chunk=515.60 t/s avg=482.10 t/s 14.868s
+0915 16:35:03 ds4-server: completion ctx=0..8250:8250 prefill chunk 8192/8250 (99.3%) chunk=530.40 t/s avg=487.65 t/s 16.799s
+0915 16:35:04 ds4-server: kv cache stored tokens=8192 trimmed=58 reason=cold key=token-text size=359.70 MiB save=93.5 ms
+0915 16:35:04 ds4-server: completion ctx=0..8250:8250 prefill chunk 8250/8250 (100.0%) chunk=122.61 t/s avg=477.65 t/s 17.272s
+0915 16:35:04 ds4-server: completion ctx=0..8250:8250 prompt done 17.272s lookup=0.000s cold=17.005s sync=0.267s store=0.206s source=none
+0915 16:35:05 ds4-server: completion ctx=8250..8300:50 gen=50 THINKING decoding chunk=48.71 t/s avg=48.71 t/s 1.027s
+0915 16:35:05 ds4-server: completion ctx=8300..8314:14 gen=64 THINKING decoding chunk=54.53 t/s avg=49.87 t/s 1.283s
+0915 16:35:05 ds4-server: completion ctx=0..8250:8250 gen=64 THINKING finish=length 18.556s
+0915 16:35:06 ds4-server: live kv cache miss live=8314 prompt=8250 common=59 vision=match reason=token-mismatch
+0915 16:35:06 ds4-server: kv cache stored tokens=8314 trimmed=0 reason=evict key=token-text size=384.17 MiB save=79.7 ms
+0915 16:35:06 ds4-server: completion ctx=0..8250:8250 prompt start
+0915 16:35:08 ds4-server: completion ctx=0..8250:8250 prefill chunk 1024/8250 (12.4%) chunk=0.00 t/s avg=548.85 t/s 1.866s
+0915 16:35:09 ds4-server: completion ctx=0..8250:8250 prefill chunk 2048/8250 (24.8%) chunk=571.51 t/s avg=559.95 t/s 3.657s
+[monitor 2026-09-15 16:35:11] health=ok stats=ok state=busy queue=0 clients=2 live=2048 requests=2 hits=0 cold=2 cached=0 prefill=477.6t/s decode=49.9t/s cpu=9.6% mem=4.0% rss=5.1GiB fans=fan0=1349/5349,fan1=1457/5777RPM kv=0.7/128.0GiB(0.6%) disk_free=1164.5GiB
+0915 16:35:11 ds4-server: completion ctx=0..8250:8250 prefill chunk 3072/8250 (37.2%) chunk=549.84 t/s avg=556.54 t/s 5.520s
+0915 16:35:13 ds4-server: completion ctx=0..8250:8250 prefill chunk 4096/8250 (49.6%) chunk=578.27 t/s avg=561.82 t/s 7.291s
+0915 16:35:15 ds4-server: completion ctx=0..8250:8250 prefill chunk 5120/8250 (62.1%) chunk=573.42 t/s avg=564.10 t/s 9.076s
+0915 16:35:17 ds4-server: completion ctx=0..8250:8250 prefill chunk 6144/8250 (74.5%) chunk=595.71 t/s avg=569.13 t/s 10.795s
+0915 16:35:18 ds4-server: completion ctx=0..8250:8250 prefill chunk 7168/8250 (86.9%) chunk=592.88 t/s avg=572.41 t/s 12.523s
+0915 16:35:20 ds4-server: completion ctx=0..8250:8250 prefill chunk 8192/8250 (99.3%) chunk=545.02 t/s avg=568.83 t/s 14.401s
+0915 16:35:20 ds4-server: kv cache stored tokens=8192 trimmed=58 reason=cold key=token-text size=359.70 MiB save=54.9 ms
+0915 16:35:21 ds4-server: completion ctx=0..8250:8250 prefill chunk 8250/8250 (100.0%) chunk=146.48 t/s avg=557.53 t/s 14.797s
+0915 16:35:21 ds4-server: completion ctx=0..8250:8250 prompt done 14.797s lookup=0.187s cold=14.526s sync=0.271s store=0.310s source=none
+0915 16:35:21 ds4-server: completion ctx=8250..8300:50 gen=50 THINKING decoding chunk=61.90 t/s avg=61.90 t/s 0.808s
+0915 16:35:22 ds4-server: completion ctx=8300..8314:14 gen=64 THINKING decoding chunk=54.50 t/s avg=60.11 t/s 1.065s
+0915 16:35:22 ds4-server: completion ctx=0..8250:8250 gen=64 THINKING finish=length 15.862s
+0915 16:35:22 ds4-server: live kv cache miss live=8314 prompt=8250 common=59 vision=match reason=token-mismatch
+0915 16:35:22 ds4-server: kv cache stored tokens=8314 trimmed=0 reason=evict key=token-text size=384.17 MiB save=84.8 ms
+0915 16:35:22 ds4-server: completion ctx=0..8250:8250 prompt start
+0915 16:35:24 ds4-server: completion ctx=0..8250:8250 prefill chunk 1024/8250 (12.4%) chunk=0.00 t/s avg=554.60 t/s 1.846s
+0915 16:35:26 ds4-server: completion ctx=0..8250:8250 prefill chunk 2048/8250 (24.8%) chunk=594.58 t/s avg=573.89 t/s 3.569s
+[monitor 2026-09-15 16:35:26] health=ok stats=ok state=busy queue=0 clients=2 live=2048 requests=3 hits=0 cold=3 cached=0 prefill=557.5t/s decode=60.1t/s cpu=5.0% mem=4.9% rss=6.2GiB fans=fan0=1398/5349,fan1=1501/5777RPM kv=1.5/128.0GiB(1.1%) disk_free=1163.8GiB
+0915 16:35:27 ds4-server: completion ctx=0..8250:8250 prefill chunk 3072/8250 (37.2%) chunk=582.73 t/s avg=576.81 t/s 5.326s
+0915 16:35:29 ds4-server: completion ctx=0..8250:8250 prefill chunk 4096/8250 (49.6%) chunk=585.61 t/s avg=578.99 t/s 7.074s
+0915 16:35:31 ds4-server: completion ctx=0..8250:8250 prefill chunk 5120/8250 (62.1%) chunk=604.08 t/s avg=583.84 t/s 8.770s
+0915 16:35:33 ds4-server: completion ctx=0..8250:8250 prefill chunk 6144/8250 (74.5%) chunk=580.19 t/s avg=583.23 t/s 10.534s
+0915 16:35:34 ds4-server: completion ctx=0..8250:8250 prefill chunk 7168/8250 (86.9%) chunk=595.97 t/s avg=585.01 t/s 12.253s
+0915 16:35:36 ds4-server: completion ctx=0..8250:8250 prefill chunk 8192/8250 (99.3%) chunk=594.48 t/s avg=586.18 t/s 13.975s
+0915 16:35:36 ds4-server: kv cache stored tokens=8192 trimmed=58 reason=cold key=token-text size=359.70 MiB save=92.1 ms
+0915 16:35:37 ds4-server: completion ctx=0..8250:8250 prefill chunk 8250/8250 (100.0%) chunk=139.80 t/s avg=573.31 t/s 14.390s
+0915 16:35:37 ds4-server: completion ctx=0..8250:8250 prompt done 14.390s lookup=0.175s cold=14.137s sync=0.253s store=0.336s source=none
+0915 16:35:37 ds4-server: completion ctx=8250..8300:50 gen=50 THINKING decoding chunk=55.77 t/s avg=55.77 t/s 0.897s
+0915 16:35:38 ds4-server: completion ctx=8300..8314:14 gen=64 THINKING decoding chunk=62.12 t/s avg=57.04 t/s 1.122s
+0915 16:35:38 ds4-server: completion ctx=0..8250:8250 gen=64 THINKING finish=length 15.512s
+0915 16:35:38 ds4-server: live kv cache miss live=8314 prompt=65594 common=54 vision=match reason=token-mismatch
+0915 16:35:38 ds4-server: kv cache stored tokens=8314 trimmed=0 reason=evict key=token-text size=384.17 MiB save=79.8 ms
+0915 16:35:38 ds4-server: completion ctx=0..65594:65594 prompt start
+0915 16:35:40 ds4-server: completion ctx=0..65594:65594 prefill chunk 1024/65594 (1.6%) chunk=0.00 t/s avg=514.04 t/s 1.992s
+[monitor 2026-09-15 16:35:42] health=ok stats=ok state=busy queue=0 clients=2 live=1024 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=6.1% mem=5.2% rss=6.7GiB fans=fan0=1795/5349,fan1=1936/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:35:42 ds4-server: completion ctx=0..65594:65594 prefill chunk 2048/65594 (3.1%) chunk=587.94 t/s avg=548.52 t/s 3.734s
+0915 16:35:44 ds4-server: completion ctx=0..65594:65594 prefill chunk 3072/65594 (4.7%) chunk=595.78 t/s avg=563.42 t/s 5.452s
+0915 16:35:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 4096/65594 (6.2%) chunk=602.63 t/s avg=572.73 t/s 7.152s
+0915 16:35:47 ds4-server: completion ctx=0..65594:65594 prefill chunk 5120/65594 (7.8%) chunk=595.40 t/s avg=577.13 t/s 8.872s
+0915 16:35:49 ds4-server: completion ctx=0..65594:65594 prefill chunk 6144/65594 (9.4%) chunk=584.00 t/s avg=578.26 t/s 10.625s
+0915 16:35:51 ds4-server: completion ctx=0..65594:65594 prefill chunk 7168/65594 (10.9%) chunk=594.00 t/s avg=580.46 t/s 12.349s
+0915 16:35:52 ds4-server: completion ctx=0..65594:65594 prefill chunk 8192/65594 (12.5%) chunk=595.39 t/s avg=582.28 t/s 14.069s
+0915 16:35:54 ds4-server: completion ctx=0..65594:65594 prefill chunk 9216/65594 (14.1%) chunk=647.67 t/s avg=588.89 t/s 15.650s
+0915 16:35:55 ds4-server: completion ctx=0..65594:65594 prefill chunk 10240/65594 (15.6%) chunk=643.17 t/s avg=593.90 t/s 17.242s
+[monitor 2026-09-15 16:35:57] health=ok stats=ok state=busy queue=0 clients=2 live=10240 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=2.4% mem=6.1% rss=7.8GiB fans=fan0=2503/5349,fan1=2715/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:35:57 ds4-server: completion ctx=0..65594:65594 prefill chunk 11264/65594 (17.2%) chunk=605.13 t/s avg=594.91 t/s 18.934s
+0915 16:35:59 ds4-server: completion ctx=0..65594:65594 prefill chunk 12288/65594 (18.7%) chunk=614.84 t/s avg=596.52 t/s 20.600s
+0915 16:36:01 ds4-server: completion ctx=0..65594:65594 prefill chunk 13312/65594 (20.3%) chunk=568.10 t/s avg=594.23 t/s 22.402s
+0915 16:36:02 ds4-server: completion ctx=0..65594:65594 prefill chunk 14336/65594 (21.9%) chunk=555.92 t/s avg=591.32 t/s 24.244s
+0915 16:36:04 ds4-server: completion ctx=0..65594:65594 prefill chunk 15360/65594 (23.4%) chunk=539.24 t/s avg=587.54 t/s 26.143s
+0915 16:36:06 ds4-server: completion ctx=0..65594:65594 prefill chunk 16384/65594 (25.0%) chunk=571.23 t/s avg=586.49 t/s 27.936s
+0915 16:36:08 ds4-server: completion ctx=0..65594:65594 prefill chunk 17408/65594 (26.5%) chunk=591.12 t/s avg=586.76 t/s 29.668s
+0915 16:36:10 ds4-server: completion ctx=0..65594:65594 prefill chunk 18432/65594 (28.1%) chunk=600.51 t/s avg=587.51 t/s 31.373s
+0915 16:36:11 ds4-server: completion ctx=0..65594:65594 prefill chunk 19456/65594 (29.7%) chunk=600.12 t/s avg=588.16 t/s 33.080s
+[monitor 2026-09-15 16:36:12] health=ok stats=ok state=busy queue=0 clients=2 live=19456 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=11.3% mem=6.4% rss=8.2GiB fans=fan0=2786/5349,fan1=3018/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:36:13 ds4-server: completion ctx=0..65594:65594 prefill chunk 20480/65594 (31.2%) chunk=597.39 t/s avg=588.61 t/s 34.794s
+0915 16:36:13 ds4-server: kv cache skipped tokens=20480 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:36:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 21504/65594 (32.8%) chunk=565.76 t/s avg=587.48 t/s 36.604s
+0915 16:36:17 ds4-server: completion ctx=0..65594:65594 prefill chunk 22528/65594 (34.3%) chunk=576.74 t/s avg=586.99 t/s 38.379s
+0915 16:36:18 ds4-server: completion ctx=0..65594:65594 prefill chunk 23552/65594 (35.9%) chunk=576.28 t/s avg=586.51 t/s 40.156s
+0915 16:36:20 ds4-server: completion ctx=0..65594:65594 prefill chunk 24576/65594 (37.5%) chunk=580.28 t/s avg=586.25 t/s 41.921s
+0915 16:36:22 ds4-server: completion ctx=0..65594:65594 prefill chunk 25600/65594 (39.0%) chunk=572.94 t/s avg=585.71 t/s 43.708s
+0915 16:36:24 ds4-server: completion ctx=0..65594:65594 prefill chunk 26624/65594 (40.6%) chunk=546.59 t/s avg=584.10 t/s 45.581s
+0915 16:36:26 ds4-server: completion ctx=0..65594:65594 prefill chunk 27648/65594 (42.2%) chunk=478.64 t/s avg=579.37 t/s 47.721s
+[monitor 2026-09-15 16:36:28] health=ok stats=ok state=busy queue=0 clients=2 live=27648 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=1.4% mem=5.9% rss=7.6GiB fans=fan0=3232/5349,fan1=3482/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:36:28 ds4-server: completion ctx=0..65594:65594 prefill chunk 28672/65594 (43.7%) chunk=482.43 t/s avg=575.24 t/s 49.843s
+0915 16:36:30 ds4-server: completion ctx=0..65594:65594 prefill chunk 29696/65594 (45.3%) chunk=453.97 t/s avg=569.99 t/s 52.099s
+0915 16:36:32 ds4-server: completion ctx=0..65594:65594 prefill chunk 30720/65594 (46.8%) chunk=484.16 t/s avg=566.64 t/s 54.214s
+0915 16:36:35 ds4-server: completion ctx=0..65594:65594 prefill chunk 31744/65594 (48.4%) chunk=482.91 t/s avg=563.49 t/s 56.334s
+0915 16:36:36 ds4-server: completion ctx=0..65594:65594 prefill chunk 32768/65594 (50.0%) chunk=528.30 t/s avg=562.32 t/s 58.273s
+0915 16:36:38 ds4-server: completion ctx=0..65594:65594 prefill chunk 33792/65594 (51.5%) chunk=524.15 t/s avg=561.08 t/s 60.226s
+0915 16:36:40 ds4-server: completion ctx=0..65594:65594 prefill chunk 34816/65594 (53.1%) chunk=500.45 t/s avg=559.09 t/s 62.273s
+0915 16:36:43 ds4-server: completion ctx=0..65594:65594 prefill chunk 35840/65594 (54.6%) chunk=481.08 t/s avg=556.51 t/s 64.401s
+[monitor 2026-09-15 16:36:43] health=ok stats=ok state=busy queue=0 clients=2 live=35840 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=4.6% mem=5.2% rss=6.6GiB fans=fan0=3464/5349,fan1=3734/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:36:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 36864/65594 (56.2%) chunk=440.67 t/s avg=552.48 t/s 66.725s
+0915 16:36:47 ds4-server: completion ctx=0..65594:65594 prefill chunk 37888/65594 (57.8%) chunk=468.82 t/s avg=549.83 t/s 68.909s
+0915 16:36:49 ds4-server: completion ctx=0..65594:65594 prefill chunk 38912/65594 (59.3%) chunk=486.18 t/s avg=547.94 t/s 71.015s
+0915 16:36:51 ds4-server: completion ctx=0..65594:65594 prefill chunk 39936/65594 (60.9%) chunk=479.69 t/s avg=545.95 t/s 73.150s
+0915 16:36:53 ds4-server: completion ctx=0..65594:65594 prefill chunk 40960/65594 (62.4%) chunk=483.81 t/s avg=544.20 t/s 75.267s
+0915 16:36:54 ds4-server: kv cache skipped tokens=40960 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:36:56 ds4-server: completion ctx=0..65594:65594 prefill chunk 41984/65594 (64.0%) chunk=485.98 t/s avg=542.61 t/s 77.374s
+0915 16:36:58 ds4-server: completion ctx=0..65594:65594 prefill chunk 43008/65594 (65.6%) chunk=495.56 t/s avg=541.39 t/s 79.440s
+[monitor 2026-09-15 16:36:59] health=ok stats=ok state=busy queue=0 clients=2 live=43008 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=11.4% mem=5.5% rss=7.1GiB fans=fan0=3451/5349,fan1=3735/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:37:00 ds4-server: completion ctx=0..65594:65594 prefill chunk 44032/65594 (67.1%) chunk=501.31 t/s avg=540.38 t/s 81.483s
+0915 16:37:02 ds4-server: completion ctx=0..65594:65594 prefill chunk 45056/65594 (68.7%) chunk=492.40 t/s avg=539.19 t/s 83.562s
+0915 16:37:04 ds4-server: completion ctx=0..65594:65594 prefill chunk 46080/65594 (70.3%) chunk=444.87 t/s avg=536.66 t/s 85.864s
+0915 16:37:06 ds4-server: completion ctx=0..65594:65594 prefill chunk 47104/65594 (71.8%) chunk=431.37 t/s avg=533.83 t/s 88.238s
+0915 16:37:09 ds4-server: completion ctx=0..65594:65594 prefill chunk 48128/65594 (73.4%) chunk=451.14 t/s avg=531.76 t/s 90.508s
+0915 16:37:11 ds4-server: completion ctx=0..65594:65594 prefill chunk 49152/65594 (74.9%) chunk=455.77 t/s avg=529.92 t/s 92.754s
+0915 16:37:13 ds4-server: completion ctx=0..65594:65594 prefill chunk 50176/65594 (76.5%) chunk=484.09 t/s avg=528.89 t/s 94.870s
+[monitor 2026-09-15 16:37:14] health=ok stats=ok state=busy queue=0 clients=2 live=50176 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=10.8% mem=5.3% rss=6.8GiB fans=fan0=3461/5349,fan1=3731/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1163.0GiB
+0915 16:37:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 51200/65594 (78.1%) chunk=494.63 t/s avg=528.16 t/s 96.940s
+0915 16:37:17 ds4-server: completion ctx=0..65594:65594 prefill chunk 52224/65594 (79.6%) chunk=475.86 t/s avg=527.03 t/s 99.092s
+0915 16:37:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 53248/65594 (81.2%) chunk=468.40 t/s avg=525.76 t/s 101.278s
+0915 16:37:22 ds4-server: completion ctx=0..65594:65594 prefill chunk 54272/65594 (82.7%) chunk=453.98 t/s avg=524.20 t/s 103.534s
+0915 16:37:24 ds4-server: completion ctx=0..65594:65594 prefill chunk 55296/65594 (84.3%) chunk=474.58 t/s avg=523.18 t/s 105.691s
+0915 16:37:26 ds4-server: completion ctx=0..65594:65594 prefill chunk 56320/65594 (85.9%) chunk=465.77 t/s avg=522.01 t/s 107.890s
+0915 16:37:28 ds4-server: completion ctx=0..65594:65594 prefill chunk 57344/65594 (87.4%) chunk=477.51 t/s avg=521.15 t/s 110.034s
+[monitor 2026-09-15 16:37:29] health=ok stats=ok state=busy queue=0 clients=2 live=57344 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=12.6% mem=5.5% rss=7.0GiB fans=fan0=3458/5349,fan1=3736/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1162.9GiB
+0915 16:37:30 ds4-server: completion ctx=0..65594:65594 prefill chunk 58368/65594 (89.0%) chunk=497.83 t/s avg=520.72 t/s 112.091s
+0915 16:37:32 ds4-server: completion ctx=0..65594:65594 prefill chunk 59392/65594 (90.5%) chunk=484.37 t/s avg=520.05 t/s 114.205s
+0915 16:37:35 ds4-server: completion ctx=0..65594:65594 prefill chunk 60416/65594 (92.1%) chunk=479.19 t/s avg=519.30 t/s 116.342s
+0915 16:37:37 ds4-server: completion ctx=0..65594:65594 prefill chunk 61440/65594 (93.7%) chunk=486.70 t/s avg=518.72 t/s 118.446s
+0915 16:37:37 ds4-server: kv cache skipped tokens=61440 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:37:39 ds4-server: completion ctx=0..65594:65594 prefill chunk 62464/65594 (95.2%) chunk=493.39 t/s avg=518.28 t/s 120.522s
+0915 16:37:41 ds4-server: completion ctx=0..65594:65594 prefill chunk 63488/65594 (96.8%) chunk=513.06 t/s avg=518.19 t/s 122.518s
+0915 16:37:43 ds4-server: completion ctx=0..65594:65594 prefill chunk 64512/65594 (98.4%) chunk=498.77 t/s avg=517.87 t/s 124.571s
+0915 16:37:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 65536/65594 (99.9%) chunk=502.51 t/s avg=517.63 t/s 126.608s
+[monitor 2026-09-15 16:37:45] health=ok stats=ok state=busy queue=0 clients=2 live=64512 requests=4 hits=0 cold=4 cached=0 prefill=573.3t/s decode=57.0t/s cpu=0.3% mem=5.6% rss=7.2GiB fans=fan0=3451/5349,fan1=3740/5777RPM kv=2.2/128.0GiB(1.7%) disk_free=1162.9GiB
+0915 16:37:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 65594/65594 (100.0%) chunk=163.40 t/s avg=516.64 t/s 126.963s
+0915 16:37:45 ds4-server: completion ctx=0..65594:65594 prompt done 126.963s lookup=0.172s cold=0.000s sync=126.963s store=0.195s source=none
+0915 16:37:46 ds4-server: completion ctx=65594..65644:50 gen=50 THINKING decoding chunk=46.48 t/s avg=46.48 t/s 1.076s
+0915 16:37:47 ds4-server: completion ctx=65644..65658:14 gen=64 THINKING decoding chunk=42.56 t/s avg=45.56 t/s 1.405s
+0915 16:37:47 ds4-server: completion ctx=0..65594:65594 gen=64 THINKING finish=length 128.368s
+0915 16:37:47 ds4-server: live kv cache miss live=65658 prompt=65594 common=60 vision=match reason=token-mismatch
+0915 16:37:48 ds4-server: kv cache stored tokens=65658 trimmed=0 reason=evict key=token-text size=2250.95 MiB save=726.4 ms
+0915 16:37:48 ds4-server: completion ctx=0..65594:65594 prompt start
+0915 16:37:51 ds4-server: completion ctx=0..65594:65594 prefill chunk 1024/65594 (1.6%) chunk=0.00 t/s avg=392.18 t/s 2.611s
+0915 16:37:53 ds4-server: completion ctx=0..65594:65594 prefill chunk 2048/65594 (3.1%) chunk=505.71 t/s avg=441.77 t/s 4.636s
+0915 16:37:55 ds4-server: completion ctx=0..65594:65594 prefill chunk 3072/65594 (4.7%) chunk=485.60 t/s avg=455.47 t/s 6.745s
+0915 16:37:57 ds4-server: completion ctx=0..65594:65594 prefill chunk 4096/65594 (6.2%) chunk=510.78 t/s avg=468.15 t/s 8.749s
+0915 16:37:59 ds4-server: completion ctx=0..65594:65594 prefill chunk 5120/65594 (7.8%) chunk=479.62 t/s avg=470.40 t/s 10.884s
+[monitor 2026-09-15 16:38:00] health=ok stats=ok state=busy queue=0 clients=2 live=5120 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=11.4% mem=4.6% rss=5.9GiB fans=fan0=3455/5349,fan1=3733/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:38:01 ds4-server: completion ctx=0..65594:65594 prefill chunk 6144/65594 (9.4%) chunk=492.40 t/s avg=473.93 t/s 12.964s
+0915 16:38:03 ds4-server: completion ctx=0..65594:65594 prefill chunk 7168/65594 (10.9%) chunk=491.51 t/s avg=476.36 t/s 15.047s
+0915 16:38:05 ds4-server: completion ctx=0..65594:65594 prefill chunk 8192/65594 (12.5%) chunk=481.61 t/s avg=477.01 t/s 17.174s
+0915 16:38:08 ds4-server: completion ctx=0..65594:65594 prefill chunk 9216/65594 (14.1%) chunk=493.65 t/s avg=478.80 t/s 19.248s
+0915 16:38:10 ds4-server: completion ctx=0..65594:65594 prefill chunk 10240/65594 (15.6%) chunk=505.23 t/s avg=481.32 t/s 21.275s
+0915 16:38:12 ds4-server: completion ctx=0..65594:65594 prefill chunk 11264/65594 (17.2%) chunk=511.08 t/s avg=483.88 t/s 23.278s
+0915 16:38:14 ds4-server: completion ctx=0..65594:65594 prefill chunk 12288/65594 (18.7%) chunk=527.20 t/s avg=487.22 t/s 25.221s
+0915 16:38:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 13312/65594 (20.3%) chunk=529.22 t/s avg=490.21 t/s 27.156s
+[monitor 2026-09-15 16:38:16] health=ok stats=ok state=busy queue=0 clients=2 live=12288 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=0.4% mem=5.6% rss=7.1GiB fans=fan0=3457/5349,fan1=3731/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:38:17 ds4-server: completion ctx=0..65594:65594 prefill chunk 14336/65594 (21.9%) chunk=525.89 t/s avg=492.60 t/s 29.103s
+0915 16:38:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 15360/65594 (23.4%) chunk=526.24 t/s avg=494.71 t/s 31.049s
+0915 16:38:21 ds4-server: completion ctx=0..65594:65594 prefill chunk 16384/65594 (25.0%) chunk=535.72 t/s avg=497.09 t/s 32.960s
+0915 16:38:23 ds4-server: completion ctx=0..65594:65594 prefill chunk 17408/65594 (26.5%) chunk=530.42 t/s avg=498.93 t/s 34.891s
+0915 16:38:25 ds4-server: completion ctx=0..65594:65594 prefill chunk 18432/65594 (28.1%) chunk=494.91 t/s avg=498.70 t/s 36.960s
+0915 16:38:27 ds4-server: completion ctx=0..65594:65594 prefill chunk 19456/65594 (29.7%) chunk=542.00 t/s avg=500.81 t/s 38.849s
+0915 16:38:29 ds4-server: completion ctx=0..65594:65594 prefill chunk 20480/65594 (31.2%) chunk=512.72 t/s avg=501.39 t/s 40.846s
+0915 16:38:29 ds4-server: kv cache skipped tokens=20480 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+[monitor 2026-09-15 16:38:31] health=ok stats=ok state=busy queue=0 clients=2 live=20480 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=1.0% mem=5.9% rss=7.5GiB fans=fan0=3456/5349,fan1=3732/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:38:31 ds4-server: completion ctx=0..65594:65594 prefill chunk 21504/65594 (32.8%) chunk=489.47 t/s avg=500.81 t/s 42.938s
+0915 16:38:33 ds4-server: completion ctx=0..65594:65594 prefill chunk 22528/65594 (34.3%) chunk=517.37 t/s avg=501.54 t/s 44.918s
+0915 16:38:35 ds4-server: completion ctx=0..65594:65594 prefill chunk 23552/65594 (35.9%) chunk=521.11 t/s avg=502.36 t/s 46.883s
+0915 16:38:37 ds4-server: completion ctx=0..65594:65594 prefill chunk 24576/65594 (37.5%) chunk=477.02 t/s avg=501.25 t/s 49.029s
+0915 16:38:39 ds4-server: completion ctx=0..65594:65594 prefill chunk 25600/65594 (39.0%) chunk=494.64 t/s avg=500.98 t/s 51.099s
+0915 16:38:41 ds4-server: completion ctx=0..65594:65594 prefill chunk 26624/65594 (40.6%) chunk=486.07 t/s avg=500.39 t/s 53.206s
+0915 16:38:44 ds4-server: completion ctx=0..65594:65594 prefill chunk 27648/65594 (42.2%) chunk=501.84 t/s avg=500.45 t/s 55.247s
+0915 16:38:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 28672/65594 (43.7%) chunk=524.75 t/s avg=501.28 t/s 57.198s
+[monitor 2026-09-15 16:38:46] health=ok stats=ok state=busy queue=0 clients=2 live=28672 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=10.5% mem=6.2% rss=8.0GiB fans=fan0=3448/5349,fan1=3729/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:38:48 ds4-server: completion ctx=0..65594:65594 prefill chunk 29696/65594 (45.3%) chunk=487.18 t/s avg=500.78 t/s 59.300s
+0915 16:38:50 ds4-server: completion ctx=0..65594:65594 prefill chunk 30720/65594 (46.8%) chunk=449.00 t/s avg=498.86 t/s 61.581s
+0915 16:38:52 ds4-server: completion ctx=0..65594:65594 prefill chunk 31744/65594 (48.4%) chunk=506.94 t/s avg=499.12 t/s 63.601s
+0915 16:38:54 ds4-server: completion ctx=0..65594:65594 prefill chunk 32768/65594 (50.0%) chunk=484.36 t/s avg=498.64 t/s 65.715s
+0915 16:38:56 ds4-server: completion ctx=0..65594:65594 prefill chunk 33792/65594 (51.5%) chunk=529.24 t/s avg=499.52 t/s 67.649s
+0915 16:38:58 ds4-server: completion ctx=0..65594:65594 prefill chunk 34816/65594 (53.1%) chunk=451.94 t/s avg=497.97 t/s 69.915s
+0915 16:39:00 ds4-server: completion ctx=0..65594:65594 prefill chunk 35840/65594 (54.6%) chunk=493.93 t/s avg=497.86 t/s 71.988s
+[monitor 2026-09-15 16:39:02] health=ok stats=ok state=busy queue=0 clients=2 live=35840 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=6.3% mem=6.2% rss=7.9GiB fans=fan0=3454/5349,fan1=3732/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:39:02 ds4-server: completion ctx=0..65594:65594 prefill chunk 36864/65594 (56.2%) chunk=530.10 t/s avg=498.70 t/s 73.920s
+0915 16:39:04 ds4-server: completion ctx=0..65594:65594 prefill chunk 37888/65594 (57.8%) chunk=525.51 t/s avg=499.39 t/s 75.869s
+0915 16:39:06 ds4-server: completion ctx=0..65594:65594 prefill chunk 38912/65594 (59.3%) chunk=508.14 t/s avg=499.62 t/s 77.884s
+0915 16:39:08 ds4-server: completion ctx=0..65594:65594 prefill chunk 39936/65594 (60.9%) chunk=532.84 t/s avg=500.42 t/s 79.806s
+0915 16:39:10 ds4-server: completion ctx=0..65594:65594 prefill chunk 40960/65594 (62.4%) chunk=503.29 t/s avg=500.49 t/s 81.840s
+0915 16:39:10 ds4-server: kv cache skipped tokens=40960 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:39:12 ds4-server: completion ctx=0..65594:65594 prefill chunk 41984/65594 (64.0%) chunk=466.64 t/s avg=499.60 t/s 84.035s
+0915 16:39:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 43008/65594 (65.6%) chunk=460.86 t/s avg=498.61 t/s 86.257s
+0915 16:39:17 ds4-server: completion ctx=0..65594:65594 prefill chunk 44032/65594 (67.1%) chunk=387.40 t/s avg=495.30 t/s 88.900s
+[monitor 2026-09-15 16:39:17] health=ok stats=ok state=busy queue=0 clients=2 live=43008 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=0.1% mem=5.2% rss=6.7GiB fans=fan0=3455/5349,fan1=3733/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:39:20 ds4-server: completion ctx=0..65594:65594 prefill chunk 45056/65594 (68.7%) chunk=366.23 t/s avg=491.36 t/s 91.696s
+0915 16:39:23 ds4-server: completion ctx=0..65594:65594 prefill chunk 46080/65594 (70.3%) chunk=404.34 t/s avg=489.02 t/s 94.228s
+0915 16:39:25 ds4-server: completion ctx=0..65594:65594 prefill chunk 47104/65594 (71.8%) chunk=444.64 t/s avg=487.97 t/s 96.531s
+0915 16:39:27 ds4-server: completion ctx=0..65594:65594 prefill chunk 48128/65594 (73.4%) chunk=452.07 t/s avg=487.14 t/s 98.797s
+0915 16:39:29 ds4-server: completion ctx=0..65594:65594 prefill chunk 49152/65594 (74.9%) chunk=435.41 t/s avg=485.94 t/s 101.148s
+0915 16:39:32 ds4-server: completion ctx=0..65594:65594 prefill chunk 50176/65594 (76.5%) chunk=447.43 t/s avg=485.09 t/s 103.437s
+[monitor 2026-09-15 16:39:33] health=ok stats=ok state=busy queue=0 clients=2 live=50176 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=14.1% mem=5.3% rss=6.8GiB fans=fan0=3457/5349,fan1=3727/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:39:34 ds4-server: completion ctx=0..65594:65594 prefill chunk 51200/65594 (78.1%) chunk=429.76 t/s avg=483.84 t/s 105.820s
+0915 16:39:36 ds4-server: completion ctx=0..65594:65594 prefill chunk 52224/65594 (79.6%) chunk=458.37 t/s avg=483.32 t/s 108.054s
+0915 16:39:38 ds4-server: completion ctx=0..65594:65594 prefill chunk 53248/65594 (81.2%) chunk=478.08 t/s avg=483.21 t/s 110.196s
+0915 16:39:41 ds4-server: completion ctx=0..65594:65594 prefill chunk 54272/65594 (82.7%) chunk=479.97 t/s avg=483.15 t/s 112.329s
+0915 16:39:43 ds4-server: completion ctx=0..65594:65594 prefill chunk 55296/65594 (84.3%) chunk=462.42 t/s avg=482.75 t/s 114.543s
+0915 16:39:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 56320/65594 (85.9%) chunk=458.78 t/s avg=482.29 t/s 116.776s
+0915 16:39:48 ds4-server: completion ctx=0..65594:65594 prefill chunk 57344/65594 (87.4%) chunk=381.65 t/s avg=480.03 t/s 119.459s
+[monitor 2026-09-15 16:39:48] health=ok stats=ok state=busy queue=0 clients=2 live=57344 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=0.0% mem=5.2% rss=6.6GiB fans=fan0=3450/5349,fan1=3736/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:39:51 ds4-server: completion ctx=0..65594:65594 prefill chunk 58368/65594 (89.0%) chunk=307.51 t/s avg=475.35 t/s 122.789s
+0915 16:39:54 ds4-server: completion ctx=0..65594:65594 prefill chunk 59392/65594 (90.5%) chunk=336.08 t/s avg=471.98 t/s 125.835s
+0915 16:39:57 ds4-server: completion ctx=0..65594:65594 prefill chunk 60416/65594 (92.1%) chunk=360.31 t/s avg=469.52 t/s 128.677s
+0915 16:40:00 ds4-server: completion ctx=0..65594:65594 prefill chunk 61440/65594 (93.7%) chunk=380.01 t/s avg=467.68 t/s 131.372s
+0915 16:40:00 ds4-server: kv cache skipped tokens=61440 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:40:03 ds4-server: completion ctx=0..65594:65594 prefill chunk 62464/65594 (95.2%) chunk=321.60 t/s avg=464.22 t/s 134.556s
+[monitor 2026-09-15 16:40:04] health=ok stats=ok state=busy queue=0 clients=2 live=62464 requests=5 hits=0 cold=5 cached=0 prefill=516.6t/s decode=45.6t/s cpu=17.4% mem=4.5% rss=5.7GiB fans=fan0=3457/5349,fan1=3729/5777RPM kv=4.4/128.0GiB(3.4%) disk_free=1160.7GiB
+0915 16:40:07 ds4-server: completion ctx=0..65594:65594 prefill chunk 63488/65594 (96.8%) chunk=272.29 t/s avg=459.00 t/s 138.317s
+0915 16:40:10 ds4-server: completion ctx=0..65594:65594 prefill chunk 64512/65594 (98.4%) chunk=285.20 t/s avg=454.61 t/s 141.907s
+0915 16:40:14 ds4-server: completion ctx=0..65594:65594 prefill chunk 65536/65594 (99.9%) chunk=295.93 t/s avg=450.83 t/s 145.368s
+0915 16:40:14 ds4-server: completion ctx=0..65594:65594 prefill chunk 65594/65594 (100.0%) chunk=122.86 t/s avg=449.77 t/s 145.840s
+0915 16:40:14 ds4-server: completion ctx=0..65594:65594 prompt done 145.844s lookup=1.273s cold=0.000s sync=145.843s store=1.299s source=none
+0915 16:40:15 ds4-server: completion ctx=65594..65644:50 gen=50 THINKING decoding chunk=39.18 t/s avg=39.18 t/s 1.276s
+0915 16:40:16 ds4-server: completion ctx=65644..65658:14 gen=64 THINKING decoding chunk=33.33 t/s avg=37.73 t/s 1.696s
+0915 16:40:16 ds4-server: completion ctx=0..65594:65594 gen=64 THINKING finish=length 147.540s
+0915 16:40:17 ds4-server: live kv cache miss live=65658 prompt=65594 common=60 vision=match reason=token-mismatch
+0915 16:40:19 ds4-server: kv cache stored tokens=65658 trimmed=0 reason=evict key=token-text size=2250.96 MiB save=974.2 ms
+0915 16:40:19 ds4-server: completion ctx=0..65594:65594 prompt start
+[monitor 2026-09-15 16:40:20] health=ok stats=ok state=busy queue=0 clients=3 live=65658 requests=5 hits=0 cold=5 cached=0 prefill=449.8t/s decode=37.7t/s cpu=48.7% mem=3.2% rss=4.0GiB fans=fan0=3460/5349,fan1=3730/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1158.5GiB
+0915 16:40:23 ds4-server: completion ctx=0..65594:65594 prefill chunk 1024/65594 (1.6%) chunk=0.00 t/s avg=269.78 t/s 3.796s
+0915 16:40:27 ds4-server: completion ctx=0..65594:65594 prefill chunk 2048/65594 (3.1%) chunk=282.08 t/s avg=275.79 t/s 7.426s
+0915 16:40:30 ds4-server: completion ctx=0..65594:65594 prefill chunk 3072/65594 (4.7%) chunk=286.38 t/s avg=279.24 t/s 11.001s
+0915 16:40:34 ds4-server: completion ctx=0..65594:65594 prefill chunk 4096/65594 (6.2%) chunk=324.69 t/s avg=289.36 t/s 14.155s
+[monitor 2026-09-15 16:40:35] health=ok stats=ok state=busy queue=0 clients=2 live=4096 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=25.7% mem=3.2% rss=4.0GiB fans=fan0=3465/5349,fan1=3734/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1158.5GiB
+0915 16:40:37 ds4-server: completion ctx=0..65594:65594 prefill chunk 5120/65594 (7.8%) chunk=325.76 t/s avg=295.98 t/s 17.299s
+0915 16:40:40 ds4-server: completion ctx=0..65594:65594 prefill chunk 6144/65594 (9.4%) chunk=357.55 t/s avg=304.72 t/s 20.163s
+0915 16:40:43 ds4-server: completion ctx=0..65594:65594 prefill chunk 7168/65594 (10.9%) chunk=311.77 t/s avg=305.71 t/s 23.447s
+0915 16:40:48 ds4-server: completion ctx=0..65594:65594 prefill chunk 8192/65594 (12.5%) chunk=209.20 t/s avg=289.04 t/s 28.342s
+[monitor 2026-09-15 16:40:51] health=ok stats=ok state=busy queue=0 clients=2 live=8192 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=48.7% mem=2.2% rss=2.8GiB fans=fan0=3452/5349,fan1=3733/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1158.4GiB
+0915 16:40:53 ds4-server: completion ctx=0..65594:65594 prefill chunk 9216/65594 (14.1%) chunk=218.67 t/s avg=279.06 t/s 33.025s
+0915 16:40:57 ds4-server: completion ctx=0..65594:65594 prefill chunk 10240/65594 (15.6%) chunk=232.37 t/s avg=273.57 t/s 37.432s
+0915 16:41:01 ds4-server: completion ctx=0..65594:65594 prefill chunk 11264/65594 (17.2%) chunk=234.91 t/s avg=269.53 t/s 41.791s
+0915 16:41:06 ds4-server: completion ctx=0..65594:65594 prefill chunk 12288/65594 (18.7%) chunk=240.89 t/s avg=266.89 t/s 46.041s
+[monitor 2026-09-15 16:41:06] health=ok stats=ok state=busy queue=0 clients=2 live=12288 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=15.7% mem=2.2% rss=2.8GiB fans=fan0=3457/5349,fan1=3734/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.4GiB
+0915 16:41:09 ds4-server: completion ctx=0..65594:65594 prefill chunk 13312/65594 (20.3%) chunk=269.66 t/s avg=267.10 t/s 49.839s
+0915 16:41:13 ds4-server: completion ctx=0..65594:65594 prefill chunk 14336/65594 (21.9%) chunk=284.65 t/s avg=268.28 t/s 53.436s
+0915 16:41:16 ds4-server: completion ctx=0..65594:65594 prefill chunk 15360/65594 (23.4%) chunk=314.89 t/s avg=270.96 t/s 56.688s
+0915 16:41:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 16384/65594 (25.0%) chunk=308.85 t/s avg=273.05 t/s 60.004s
+[monitor 2026-09-15 16:41:22] health=ok stats=ok state=busy queue=0 clients=2 live=16384 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=18.9% mem=2.8% rss=3.6GiB fans=fan0=3461/5349,fan1=3724/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.4GiB
+0915 16:41:22 ds4-server: completion ctx=0..65594:65594 prefill chunk 17408/65594 (26.5%) chunk=341.31 t/s avg=276.30 t/s 63.004s
+0915 16:41:25 ds4-server: completion ctx=0..65594:65594 prefill chunk 18432/65594 (28.1%) chunk=366.17 t/s avg=280.12 t/s 65.800s
+0915 16:41:29 ds4-server: completion ctx=0..65594:65594 prefill chunk 19456/65594 (29.7%) chunk=314.03 t/s avg=281.72 t/s 69.061s
+0915 16:41:32 ds4-server: completion ctx=0..65594:65594 prefill chunk 20480/65594 (31.2%) chunk=329.78 t/s avg=283.79 t/s 72.166s
+0915 16:41:32 ds4-server: kv cache skipped tokens=20480 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:41:35 ds4-server: completion ctx=0..65594:65594 prefill chunk 21504/65594 (32.8%) chunk=340.66 t/s avg=286.06 t/s 75.172s
+[monitor 2026-09-15 16:41:37] health=ok stats=ok state=busy queue=0 clients=2 live=21504 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=0.5% mem=3.1% rss=4.0GiB fans=fan0=3457/5349,fan1=3729/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.4GiB
+0915 16:41:37 ds4-server: completion ctx=0..65594:65594 prefill chunk 22528/65594 (34.3%) chunk=363.08 t/s avg=288.85 t/s 77.993s
+0915 16:41:41 ds4-server: completion ctx=0..65594:65594 prefill chunk 23552/65594 (35.9%) chunk=331.25 t/s avg=290.46 t/s 81.084s
+0915 16:41:44 ds4-server: completion ctx=0..65594:65594 prefill chunk 24576/65594 (37.5%) chunk=334.27 t/s avg=292.06 t/s 84.147s
+0915 16:41:47 ds4-server: completion ctx=0..65594:65594 prefill chunk 25600/65594 (39.0%) chunk=333.58 t/s avg=293.52 t/s 87.217s
+0915 16:41:49 ds4-server: completion ctx=0..65594:65594 prefill chunk 26624/65594 (40.6%) chunk=369.14 t/s avg=295.85 t/s 89.991s
+0915 16:41:52 ds4-server: completion ctx=0..65594:65594 prefill chunk 27648/65594 (42.2%) chunk=340.91 t/s avg=297.31 t/s 92.995s
+[monitor 2026-09-15 16:41:53] health=ok stats=ok state=busy queue=0 clients=2 live=26624 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=0.2% mem=3.3% rss=4.2GiB fans=fan0=3459/5349,fan1=3734/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.4GiB
+0915 16:41:55 ds4-server: completion ctx=0..65594:65594 prefill chunk 28672/65594 (43.7%) chunk=363.09 t/s avg=299.24 t/s 95.815s
+0915 16:41:58 ds4-server: completion ctx=0..65594:65594 prefill chunk 29696/65594 (45.3%) chunk=381.89 t/s avg=301.49 t/s 98.496s
+0915 16:42:01 ds4-server: completion ctx=0..65594:65594 prefill chunk 30720/65594 (46.8%) chunk=399.15 t/s avg=303.97 t/s 101.062s
+0915 16:42:03 ds4-server: completion ctx=0..65594:65594 prefill chunk 31744/65594 (48.4%) chunk=393.53 t/s avg=306.22 t/s 103.664s
+0915 16:42:06 ds4-server: completion ctx=0..65594:65594 prefill chunk 32768/65594 (50.0%) chunk=345.46 t/s avg=307.31 t/s 106.628s
+[monitor 2026-09-15 16:42:08] health=ok stats=ok state=busy queue=0 clients=2 live=32768 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=62.0% mem=3.4% rss=4.4GiB fans=fan0=3455/5349,fan1=3731/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.3GiB
+0915 16:42:09 ds4-server: completion ctx=0..65594:65594 prefill chunk 33792/65594 (51.5%) chunk=330.13 t/s avg=307.96 t/s 109.730s
+0915 16:42:12 ds4-server: completion ctx=0..65594:65594 prefill chunk 34816/65594 (53.1%) chunk=326.09 t/s avg=308.46 t/s 112.870s
+0915 16:42:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 35840/65594 (54.6%) chunk=325.86 t/s avg=308.93 t/s 116.013s
+0915 16:42:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 36864/65594 (56.2%) chunk=333.11 t/s avg=309.56 t/s 119.087s
+0915 16:42:22 ds4-server: completion ctx=0..65594:65594 prefill chunk 37888/65594 (57.8%) chunk=333.67 t/s avg=310.16 t/s 122.155s
+[monitor 2026-09-15 16:42:24] health=ok stats=ok state=busy queue=0 clients=2 live=37888 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=3.1% mem=3.9% rss=5.0GiB fans=fan0=3455/5349,fan1=3725/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.3GiB
+0915 16:42:24 ds4-server: completion ctx=0..65594:65594 prefill chunk 38912/65594 (59.3%) chunk=382.47 t/s avg=311.71 t/s 124.833s
+0915 16:42:27 ds4-server: completion ctx=0..65594:65594 prefill chunk 39936/65594 (60.9%) chunk=401.53 t/s avg=313.51 t/s 127.383s
+0915 16:42:30 ds4-server: completion ctx=0..65594:65594 prefill chunk 40960/65594 (62.4%) chunk=350.07 t/s avg=314.33 t/s 130.308s
+0915 16:42:30 ds4-server: kv cache skipped tokens=40960 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:42:33 ds4-server: completion ctx=0..65594:65594 prefill chunk 41984/65594 (64.0%) chunk=302.81 t/s avg=314.04 t/s 133.690s
+0915 16:42:36 ds4-server: completion ctx=0..65594:65594 prefill chunk 43008/65594 (65.6%) chunk=378.53 t/s avg=315.32 t/s 136.395s
+0915 16:42:38 ds4-server: completion ctx=0..65594:65594 prefill chunk 44032/65594 (67.1%) chunk=423.76 t/s avg=317.21 t/s 138.811s
+[monitor 2026-09-15 16:42:39] health=ok stats=ok state=busy queue=0 clients=2 live=44032 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=13.0% mem=3.7% rss=4.7GiB fans=fan0=3459/5349,fan1=3736/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.2GiB
+0915 16:42:40 ds4-server: completion ctx=0..65594:65594 prefill chunk 45056/65594 (68.7%) chunk=500.38 t/s avg=319.87 t/s 140.858s
+0915 16:42:42 ds4-server: completion ctx=0..65594:65594 prefill chunk 46080/65594 (70.3%) chunk=475.94 t/s avg=322.22 t/s 143.009s
+0915 16:42:45 ds4-server: completion ctx=0..65594:65594 prefill chunk 47104/65594 (71.8%) chunk=485.81 t/s avg=324.59 t/s 145.117s
+0915 16:42:47 ds4-server: completion ctx=0..65594:65594 prefill chunk 48128/65594 (73.4%) chunk=495.20 t/s avg=326.99 t/s 147.185s
+0915 16:42:49 ds4-server: completion ctx=0..65594:65594 prefill chunk 49152/65594 (74.9%) chunk=487.25 t/s avg=329.25 t/s 149.287s
+0915 16:42:51 ds4-server: completion ctx=0..65594:65594 prefill chunk 50176/65594 (76.5%) chunk=532.06 t/s avg=331.83 t/s 151.211s
+0915 16:42:53 ds4-server: completion ctx=0..65594:65594 prefill chunk 51200/65594 (78.1%) chunk=561.73 t/s avg=334.57 t/s 153.034s
+0915 16:42:54 ds4-server: completion ctx=0..65594:65594 prefill chunk 52224/65594 (79.6%) chunk=592.51 t/s avg=337.45 t/s 154.762s
+[monitor 2026-09-15 16:42:55] health=ok stats=ok state=busy queue=0 clients=2 live=51200 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=0.1% mem=4.5% rss=5.7GiB fans=fan0=3454/5349,fan1=3731/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.5GiB
+0915 16:42:56 ds4-server: completion ctx=0..65594:65594 prefill chunk 53248/65594 (81.2%) chunk=557.53 t/s avg=340.03 t/s 156.599s
+0915 16:42:58 ds4-server: completion ctx=0..65594:65594 prefill chunk 54272/65594 (82.7%) chunk=501.59 t/s avg=342.11 t/s 158.641s
+0915 16:43:00 ds4-server: completion ctx=0..65594:65594 prefill chunk 55296/65594 (84.3%) chunk=552.80 t/s avg=344.54 t/s 160.493s
+0915 16:43:02 ds4-server: completion ctx=0..65594:65594 prefill chunk 56320/65594 (85.9%) chunk=550.02 t/s avg=346.89 t/s 162.355s
+0915 16:43:04 ds4-server: completion ctx=0..65594:65594 prefill chunk 57344/65594 (87.4%) chunk=586.53 t/s avg=349.44 t/s 164.101s
+0915 16:43:05 ds4-server: completion ctx=0..65594:65594 prefill chunk 58368/65594 (89.0%) chunk=546.02 t/s avg=351.67 t/s 165.976s
+0915 16:43:08 ds4-server: completion ctx=0..65594:65594 prefill chunk 59392/65594 (90.5%) chunk=466.33 t/s avg=353.16 t/s 168.172s
+0915 16:43:10 ds4-server: completion ctx=0..65594:65594 prefill chunk 60416/65594 (92.1%) chunk=546.46 t/s avg=355.29 t/s 170.046s
+[monitor 2026-09-15 16:43:10] health=ok stats=ok state=busy queue=0 clients=2 live=60416 requests=6 hits=0 cold=6 cached=0 prefill=449.8t/s decode=37.7t/s cpu=0.0% mem=5.3% rss=6.8GiB fans=fan0=3460/5349,fan1=3728/5777RPM kv=6.6/128.0GiB(5.1%) disk_free=1156.5GiB
+0915 16:43:11 ds4-server: completion ctx=0..65594:65594 prefill chunk 61440/65594 (93.7%) chunk=544.01 t/s avg=357.36 t/s 171.928s
+0915 16:43:11 ds4-server: kv cache skipped tokens=61440 reason=continued because KV payload staging failed: session has no valid checkpoint to stage
+0915 16:43:13 ds4-server: completion ctx=0..65594:65594 prefill chunk 62464/65594 (95.2%) chunk=579.79 t/s avg=359.62 t/s 173.694s
+0915 16:43:15 ds4-server: completion ctx=0..65594:65594 prefill chunk 63488/65594 (96.8%) chunk=586.69 t/s avg=361.88 t/s 175.440s
+0915 16:43:17 ds4-server: completion ctx=0..65594:65594 prefill chunk 64512/65594 (98.4%) chunk=561.51 t/s avg=363.93 t/s 177.263s
+0915 16:43:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 65536/65594 (99.9%) chunk=563.89 t/s avg=365.96 t/s 179.079s
+0915 16:43:19 ds4-server: completion ctx=0..65594:65594 prefill chunk 65594/65594 (100.0%) chunk=179.48 t/s avg=365.63 t/s 179.402s
+0915 16:43:19 ds4-server: completion ctx=0..65594:65594 prompt done 179.403s lookup=2.599s cold=0.000s sync=179.399s store=2.627s source=none
+0915 16:43:20 ds4-server: completion ctx=65594..65644:50 gen=50 THINKING decoding chunk=53.19 t/s avg=53.19 t/s 0.940s
+0915 16:43:20 ds4-server: completion ctx=65644..65658:14 gen=64 THINKING decoding chunk=52.57 t/s avg=53.05 t/s 1.206s
+0915 16:43:20 ds4-server: completion ctx=0..65594:65594 gen=64 THINKING finish=length 180.609s
+0915 16:43:20 ds4-server: live kv cache miss live=65658 prompt=26 common=1 vision=match reason=token-mismatch
+0915 16:43:21 ds4-server: kv cache stored tokens=65658 trimmed=0 reason=evict key=token-text size=2250.95 MiB save=467.8 ms
+0915 16:43:21 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:21 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=122.42 t/s 0.212s
+0915 16:43:21 ds4-server: chat ctx=0..26:26 prompt done 0.212s lookup=0.909s cold=0.000s sync=0.212s store=0.907s source=none
+0915 16:43:22 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=60.20 t/s avg=60.20 t/s 0.532s
+0915 16:43:22 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.744s
+0915 16:43:22 ds4-server: live kv cache miss live=58 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:22 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:22 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=135.04 t/s 0.193s
+0915 16:43:22 ds4-server: chat ctx=0..26:26 prompt done 0.193s lookup=0.000s cold=0.000s sync=0.193s store=0.000s source=none
+0915 16:43:23 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=52.00 t/s avg=52.00 t/s 0.615s
+0915 16:43:23 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.808s
+0915 16:43:23 ds4-server: live kv cache miss live=58 prompt=27 common=3 vision=match reason=token-mismatch
+0915 16:43:23 ds4-server: chat ctx=0..27:27 prompt start
+0915 16:43:23 ds4-server: chat ctx=0..27:27 prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=120.21 t/s 0.225s
+0915 16:43:23 ds4-server: chat ctx=0..27:27 prompt done 0.225s lookup=0.000s cold=0.000s sync=0.225s store=0.000s source=none
+0915 16:43:24 ds4-server: chat ctx=27..59:32 gen=32 decoding chunk=52.74 t/s avg=52.74 t/s 0.607s
+0915 16:43:24 ds4-server: chat ctx=0..27:27 gen=32 finish=length 0.832s
+0915 16:43:24 ds4-server: live kv cache miss live=59 prompt=27 common=3 vision=match reason=token-mismatch
+0915 16:43:24 ds4-server: chat ctx=0..27:27 prompt start
+0915 16:43:24 ds4-server: chat ctx=0..27:27 prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=114.28 t/s 0.236s
+0915 16:43:24 ds4-server: chat ctx=0..27:27 prompt done 0.236s lookup=0.000s cold=0.000s sync=0.236s store=0.000s source=none
+0915 16:43:24 ds4-server: chat ctx=27..59:32 gen=32 decoding chunk=57.02 t/s avg=57.02 t/s 0.561s
+0915 16:43:24 ds4-server: chat ctx=0..27:27 gen=32 finish=length 0.798s
+0915 16:43:24 ds4-server: live kv cache miss live=59 prompt=24 common=3 vision=match reason=token-mismatch
+0915 16:43:24 ds4-server: chat ctx=0..24:24 prompt start
+0915 16:43:25 ds4-server: chat ctx=0..24:24 prefill chunk 24/24 (100.0%) chunk=0.00 t/s avg=110.22 t/s 0.218s
+0915 16:43:25 ds4-server: chat ctx=0..24:24 prompt done 0.218s lookup=0.000s cold=0.000s sync=0.218s store=0.000s source=none
+0915 16:43:25 ds4-server: chat ctx=24..56:32 gen=32 decoding chunk=54.36 t/s avg=54.36 t/s 0.589s
+0915 16:43:25 ds4-server: chat ctx=0..24:24 gen=32 finish=length 0.807s
+0915 16:43:25 ds4-server: live kv cache miss live=56 prompt=22 common=3 vision=match reason=token-mismatch
+0915 16:43:25 ds4-server: chat ctx=0..22:22 prompt start
+0915 16:43:25 ds4-server: chat ctx=0..22:22 prefill chunk 22/22 (100.0%) chunk=0.00 t/s avg=110.39 t/s 0.199s
+0915 16:43:25 ds4-server: chat ctx=0..22:22 prompt done 0.199s lookup=0.000s cold=0.000s sync=0.199s store=0.000s source=none
+[monitor 2026-09-15 16:43:25] health=ok stats=ok state=busy queue=0 clients=2 live=42 requests=11 hits=0 cold=11 cached=0 prefill=110.2t/s decode=57.0t/s cpu=3.5% mem=6.0% rss=7.7GiB fans=fan0=3458/5349,fan1=3725/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+0915 16:43:26 ds4-server: chat ctx=22..54:32 gen=32 decoding chunk=56.92 t/s avg=56.92 t/s 0.562s
+0915 16:43:26 ds4-server: chat ctx=0..22:22 gen=32 finish=length 0.762s
+0915 16:43:26 ds4-server: live kv cache miss live=54 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:26 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:26 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=117.86 t/s 0.221s
+0915 16:43:26 ds4-server: chat ctx=0..26:26 prompt done 0.221s lookup=0.000s cold=0.000s sync=0.221s store=0.000s source=none
+0915 16:43:27 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=56.08 t/s avg=56.08 t/s 0.571s
+0915 16:43:27 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.791s
+0915 16:43:27 ds4-server: live kv cache miss live=58 prompt=23 common=3 vision=match reason=token-mismatch
+0915 16:43:27 ds4-server: chat ctx=0..23:23 prompt start
+0915 16:43:27 ds4-server: chat ctx=0..23:23 prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=107.32 t/s 0.214s
+0915 16:43:27 ds4-server: chat ctx=0..23:23 prompt done 0.214s lookup=0.000s cold=0.000s sync=0.214s store=0.000s source=none
+0915 16:43:28 ds4-server: chat ctx=23..55:32 gen=32 decoding chunk=42.29 t/s avg=42.29 t/s 0.757s
+0915 16:43:28 ds4-server: chat ctx=0..23:23 gen=32 finish=length 0.971s
+0915 16:43:28 ds4-server: live kv cache miss live=55 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:28 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:28 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=106.98 t/s 0.262s
+0915 16:43:28 ds4-server: chat ctx=0..28:28 prompt done 0.262s lookup=0.000s cold=0.000s sync=0.262s store=0.000s source=none
+0915 16:43:29 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=43.10 t/s avg=43.10 t/s 0.743s
+0915 16:43:29 ds4-server: chat ctx=0..28:28 gen=32 finish=length 1.004s
+0915 16:43:29 ds4-server: live kv cache miss live=60 prompt=23 common=3 vision=match reason=token-mismatch
+0915 16:43:29 ds4-server: chat ctx=0..23:23 prompt start
+0915 16:43:29 ds4-server: chat ctx=0..23:23 prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=101.14 t/s 0.227s
+0915 16:43:29 ds4-server: chat ctx=0..23:23 prompt done 0.227s lookup=0.000s cold=0.000s sync=0.227s store=0.000s source=none
+0915 16:43:30 ds4-server: chat ctx=23..55:32 gen=32 decoding chunk=51.28 t/s avg=51.28 t/s 0.624s
+0915 16:43:30 ds4-server: chat ctx=0..23:23 gen=32 finish=length 0.852s
+0915 16:43:30 ds4-server: live kv cache miss live=55 prompt=31 common=3 vision=match reason=token-mismatch
+0915 16:43:30 ds4-server: chat ctx=0..31:31 prompt start
+0915 16:43:30 ds4-server: chat ctx=0..31:31 prefill chunk 31/31 (100.0%) chunk=0.00 t/s avg=125.04 t/s 0.248s
+0915 16:43:30 ds4-server: chat ctx=0..31:31 prompt done 0.248s lookup=0.000s cold=0.000s sync=0.248s store=0.000s source=none
+0915 16:43:30 ds4-server: chat ctx=31..63:32 gen=32 decoding chunk=51.84 t/s avg=51.84 t/s 0.617s
+0915 16:43:30 ds4-server: chat ctx=0..31:31 gen=32 finish=length 0.865s
+0915 16:43:30 ds4-server: live kv cache miss live=63 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:30 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:31 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=129.53 t/s 0.216s
+0915 16:43:31 ds4-server: chat ctx=0..28:28 prompt done 0.216s lookup=0.000s cold=0.000s sync=0.216s store=0.000s source=none
+0915 16:43:31 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=48.88 t/s avg=48.88 t/s 0.655s
+0915 16:43:31 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.871s
+0915 16:43:31 ds4-server: live kv cache miss live=60 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:31 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:32 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=127.35 t/s 0.220s
+0915 16:43:32 ds4-server: chat ctx=0..28:28 prompt done 0.220s lookup=0.000s cold=0.000s sync=0.220s store=0.000s source=none
+0915 16:43:32 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=48.35 t/s avg=48.35 t/s 0.662s
+0915 16:43:32 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.882s
+0915 16:43:32 ds4-server: live kv cache miss live=60 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:32 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:32 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=124.82 t/s 0.224s
+0915 16:43:32 ds4-server: chat ctx=0..28:28 prompt done 0.224s lookup=0.000s cold=0.000s sync=0.224s store=0.000s source=none
+0915 16:43:33 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=44.64 t/s avg=44.64 t/s 0.717s
+0915 16:43:33 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.941s
+0915 16:43:33 ds4-server: live kv cache miss live=60 prompt=29 common=3 vision=match reason=token-mismatch
+0915 16:43:33 ds4-server: chat ctx=0..29:29 prompt start
+0915 16:43:33 ds4-server: chat ctx=0..29:29 prefill chunk 29/29 (100.0%) chunk=0.00 t/s avg=130.11 t/s 0.223s
+0915 16:43:33 ds4-server: chat ctx=0..29:29 prompt done 0.223s lookup=0.000s cold=0.000s sync=0.223s store=0.000s source=none
+0915 16:43:34 ds4-server: chat ctx=29..61:32 gen=32 decoding chunk=51.73 t/s avg=51.73 t/s 0.619s
+0915 16:43:34 ds4-server: chat ctx=0..29:29 gen=32 finish=length 0.842s
+0915 16:43:34 ds4-server: live kv cache miss live=61 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:34 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:34 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=129.13 t/s 0.217s
+0915 16:43:34 ds4-server: chat ctx=0..28:28 prompt done 0.217s lookup=0.000s cold=0.000s sync=0.217s store=0.000s source=none
+0915 16:43:35 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=49.76 t/s avg=49.76 t/s 0.643s
+0915 16:43:35 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.860s
+0915 16:43:35 ds4-server: live kv cache miss live=60 prompt=27 common=3 vision=match reason=token-mismatch
+0915 16:43:35 ds4-server: chat ctx=0..27:27 prompt start
+0915 16:43:35 ds4-server: chat ctx=0..27:27 prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=119.05 t/s 0.227s
+0915 16:43:35 ds4-server: chat ctx=0..27:27 prompt done 0.227s lookup=0.000s cold=0.000s sync=0.227s store=0.000s source=none
+0915 16:43:36 ds4-server: chat ctx=27..59:32 gen=32 decoding chunk=47.86 t/s avg=47.86 t/s 0.669s
+0915 16:43:36 ds4-server: chat ctx=0..27:27 gen=32 finish=length 0.896s
+0915 16:43:36 ds4-server: live kv cache miss live=59 prompt=34 common=3 vision=match reason=token-mismatch
+0915 16:43:36 ds4-server: chat ctx=0..34:34 prompt start
+0915 16:43:36 ds4-server: chat ctx=0..34:34 prefill chunk 34/34 (100.0%) chunk=0.00 t/s avg=128.54 t/s 0.265s
+0915 16:43:36 ds4-server: chat ctx=0..34:34 prompt done 0.265s lookup=0.000s cold=0.000s sync=0.265s store=0.000s source=none
+0915 16:43:37 ds4-server: chat ctx=34..66:32 gen=32 decoding chunk=51.10 t/s avg=51.10 t/s 0.626s
+0915 16:43:37 ds4-server: chat ctx=0..34:34 gen=32 finish=length 0.891s
+0915 16:43:37 ds4-server: live kv cache miss live=66 prompt=30 common=3 vision=match reason=token-mismatch
+0915 16:43:37 ds4-server: chat ctx=0..30:30 prompt start
+0915 16:43:37 ds4-server: chat ctx=0..30:30 prefill chunk 30/30 (100.0%) chunk=0.00 t/s avg=129.45 t/s 0.232s
+0915 16:43:37 ds4-server: chat ctx=0..30:30 prompt done 0.235s lookup=0.000s cold=0.000s sync=0.235s store=0.000s source=none
+0915 16:43:37 ds4-server: chat ctx=30..62:32 gen=32 decoding chunk=54.66 t/s avg=54.66 t/s 0.585s
+0915 16:43:37 ds4-server: chat ctx=0..30:30 gen=32 finish=length 0.820s
+0915 16:43:37 ds4-server: live kv cache miss live=62 prompt=25 common=3 vision=match reason=token-mismatch
+0915 16:43:37 ds4-server: chat ctx=0..25:25 prompt start
+0915 16:43:38 ds4-server: chat ctx=0..25:25 prefill chunk 25/25 (100.0%) chunk=0.00 t/s avg=117.99 t/s 0.212s
+0915 16:43:38 ds4-server: chat ctx=0..25:25 prompt done 0.212s lookup=0.000s cold=0.000s sync=0.212s store=0.000s source=none
+0915 16:43:38 ds4-server: chat ctx=25..57:32 gen=32 decoding chunk=52.13 t/s avg=52.13 t/s 0.614s
+0915 16:43:38 ds4-server: chat ctx=0..25:25 gen=32 finish=length 0.826s
+0915 16:43:38 ds4-server: live kv cache miss live=57 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:38 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:38 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=115.14 t/s 0.226s
+0915 16:43:38 ds4-server: chat ctx=0..26:26 prompt done 0.226s lookup=0.000s cold=0.000s sync=0.226s store=0.000s source=none
+0915 16:43:39 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=57.18 t/s avg=57.18 t/s 0.560s
+0915 16:43:39 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.786s
+0915 16:43:39 ds4-server: live kv cache miss live=58 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:39 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:39 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=121.92 t/s 0.213s
+0915 16:43:39 ds4-server: chat ctx=0..26:26 prompt done 0.213s lookup=0.000s cold=0.000s sync=0.213s store=0.000s source=none
+0915 16:43:40 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=58.59 t/s avg=58.59 t/s 0.546s
+0915 16:43:40 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.760s
+0915 16:43:40 ds4-server: live kv cache miss live=58 prompt=24 common=3 vision=match reason=token-mismatch
+0915 16:43:40 ds4-server: chat ctx=0..24:24 prompt start
+0915 16:43:40 ds4-server: chat ctx=0..24:24 prefill chunk 24/24 (100.0%) chunk=0.00 t/s avg=112.89 t/s 0.213s
+0915 16:43:40 ds4-server: chat ctx=0..24:24 prompt done 0.213s lookup=0.000s cold=0.000s sync=0.213s store=0.000s source=none
+0915 16:43:41 ds4-server: chat ctx=24..56:32 gen=32 decoding chunk=58.00 t/s avg=58.00 t/s 0.552s
+0915 16:43:41 ds4-server: chat ctx=0..24:24 gen=32 finish=length 0.765s
+0915 16:43:41 ds4-server: live kv cache miss live=56 prompt=22 common=3 vision=match reason=token-mismatch
+0915 16:43:41 ds4-server: chat ctx=0..22:22 prompt start
+[monitor 2026-09-15 16:43:41] health=ok stats=ok state=busy queue=0 clients=2 live=44 requests=29 hits=0 cold=29 cached=0 prefill=112.9t/s decode=58.6t/s cpu=3.6% mem=6.2% rss=7.9GiB fans=fan0=3452/5349,fan1=3730/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+0915 16:43:41 ds4-server: chat ctx=0..22:22 prefill chunk 22/22 (100.0%) chunk=0.00 t/s avg=104.17 t/s 0.211s
+0915 16:43:41 ds4-server: chat ctx=0..22:22 prompt done 0.211s lookup=0.000s cold=0.000s sync=0.211s store=0.000s source=none
+0915 16:43:41 ds4-server: chat ctx=22..54:32 gen=32 decoding chunk=46.14 t/s avg=46.14 t/s 0.694s
+0915 16:43:41 ds4-server: chat ctx=0..22:22 gen=32 finish=length 0.905s
+0915 16:43:41 ds4-server: live kv cache miss live=54 prompt=23 common=3 vision=match reason=token-mismatch
+0915 16:43:41 ds4-server: chat ctx=0..23:23 prompt start
+0915 16:43:42 ds4-server: chat ctx=0..23:23 prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=108.26 t/s 0.212s
+0915 16:43:42 ds4-server: chat ctx=0..23:23 prompt done 0.212s lookup=0.000s cold=0.000s sync=0.212s store=0.000s source=none
+0915 16:43:42 ds4-server: chat ctx=23..55:32 gen=32 decoding chunk=53.18 t/s avg=53.18 t/s 0.602s
+0915 16:43:42 ds4-server: chat ctx=0..23:23 gen=32 finish=length 0.814s
+0915 16:43:42 ds4-server: live kv cache miss live=55 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:42 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:43 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=121.48 t/s 0.230s
+0915 16:43:43 ds4-server: chat ctx=0..28:28 prompt done 0.231s lookup=0.000s cold=0.000s sync=0.230s store=0.000s source=none
+0915 16:43:43 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=50.11 t/s avg=50.11 t/s 0.639s
+0915 16:43:43 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.869s
+0915 16:43:43 ds4-server: live kv cache miss live=60 prompt=24 common=3 vision=match reason=token-mismatch
+0915 16:43:43 ds4-server: chat ctx=0..24:24 prompt start
+0915 16:43:43 ds4-server: chat ctx=0..24:24 prefill chunk 24/24 (100.0%) chunk=0.00 t/s avg=115.36 t/s 0.208s
+0915 16:43:43 ds4-server: chat ctx=0..24:24 prompt done 0.208s lookup=0.000s cold=0.000s sync=0.208s store=0.000s source=none
+0915 16:43:44 ds4-server: chat ctx=24..56:32 gen=32 decoding chunk=52.56 t/s avg=52.56 t/s 0.609s
+0915 16:43:44 ds4-server: chat ctx=0..24:24 gen=32 finish=length 0.817s
+0915 16:43:44 ds4-server: live kv cache miss live=56 prompt=23 common=3 vision=match reason=token-mismatch
+0915 16:43:44 ds4-server: chat ctx=0..23:23 prompt start
+0915 16:43:44 ds4-server: chat ctx=0..23:23 prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=109.20 t/s 0.211s
+0915 16:43:44 ds4-server: chat ctx=0..23:23 prompt done 0.211s lookup=0.000s cold=0.000s sync=0.211s store=0.000s source=none
+0915 16:43:45 ds4-server: chat ctx=23..55:32 gen=32 decoding chunk=52.47 t/s avg=52.47 t/s 0.610s
+0915 16:43:45 ds4-server: chat ctx=0..23:23 gen=32 finish=length 0.821s
+0915 16:43:45 ds4-server: live kv cache miss live=55 prompt=25 common=3 vision=match reason=token-mismatch
+0915 16:43:45 ds4-server: chat ctx=0..25:25 prompt start
+0915 16:43:45 ds4-server: chat ctx=0..25:25 prefill chunk 25/25 (100.0%) chunk=0.00 t/s avg=117.18 t/s 0.213s
+0915 16:43:45 ds4-server: chat ctx=0..25:25 prompt done 0.213s lookup=0.000s cold=0.000s sync=0.213s store=0.000s source=none
+0915 16:43:46 ds4-server: chat ctx=25..57:32 gen=32 decoding chunk=49.83 t/s avg=49.83 t/s 0.642s
+0915 16:43:46 ds4-server: chat ctx=0..25:25 gen=32 finish=length 0.856s
+0915 16:43:46 ds4-server: live kv cache miss live=57 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:46 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:46 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=115.71 t/s 0.225s
+0915 16:43:46 ds4-server: chat ctx=0..26:26 prompt done 0.225s lookup=0.000s cold=0.000s sync=0.225s store=0.000s source=none
+0915 16:43:46 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=54.32 t/s avg=54.32 t/s 0.589s
+0915 16:43:46 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.814s
+0915 16:43:46 ds4-server: live kv cache miss live=58 prompt=30 common=3 vision=match reason=token-mismatch
+0915 16:43:46 ds4-server: chat ctx=0..30:30 prompt start
+0915 16:43:47 ds4-server: chat ctx=0..30:30 prefill chunk 30/30 (100.0%) chunk=0.00 t/s avg=133.84 t/s 0.224s
+0915 16:43:47 ds4-server: chat ctx=0..30:30 prompt done 0.224s lookup=0.000s cold=0.000s sync=0.224s store=0.000s source=none
+0915 16:43:47 ds4-server: chat ctx=30..62:32 gen=32 decoding chunk=54.55 t/s avg=54.55 t/s 0.587s
+0915 16:43:47 ds4-server: chat ctx=0..30:30 gen=32 finish=length 0.811s
+0915 16:43:47 ds4-server: live kv cache miss live=62 prompt=27 common=3 vision=match reason=token-mismatch
+0915 16:43:47 ds4-server: chat ctx=0..27:27 prompt start
+0915 16:43:47 ds4-server: chat ctx=0..27:27 prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=127.39 t/s 0.212s
+0915 16:43:47 ds4-server: chat ctx=0..27:27 prompt done 0.212s lookup=0.000s cold=0.000s sync=0.212s store=0.000s source=none
+0915 16:43:48 ds4-server: chat ctx=27..59:32 gen=32 decoding chunk=53.84 t/s avg=53.84 t/s 0.594s
+0915 16:43:48 ds4-server: chat ctx=0..27:27 gen=32 finish=length 0.806s
+0915 16:43:48 ds4-server: live kv cache miss live=59 prompt=24 common=3 vision=match reason=token-mismatch
+0915 16:43:48 ds4-server: chat ctx=0..24:24 prompt start
+0915 16:43:48 ds4-server: chat ctx=0..24:24 prefill chunk 24/24 (100.0%) chunk=0.00 t/s avg=115.15 t/s 0.208s
+0915 16:43:48 ds4-server: chat ctx=0..24:24 prompt done 0.208s lookup=0.000s cold=0.000s sync=0.208s store=0.000s source=none
+0915 16:43:49 ds4-server: chat ctx=24..56:32 gen=32 decoding chunk=53.52 t/s avg=53.52 t/s 0.598s
+0915 16:43:49 ds4-server: chat ctx=0..24:24 gen=32 finish=length 0.806s
+0915 16:43:49 ds4-server: live kv cache miss live=56 prompt=23 common=3 vision=match reason=token-mismatch
+0915 16:43:49 ds4-server: chat ctx=0..23:23 prompt start
+0915 16:43:49 ds4-server: chat ctx=0..23:23 prefill chunk 23/23 (100.0%) chunk=0.00 t/s avg=109.31 t/s 0.210s
+0915 16:43:49 ds4-server: chat ctx=0..23:23 prompt done 0.210s lookup=0.000s cold=0.000s sync=0.210s store=0.000s source=none
+0915 16:43:50 ds4-server: chat ctx=23..55:32 gen=32 decoding chunk=51.84 t/s avg=51.84 t/s 0.617s
+0915 16:43:50 ds4-server: chat ctx=0..23:23 gen=32 finish=length 0.828s
+0915 16:43:50 ds4-server: live kv cache miss live=55 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:50 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:50 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=125.27 t/s 0.224s
+0915 16:43:50 ds4-server: chat ctx=0..28:28 prompt done 0.224s lookup=0.000s cold=0.000s sync=0.224s store=0.000s source=none
+0915 16:43:51 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=53.50 t/s avg=53.50 t/s 0.598s
+0915 16:43:51 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.822s
+0915 16:43:51 ds4-server: live kv cache miss live=60 prompt=28 common=3 vision=match reason=token-mismatch
+0915 16:43:51 ds4-server: chat ctx=0..28:28 prompt start
+0915 16:43:51 ds4-server: chat ctx=0..28:28 prefill chunk 28/28 (100.0%) chunk=0.00 t/s avg=124.18 t/s 0.225s
+0915 16:43:51 ds4-server: chat ctx=0..28:28 prompt done 0.226s lookup=0.000s cold=0.000s sync=0.225s store=0.000s source=none
+0915 16:43:51 ds4-server: chat ctx=28..60:32 gen=32 decoding chunk=51.49 t/s avg=51.49 t/s 0.621s
+0915 16:43:51 ds4-server: chat ctx=0..28:28 gen=32 finish=length 0.847s
+0915 16:43:51 ds4-server: live kv cache miss live=60 prompt=27 common=3 vision=match reason=token-mismatch
+0915 16:43:51 ds4-server: chat ctx=0..27:27 prompt start
+0915 16:43:52 ds4-server: chat ctx=0..27:27 prefill chunk 27/27 (100.0%) chunk=0.00 t/s avg=128.22 t/s 0.211s
+0915 16:43:52 ds4-server: chat ctx=0..27:27 prompt done 0.211s lookup=0.000s cold=0.000s sync=0.211s store=0.000s source=none
+0915 16:43:52 ds4-server: chat ctx=27..59:32 gen=32 decoding chunk=55.35 t/s avg=55.35 t/s 0.578s
+0915 16:43:52 ds4-server: chat ctx=0..27:27 gen=32 finish=length 0.789s
+0915 16:43:52 ds4-server: live kv cache miss live=59 prompt=26 common=3 vision=match reason=token-mismatch
+0915 16:43:52 ds4-server: chat ctx=0..26:26 prompt start
+0915 16:43:52 ds4-server: chat ctx=0..26:26 prefill chunk 26/26 (100.0%) chunk=0.00 t/s avg=123.08 t/s 0.211s
+0915 16:43:52 ds4-server: chat ctx=0..26:26 prompt done 0.211s lookup=0.000s cold=0.000s sync=0.211s store=0.000s source=none
+0915 16:43:53 ds4-server: chat ctx=26..58:32 gen=32 decoding chunk=55.34 t/s avg=55.34 t/s 0.578s
+0915 16:43:53 ds4-server: chat ctx=0..26:26 gen=32 finish=length 0.790s
+0915 16:43:53 ds4-server: live kv cache miss live=58 prompt=31 common=3 vision=match reason=token-mismatch
+0915 16:43:53 ds4-server: chat ctx=0..31:31 prompt start
+0915 16:43:53 ds4-server: chat ctx=0..31:31 prefill chunk 31/31 (100.0%) chunk=0.00 t/s avg=133.51 t/s 0.232s
+0915 16:43:53 ds4-server: chat ctx=0..31:31 prompt done 0.232s lookup=0.000s cold=0.000s sync=0.232s store=0.000s source=none
+0915 16:43:54 ds4-server: chat ctx=31..63:32 gen=32 decoding chunk=49.52 t/s avg=49.52 t/s 0.646s
+0915 16:43:54 ds4-server: chat ctx=0..31:31 gen=32 finish=length 0.879s
+0915 16:43:54 ds4-server: live kv cache miss live=63 prompt=29 common=3 vision=match reason=token-mismatch
+0915 16:43:54 ds4-server: chat ctx=0..29:29 prompt start
+0915 16:43:54 ds4-server: chat ctx=0..29:29 prefill chunk 29/29 (100.0%) chunk=0.00 t/s avg=128.00 t/s 0.227s
+0915 16:43:54 ds4-server: chat ctx=0..29:29 prompt done 0.227s lookup=0.000s cold=0.000s sync=0.227s store=0.000s source=none
+0915 16:43:55 ds4-server: chat ctx=29..61:32 gen=32 decoding chunk=51.27 t/s avg=51.27 t/s 0.624s
+0915 16:43:55 ds4-server: chat ctx=0..29:29 gen=32 finish=length 0.854s
+[monitor 2026-09-15 16:43:56] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=0.0% mem=6.3% rss=8.1GiB fans=fan0=3457/5349,fan1=3729/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+[monitor 2026-09-15 16:44:12] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=2.4% mem=6.3% rss=8.1GiB fans=fan0=3451/5349,fan1=3725/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+[monitor 2026-09-15 16:44:27] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=45.9% mem=6.3% rss=8.1GiB fans=fan0=3459/5349,fan1=3721/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+[monitor 2026-09-15 16:44:42] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=12.0% mem=6.3% rss=8.1GiB fans=fan0=3372/5349,fan1=3626/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+[monitor 2026-09-15 16:44:58] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=1.5% mem=6.3% rss=8.1GiB fans=fan0=3213/5349,fan1=3472/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+[monitor 2026-09-15 16:45:13] health=ok stats=ok state=idle queue=0 clients=1 live=61 requests=46 hits=0 cold=46 cached=0 prefill=128.0t/s decode=51.0t/s cpu=16.3% mem=6.3% rss=8.1GiB fans=fan0=2939/5349,fan1=3168/5777RPM kv=8.8/128.0GiB(6.9%) disk_free=1154.3GiB
+0915 16:45:18 ds4-server: shutdown requested, draining requests
+[monitor 2026-09-15 16:45:19] fans=restore-attempt reason=server-stopped
+[monitor 2026-09-15 16:45:19] fans=auto reason=server-stopped
+Restoring fans to Apple automatic control...
+Fans restored to Apple automatic control.
+ds4-server stopped.

@@ -1,3 +1,0 @@
-# Perché gli array ordinati rendono più veloce la ricerca di appartenenza
-
-## Il problema della ricerca in un array non

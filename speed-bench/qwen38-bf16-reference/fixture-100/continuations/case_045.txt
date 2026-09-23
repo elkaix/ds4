@@ -1,3 +1,0 @@
-# Why One Large Metal Buffer Can Be Worse Than Multiple Overlapping Views
-
-## The Core Issue: Memory Coherency

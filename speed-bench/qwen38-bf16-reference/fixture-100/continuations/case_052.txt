@@ -1,5 +1,0 @@
-# Softmax Online nell'Attenzione
-
-## Il Problema: Softmax Classico
-
-Nell'attenzione,

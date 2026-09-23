@@ -1,5 +1,0 @@
-# B-Tree Insertion: A Complete Explanation
-
-## What Is a B-Tree?
-
-A B-tree of

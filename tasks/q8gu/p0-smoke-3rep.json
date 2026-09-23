@@ -1,0 +1,52 @@
+{
+  "prompt": "Reply with exactly: ok",
+  "max_tokens": 8,
+  "temperature": 0,
+  "runs": [
+    {
+      "i": 0,
+      "wall_s": 1.8799,
+      "content": "",
+      "finish": "length",
+      "usage": {
+        "prompt_tokens": 57,
+        "completion_tokens": 8,
+        "total_tokens": 65,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 57
+        }
+      }
+    },
+    {
+      "i": 1,
+      "wall_s": 0.3347,
+      "content": "",
+      "finish": "length",
+      "usage": {
+        "prompt_tokens": 57,
+        "completion_tokens": 8,
+        "total_tokens": 65,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 57
+        }
+      }
+    },
+    {
+      "i": 2,
+      "wall_s": 0.3311,
+      "content": "",
+      "finish": "length",
+      "usage": {
+        "prompt_tokens": 57,
+        "completion_tokens": 8,
+        "total_tokens": 65,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 57
+        }
+      }
+    }
+  ]
+}

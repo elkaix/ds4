@@ -1,5 +1,0 @@
-# Ring Buffer (Circular Buffer) Mechanics
-
-## How Wrapping Works
-
-A ring buffer is a fixed-size array used

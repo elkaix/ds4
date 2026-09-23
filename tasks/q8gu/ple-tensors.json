@@ -1,0 +1,74 @@
+{
+  "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf",
+  "gguf_version": 3,
+  "tensor_count": 4,
+  "kv_count": 15,
+  "kv_keys": [
+    "ds4.pack.quant.ple",
+    "general.alignment",
+    "general.architecture",
+    "general.name",
+    "general.source.revision",
+    "qwen4-exp.ple.conv_kernel",
+    "qwen4-exp.ple.embedding_length",
+    "qwen4-exp.ple.heads_per_ngram",
+    "qwen4-exp.ple.layer",
+    "qwen4-exp.ple.ngram_size",
+    "qwen4-exp.ple.row_count",
+    "qwen4-exp.ple.row_dimension",
+    "qwen4-exp.ple.shard_count",
+    "qwen4-exp.ple.vocab_base",
+    "qwen4-exp.ple.vocab_divisor"
+  ],
+  "type_counts": {
+    "Q4_1": 1,
+    "I64": 3
+  },
+  "unknown_ggml_types": {},
+  "expert_gate": {},
+  "expert_up": {},
+  "expert_down": {},
+  "tensors": [
+    {
+      "name": "ple.weight",
+      "type": "Q4_1",
+      "ggml_type": 3,
+      "dims": [
+        160,
+        320001536
+      ],
+      "rel_offset": 0,
+      "n_bytes": 32000153600
+    },
+    {
+      "name": "ple.layer_multipliers",
+      "type": "I64",
+      "ggml_type": 27,
+      "dims": [
+        3
+      ],
+      "rel_offset": 32000153600,
+      "n_bytes": 24
+    },
+    {
+      "name": "ple.ngram_heads_offsets",
+      "type": "I64",
+      "ggml_type": 27,
+      "dims": [
+        16
+      ],
+      "rel_offset": 32000153632,
+      "n_bytes": 128
+    },
+    {
+      "name": "ple.ngram_heads_vocab_sizes",
+      "type": "I64",
+      "ggml_type": 27,
+      "dims": [
+        16
+      ],
+      "rel_offset": 32000153760,
+      "n_bytes": 128
+    }
+  ]
+}

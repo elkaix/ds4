@@ -1,0 +1,977 @@
+{
+  "continuations": {
+    "n": 40,
+    "max_tokens": 32,
+    "cases": [
+      {
+        "id": "case_000",
+        "prompt": "Explain B-tree insertion, including splits and the root special case.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_001",
+        "prompt": "Write a concise design for a TCP echo server that handles slow clients.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_002",
+        "prompt": "Compare mmaped model weights with copying all weights into private buffers on macOS.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 0,
+          "total_tokens": 27,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 27
+          }
+        }
+      },
+      {
+        "id": "case_003",
+        "prompt": "Derive why RMSNorm needs a sum of squares and a scaling pass.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 0,
+          "total_tokens": 27,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 27
+          }
+        }
+      },
+      {
+        "id": "case_004",
+        "prompt": "Explain why KV cache checkpointing helps agentic sessions.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 24,
+          "completion_tokens": 0,
+          "total_tokens": 24,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 24
+          }
+        }
+      },
+      {
+        "id": "case_005",
+        "prompt": "Give pseudocode for a binary heap push operation.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 22,
+          "completion_tokens": 0,
+          "total_tokens": 22,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 22
+          }
+        }
+      },
+      {
+        "id": "case_006",
+        "prompt": "What are the tradeoffs between top-p sampling and temperature zero decoding?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_007",
+        "prompt": "Summarize how speculative decoding preserves exact greedy output.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 23,
+          "completion_tokens": 0,
+          "total_tokens": 23,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 23
+          }
+        }
+      },
+      {
+        "id": "case_008",
+        "prompt": "Explain why a GPU prefill path can be faster than single-token decode.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_009",
+        "prompt": "Write three invariants for a tokenizer special-token table.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 23,
+          "completion_tokens": 0,
+          "total_tokens": 23,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 23
+          }
+        }
+      },
+      {
+        "id": "case_010",
+        "prompt": "Spiega come funziona l'inserimento in un B-tree, inclusi split e radice.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 31,
+          "completion_tokens": 0,
+          "total_tokens": 31,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 31
+          }
+        }
+      },
+      {
+        "id": "case_011",
+        "prompt": "Scrivi un progetto conciso per un server TCP echo con client lenti.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_012",
+        "prompt": "Confronta mmap dei pesi e copia completa dei pesi su macOS.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_013",
+        "prompt": "Deriva perche RMSNorm richiede somma dei quadrati e riscalamento.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_014",
+        "prompt": "Spiega perche la cache KV su disco aiuta nelle sessioni agentiche.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 29,
+          "completion_tokens": 0,
+          "total_tokens": 29,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 29
+          }
+        }
+      },
+      {
+        "id": "case_015",
+        "prompt": "Scrivi pseudocodice per inserire un elemento in un heap binario.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_016",
+        "prompt": "Quali sono i pro e contro di top-p rispetto a temperatura zero?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 0,
+          "total_tokens": 27,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 27
+          }
+        }
+      },
+      {
+        "id": "case_017",
+        "prompt": "Riassumi perche la decodifica speculativa puo mantenere l'output esatto.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 34,
+          "completion_tokens": 0,
+          "total_tokens": 34,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 34
+          }
+        }
+      },
+      {
+        "id": "case_018",
+        "prompt": "Spiega perche il prefill GPU puo essere piu veloce del decode token singolo.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 0,
+          "total_tokens": 30,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 30
+          }
+        }
+      },
+      {
+        "id": "case_019",
+        "prompt": "Scrivi tre invarianti per una tabella di token speciali.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 25,
+          "completion_tokens": 0,
+          "total_tokens": 25,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 25
+          }
+        }
+      },
+      {
+        "id": "case_020",
+        "prompt": "Given a sorted array, describe how binary search finds the insertion point.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_021",
+        "prompt": "Write a short C function that clamps an integer to a range.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_022",
+        "prompt": "Explain the difference between a mutex and an atomic counter.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 24,
+          "completion_tokens": 0,
+          "total_tokens": 24,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 24
+          }
+        }
+      },
+      {
+        "id": "case_023",
+        "prompt": "What does backpressure mean in a network server?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 22,
+          "completion_tokens": 0,
+          "total_tokens": 22,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 22
+          }
+        }
+      },
+      {
+        "id": "case_024",
+        "prompt": "Describe a safe format for storing a model checkpoint header.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 23,
+          "completion_tokens": 0,
+          "total_tokens": 23,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 23
+          }
+        }
+      },
+      {
+        "id": "case_025",
+        "prompt": "Explain how a ring buffer wraps and how to avoid overwriting unread data.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_026",
+        "prompt": "Write a brief plan for testing long-context prompt chunking.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 24,
+          "completion_tokens": 0,
+          "total_tokens": 24,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 24
+          }
+        }
+      },
+      {
+        "id": "case_027",
+        "prompt": "What is an importance matrix in low-bit quantization?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 23,
+          "completion_tokens": 0,
+          "total_tokens": 23,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 23
+          }
+        }
+      },
+      {
+        "id": "case_028",
+        "prompt": "Explain why grouped MoE expert execution can improve prefill.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 25,
+          "completion_tokens": 0,
+          "total_tokens": 25,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 25
+          }
+        }
+      },
+      {
+        "id": "case_029",
+        "prompt": "Describe how to compare two model quantizations without relying on one answer.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_030",
+        "prompt": "Data una lista ordinata, descrivi la ricerca binaria del punto di inserimento.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 30,
+          "completion_tokens": 0,
+          "total_tokens": 30,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 30
+          }
+        }
+      },
+      {
+        "id": "case_031",
+        "prompt": "Scrivi una breve funzione C che limita un intero a un intervallo.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 0,
+          "total_tokens": 27,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 27
+          }
+        }
+      },
+      {
+        "id": "case_032",
+        "prompt": "Spiega la differenza tra mutex e contatore atomico.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 24,
+          "completion_tokens": 0,
+          "total_tokens": 24,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 24
+          }
+        }
+      },
+      {
+        "id": "case_033",
+        "prompt": "Che cosa significa backpressure in un server di rete?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 23,
+          "completion_tokens": 0,
+          "total_tokens": 23,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 23
+          }
+        }
+      },
+      {
+        "id": "case_034",
+        "prompt": "Descrivi un formato sicuro per salvare l'header di un checkpoint modello.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_035",
+        "prompt": "Spiega come funziona un ring buffer e come evitare sovrascritture.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 0,
+          "total_tokens": 28,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 28
+          }
+        }
+      },
+      {
+        "id": "case_036",
+        "prompt": "Scrivi un piano breve per testare il chunking di prompt lunghi.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 27,
+          "completion_tokens": 0,
+          "total_tokens": 27,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 27
+          }
+        }
+      },
+      {
+        "id": "case_037",
+        "prompt": "Che cos'e una matrice di importanza nella quantizzazione low-bit?",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 26,
+          "completion_tokens": 0,
+          "total_tokens": 26,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 26
+          }
+        }
+      },
+      {
+        "id": "case_038",
+        "prompt": "Spiega perche raggruppare gli esperti MoE puo accelerare il prefill.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 31,
+          "completion_tokens": 0,
+          "total_tokens": 31,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 31
+          }
+        }
+      },
+      {
+        "id": "case_039",
+        "prompt": "Descrivi come confrontare due quantizzazioni senza fidarsi di una sola risposta.",
+        "text": "",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 29,
+          "completion_tokens": 0,
+          "total_tokens": 29,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 29
+          }
+        }
+      }
+    ]
+  },
+  "vs_control": {
+    "n": 40,
+    "first_char_match": 0,
+    "exact": 0,
+    "mean_lcp": 0.0,
+    "mean_lcp_norm": 0.0,
+    "cases": [
+      {
+        "id": "case_000",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 158
+      },
+      {
+        "id": "case_001",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 133
+      },
+      {
+        "id": "case_002",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 156
+      },
+      {
+        "id": "case_003",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 152
+      },
+      {
+        "id": "case_004",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 178
+      },
+      {
+        "id": "case_005",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 120
+      },
+      {
+        "id": "case_006",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 140
+      },
+      {
+        "id": "case_007",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 190
+      },
+      {
+        "id": "case_008",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 170
+      },
+      {
+        "id": "case_009",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 152
+      },
+      {
+        "id": "case_010",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 139
+      },
+      {
+        "id": "case_011",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 149
+      },
+      {
+        "id": "case_012",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 106
+      },
+      {
+        "id": "case_013",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 130
+      },
+      {
+        "id": "case_014",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 128
+      },
+      {
+        "id": "case_015",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 113
+      },
+      {
+        "id": "case_016",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 131
+      },
+      {
+        "id": "case_017",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 124
+      },
+      {
+        "id": "case_018",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 140
+      },
+      {
+        "id": "case_019",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 141
+      },
+      {
+        "id": "case_020",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 159
+      },
+      {
+        "id": "case_021",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 94
+      },
+      {
+        "id": "case_022",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 158
+      },
+      {
+        "id": "case_023",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 171
+      },
+      {
+        "id": "case_024",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 170
+      },
+      {
+        "id": "case_025",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 143
+      },
+      {
+        "id": "case_026",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 170
+      },
+      {
+        "id": "case_027",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 167
+      },
+      {
+        "id": "case_028",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 171
+      },
+      {
+        "id": "case_029",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 102
+      },
+      {
+        "id": "case_030",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 119
+      },
+      {
+        "id": "case_031",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 119
+      },
+      {
+        "id": "case_032",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 152
+      },
+      {
+        "id": "case_033",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 132
+      },
+      {
+        "id": "case_034",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 139
+      },
+      {
+        "id": "case_035",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 157
+      },
+      {
+        "id": "case_036",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 113
+      },
+      {
+        "id": "case_037",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 144
+      },
+      {
+        "id": "case_038",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 147
+      },
+      {
+        "id": "case_039",
+        "first_char_match": 0,
+        "exact": 0,
+        "lcp": 0,
+        "lcp_norm": 0.0,
+        "cand_len": 0,
+        "ref_len": 133
+      }
+    ]
+  }
+}

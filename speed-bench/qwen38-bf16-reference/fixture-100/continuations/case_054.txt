@@ -1,1 +1,0 @@
-Per verificare che un `mmap` su file non venga rimappato ripetutamente (cioè che la stessa area

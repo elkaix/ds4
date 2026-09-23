@@ -1,5 +1,0 @@
-# mmap'd Model Weights vs. Private Buffer Copies on macOS
-
-## Overview
-
-When loading large ML model weights (

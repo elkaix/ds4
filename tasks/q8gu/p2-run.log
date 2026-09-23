@@ -1,0 +1,80 @@
+p2 start 2026-09-15T15:15:06-04:00
+L24 Q8 cross-check...
+Q4_K control blk.0 cross-check...
+{
+  "l24_pass": true,
+  "l24_gate": {
+    "match": true,
+    "nbytes": 891289600,
+    "n_equal": 891289600,
+    "n_mismatch": 0,
+    "frac_equal": 1.0
+  },
+  "l24_up": {
+    "match": true,
+    "nbytes": 891289600,
+    "n_equal": 891289600,
+    "n_mismatch": 0,
+    "frac_equal": 1.0
+  },
+  "q4_ctrl_pass": true,
+  "q4_ctrl": {
+    "match": true,
+    "nbytes": 471859200,
+    "n_equal": 471859200,
+    "n_mismatch": 0,
+    "frac_equal": 1.0
+  }
+}
+layer 24 GDN ΔNMSE=0.010339972 (from cross-check)
+layer 00 GDN ΔNMSE=0.011239113 gate=0.0056809822 up=0.0055581312 71.1s finite=True
+layer 01 GDN ΔNMSE=0.010677703 gate=0.0053718828 up=0.0053058204 72.5s finite=True
+layer 02 GDN ΔNMSE=0.010704413 gate=0.0053867677 up=0.0053176449 71.9s finite=True
+layer 03 QSA ΔNMSE=0.010574222 gate=0.0053085183 up=0.005265704 71.5s finite=True
+layer 04 GDN ΔNMSE=0.010552026 gate=0.005299672 up=0.005252354 71.4s finite=True
+layer 05 GDN ΔNMSE=0.01056382 gate=0.0052963769 up=0.0052674435 70.9s finite=True
+layer 06 GDN ΔNMSE=0.010482316 gate=0.0052687734 up=0.0052135423 70.8s finite=True
+layer 07 QSA ΔNMSE=0.010379736 gate=0.0052044577 up=0.0051752779 70.3s finite=True
+layer 08 GDN ΔNMSE=0.010366178 gate=0.0051896625 up=0.0051765158 70.4s finite=True
+layer 09 GDN ΔNMSE=0.010481162 gate=0.005247399 up=0.0052337626 71.4s finite=True
+layer 10 GDN ΔNMSE=0.010304875 gate=0.0051566986 up=0.0051481762 73.1s finite=True
+layer 11 QSA ΔNMSE=0.01031313 gate=0.0051593008 up=0.0051538296 72.2s finite=True
+layer 12 GDN ΔNMSE=0.010338162 gate=0.0051782384 up=0.0051599233 72.2s finite=True
+layer 13 GDN ΔNMSE=0.010285047 gate=0.005147064 up=0.0051379831 73.8s finite=True
+layer 14 GDN ΔNMSE=0.010419225 gate=0.0052150129 up=0.0052042123 79.5s finite=True
+layer 15 QSA ΔNMSE=0.010414551 gate=0.0052035898 up=0.0052109607 71.1s finite=True
+layer 16 GDN ΔNMSE=0.010395074 gate=0.0052008954 up=0.0051941788 71.1s finite=True
+layer 17 GDN ΔNMSE=0.010317058 gate=0.0051634546 up=0.0051536031 70.9s finite=True
+layer 18 GDN ΔNMSE=0.010385882 gate=0.0052081054 up=0.0051777766 72.1s finite=True
+layer 19 QSA ΔNMSE=0.010291212 gate=0.005150229 up=0.0051409834 72.1s finite=True
+layer 20 GDN ΔNMSE=0.010316923 gate=0.0051670953 up=0.0051498278 72.0s finite=True
+layer 21 GDN ΔNMSE=0.010307726 gate=0.0051641053 up=0.0051436211 72.7s finite=True
+layer 22 GDN ΔNMSE=0.010397115 gate=0.0052181495 up=0.0051789651 74.8s finite=True
+layer 23 QSA ΔNMSE=0.010311891 gate=0.0051658811 up=0.0051460099 72.9s finite=True
+layer 25 GDN ΔNMSE=0.010438084 gate=0.0052241013 up=0.0052139823 72.5s finite=True
+layer 26 GDN ΔNMSE=0.010339491 gate=0.0051733858 up=0.0051661053 72.4s finite=True
+layer 27 QSA ΔNMSE=0.010328319 gate=0.0051658102 up=0.005162509 73.4s finite=True
+layer 28 GDN ΔNMSE=0.010356848 gate=0.0051875757 up=0.0051692719 75.0s finite=True
+layer 29 GDN ΔNMSE=0.010287901 gate=0.0051478063 up=0.0051400946 74.0s finite=True
+layer 30 GDN ΔNMSE=0.010389826 gate=0.0051974315 up=0.0051923949 74.5s finite=True
+layer 31 QSA ΔNMSE=0.010383978 gate=0.0051876107 up=0.0051963674 73.0s finite=True
+layer 32 GDN ΔNMSE=0.010376993 gate=0.0051947781 up=0.0051822149 72.6s finite=True
+layer 33 GDN ΔNMSE=0.010324885 gate=0.0051683241 up=0.0051565613 73.8s finite=True
+layer 34 GDN ΔNMSE=0.01040041 gate=0.0052171699 up=0.0051832404 72.9s finite=True
+layer 35 QSA ΔNMSE=0.010320209 gate=0.0051683146 up=0.0051518942 74.0s finite=True
+layer 36 GDN ΔNMSE=0.010360639 gate=0.0051910482 up=0.005169591 72.9s finite=True
+layer 37 GDN ΔNMSE=0.010365628 gate=0.005195775 up=0.005169853 72.7s finite=True
+layer 38 GDN ΔNMSE=0.010517823 gate=0.0052830757 up=0.0052347474 75.0s finite=True
+layer 39 QSA ΔNMSE=0.010354943 gate=0.0051926589 up=0.0051622846 72.1s finite=True
+layer 40 GDN ΔNMSE=0.010290609 gate=0.0051591084 up=0.0051315008 72.2s finite=True
+layer 41 GDN ΔNMSE=0.01032403 gate=0.0051788517 up=0.0051451784 72.0s finite=True
+layer 42 GDN ΔNMSE=0.010353847 gate=0.0051886942 up=0.0051651524 73.7s finite=True
+layer 43 QSA ΔNMSE=0.010297019 gate=0.0051582043 up=0.0051388147 73.5s finite=True
+layer 44 GDN ΔNMSE=0.010349011 gate=0.0051889574 up=0.0051600533 77.3s finite=True
+layer 45 GDN ΔNMSE=0.010394429 gate=0.0052224552 up=0.0051719739 73.6s finite=True
+layer 46 GDN ΔNMSE=0.010469063 gate=0.0052686482 up=0.0052004146 73.9s finite=True
+layer 47 QSA ΔNMSE=0.010512216 gate=0.0052715021 up=0.0052407137 73.8s finite=True
+WROTE tasks/q8gu/p2-reconstruction.json
+WROTE tasks/q8gu/p2-ranking.csv
+WROTE tasks/q8gu/p2-summary.md
+p2 exit 0 2026-09-15T16:13:36-04:00

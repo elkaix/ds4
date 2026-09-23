@@ -1,4 +1,0 @@
-# PR Review Checklist: Memory Lifetimes
-
-## Ownership & Aliasing
-- [ ] **Single owner** — Is

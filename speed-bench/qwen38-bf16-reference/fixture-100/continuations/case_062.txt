@@ -1,5 +1,0 @@
-# Eventual Consistency in Distributed Databases
-
-## Core Definition
-
-**Eventual consistency** is a consistency model used

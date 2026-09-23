@@ -1,3 +1,0 @@
-Here are three essential server metrics that are critical for monitoring performance, stability, and capacity planning:
-
-### 1.

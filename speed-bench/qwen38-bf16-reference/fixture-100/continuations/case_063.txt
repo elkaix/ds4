@@ -1,3 +1,0 @@
-Here is a short, classic example of a race condition in C using two threads incrementing a shared counter.
-
-###

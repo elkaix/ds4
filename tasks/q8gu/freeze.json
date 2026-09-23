@@ -1,0 +1,83 @@
+{
+  "experiment": "qwen38-selective-q8-gate-up",
+  "frozen_at_utc": "2026-09-15T17:21:00Z",
+  "status": "identity-frozen",
+  "ds4": {
+    "worktree": "/Users/panda/Projects/open-source/ds4-qwen38-ivan",
+    "branch": "qwen38-ivan",
+    "commit": "9b483585f65e402d232ed4cf84d19d25cb08b506",
+    "commit_subject": "fix(dashboard): style section groups, health strip, and icons",
+    "commit_time": "2026-09-14T20:47:36-0400",
+    "server_bin": "/Users/panda/Projects/open-source/ds4-qwen38-ivan/ds4-server",
+    "server_bytes": 3128392,
+    "server_mtime": "2026-09-14T20:43:11-0400"
+  },
+  "host": {
+    "chip": "Apple M5 Max",
+    "mem_bytes": 137438953472,
+    "macos": "27.0",
+    "macos_build": "26A428",
+    "wired_limit_mb": 118000,
+    "swap_at_freeze": "total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)"
+  },
+  "run": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "ctx": 262144,
+    "tokens": 32768,
+    "mtp": 1,
+    "mtp_draft": 1,
+    "prefill_chunk": 1024,
+    "ssd_streaming": false,
+    "kv_dir": "/Users/panda/.ds4/server-kv/qwen38-flash-next-uncen-q4k-q8down",
+    "sampling": "launcher default (greedy unless client overrides)"
+  },
+  "main_gguf": {
+    "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+    "bytes": 96114378688,
+    "mtime": "2026-09-12T06:18:57-0400",
+    "sha256": "33f3ea38de52b2918842cbe73a0f084abe33c3ed6fb83c7d652a6cdd5d5bb7be",
+    "tensor_count": 1255,
+    "type_counts": {"F32": 400, "F16": 298, "Q8_0": 433, "Q4_K": 98, "BF16": 26},
+    "trunk_layers": 48,
+    "mtp_block": 48,
+    "routed_gate_up": "Q4_K x49 (blk.0-48)",
+    "routed_down": "Q8_0 x49 (blk.0-48)",
+    "shared_experts": "Q8_0"
+  },
+  "ple_gguf": {
+    "path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-PLE-Q4_1.gguf",
+    "bytes": 32000154848,
+    "mtime": "2026-09-12T06:02:30-0400",
+    "sha256": "4b3d72a087cb8e4587a3807b3934bb413d4f04b0a51e06c515431ea6aec9b89d",
+    "tensor_count": 4,
+    "type_counts": {"Q4_1": 1, "I64": 3}
+  },
+  "source_hf": {
+    "path": "/Users/panda/models/hf/Qwen3.8-Flash-Next-Uncensored",
+    "bytes_du": "335G",
+    "hidden_size": 2560,
+    "moe_intermediate_size": 640,
+    "num_experts": 512,
+    "num_experts_per_tok": 10,
+    "num_hidden_layers": 48,
+    "max_position_embeddings": 262144,
+    "qsa_layers": [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47],
+    "gdn_count": 36,
+    "qsa_count": 12
+  },
+  "cost_model": {
+    "bytes_per_promoted_layer": 838860800,
+    "gib_per_promoted_layer": 0.78125,
+    "S6_gib": 4.6875,
+    "S8_gib": 6.25,
+    "S10_gib": 7.8125,
+    "S12_gib": 9.375
+  },
+  "notes": [
+    "Production GGUF and PLE are never overwritten.",
+    "SHA256 recorded 2026-09-15.",
+    "llama.cpp conversion/qwen4exp.py missing at ~/repo/llama.cpp — P1 GGUF write blocked (F4).",
+    "Control server started for P0 load snapshot (pid 62368). Full 8K/32K/64K/262K 3-rep medians still owed."
+  ]
+}

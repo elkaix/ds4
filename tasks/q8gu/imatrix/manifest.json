@@ -1,0 +1,16 @@
+{
+  "purpose": "Qwen3.8 Flash Next uncensored imatrix, Qwen chat template",
+  "revision_target": "8336e613ea508b13c2159bd0f68965d97a606b95",
+  "prompt_blocks": 110,
+  "utf8_bytes": 98484,
+  "rough_token_estimate_bytes_div_4": 24621,
+  "categories_blocks": {
+    "coding": 66,
+    "agent": 10,
+    "reasoning": 10,
+    "long_context": 10,
+    "general": 8,
+    "uncensored": 6
+  },
+  "not": "DeepSeek DSML corpus; Unsloth official-Qwen imatrix"
+}

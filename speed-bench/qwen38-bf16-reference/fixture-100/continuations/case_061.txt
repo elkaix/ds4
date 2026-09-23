@@ -1,3 +1,0 @@
-# Why Sorted Arrays Enable Faster Membership Tests via Binary Search
-
-## The Core Idea: Eliminating Half the Search Space Each

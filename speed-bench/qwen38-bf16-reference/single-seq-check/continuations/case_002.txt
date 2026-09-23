@@ -1,3 +1,0 @@
-# mmap'd Model Weights vs. Private Buffer Copies on macOS
-
-This is a nuanced systems-level question that touches on

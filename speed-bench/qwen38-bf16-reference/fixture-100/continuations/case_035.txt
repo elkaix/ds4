@@ -1,5 +1,0 @@
-# Ring Buffer (Buffer Circolare)
-
-## Concetto Fondamentale
-
-Un **ring buffer** è una struttura

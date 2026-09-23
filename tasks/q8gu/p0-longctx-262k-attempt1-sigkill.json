@@ -1,0 +1,58 @@
+{
+  "note": "First 262K attempt on pid 62368. Rep 0 completed; rep 1 died SIGKILL 137. Preserved because the rerun overwrites p0-longctx-262k-partial.json.",
+  "started_at": "2026-09-15T13:45:11-0400",
+  "ds4_sha": "9b483585f65e402d232ed4cf84d19d25cb08b506",
+  "model_sha256": "33f3ea38de52b2918842cbe73a0f084abe33c3ed6fb83c7d652a6cdd5d5bb7be",
+  "ple_sha256": "4b3d72a087cb8e4587a3807b3934bb413d4f04b0a51e06c515431ea6aec9b89d",
+  "model_path": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+  "server_pid": 62368,
+  "swap_before": "total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)",
+  "health": {
+    "status": "ok",
+    "model": "Qwen3.8 Flash Next",
+    "uptime_s": 1179
+  },
+  "killed": "ds4-server exited with status 137 during P0-261072-1 prefill",
+  "sizes": {
+    "261072": {
+      "runs": [
+        {
+          "salt": "P0-261072-0",
+          "planned_prompt_tokens": 261072,
+          "prompt_tokens": 261130,
+          "cached_tokens": 0,
+          "fresh_tokens": 261130,
+          "decode_tokens": 64,
+          "usage": {
+            "prompt_tokens": 261130,
+            "completion_tokens": 64,
+            "total_tokens": 261194,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 261130
+            }
+          },
+          "wall_s": 427.4084,
+          "prefill_tps": 614.8968857152855,
+          "decode_tps": 47.054256533229314,
+          "mtp_effective_tps": 47.054256533229314,
+          "mtp_cycles": 36,
+          "mtp_committed": 26,
+          "mtp_acceptance_pct": 72.22222222222223,
+          "ttft_s": 0.09862,
+          "prefill_ns": 424672829000,
+          "decode_ns": 1360131999,
+          "first_token_ns": 98620000,
+          "finish": "length",
+          "source": "none",
+          "peak_rss_bytes": 14867578880,
+          "metal_allocated_mb": 102241.3,
+          "footprint_mb": 10037.2,
+          "swap_used_mb": 0.0,
+          "pressure": "normal",
+          "thermal": "fair"
+        }
+      ]
+    }
+  }
+}

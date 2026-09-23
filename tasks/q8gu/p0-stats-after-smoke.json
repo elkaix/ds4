@@ -1,0 +1,22 @@
+{
+  "requests": 3,
+  "last_prefill_tps": 268.63,
+  "last_decode_tps": 68.03,
+  "mtp": {
+    "enabled": true,
+    "active": true,
+    "cycles": 9,
+    "accepted": 9,
+    "committed": 9
+  },
+  "mem": {
+    "footprint_mb": 9960.4,
+    "peak_footprint_mb": 9960.4,
+    "rss_mb": 205.8,
+    "metal_allocated_mb": 102224.8,
+    "metal_working_set_mb": 118000.0,
+    "swap_used_mb": 0.0,
+    "pressure": "normal",
+    "thermal": "nominal"
+  }
+}

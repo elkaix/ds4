@@ -1,0 +1,12 @@
+{
+  "label": "Qwen3.8 uncensored routed MoE imatrix \u2014 not Unsloth",
+  "source_gguf": "/Users/panda/models/gguf/Qwen3.8-Flash-Next-Uncensored-DS4-Q4KGateUp-Q8_0Down-MTP.gguf",
+  "hf_revision": "8336e613ea508b13c2159bd0f68965d97a606b95",
+  "dataset": "tasks/q8gu/imatrix/rendered_prompts.txt",
+  "dat": "tasks/q8gu/imatrix/qwen38-uncen-8336e613-routed.dat",
+  "prompts": 110,
+  "tokens": 27416,
+  "routes": 13159680,
+  "coverage": "24089/24576 (98.02%)",
+  "note": "Collected on production RTN GGUF of the exact uncensored checkpoint (335G BF16 will not load). Gate/up activations only; down vectors unused. MTP blk.48 not forwarded so those entries are zero \u2192 RTN."
+}
