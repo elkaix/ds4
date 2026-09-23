@@ -16,7 +16,8 @@ SERVER_BIN="$GLM_DIR/ds4-server"
 MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf}"
 HOST="127.0.0.1"
 PORT=8000
-CTX=262144
+# 363K (363 x 1024) tokens; the model's native limit is 1,048,576.
+CTX="${GLM_DS4_CTX:-371712}"
 TOKENS=32768
 # Clean-engine KV cache, per quant. Checkpoints are only valid for the model
 # that wrote them, so a model change needs a new directory.
@@ -87,10 +88,10 @@ usage() {
     cat <<EOF
 Usage: ./run-glm-ds4.sh
 
-Starts this worktree's ds4-server (ds4-glm53-clean, glm53-m5-prod: PR #1090
-clean GLM Metal engine + #1093 tool-turn checkpoint + dashboard + M5 gate lift)
-with GLM 5.3 Flash Uncensored Q2 (dealignai d21b uncensored, IQ2_XXS+Q2_K with
-layers 17-19 experts Q4_K, native MTP, ctx 262144) and prints health,
+Starts this checkout's ds4-server (ds4, m5-prod: PR #1090 clean GLM Metal
+engine + #1093 tool-turn checkpoint + dashboard + M5 gate lift) with GLM 5.3
+Flash Uncensored stage 2 (dealignai d21b, Q2 body, KDA v/output and layers
+17-23 experts Q4_K, ctx $CTX) and prints health,
 throughput, process memory, KV disk-cache use, and free disk space. Fans follow
 the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the server
 runs and return to Apple auto when it stops.
@@ -108,6 +109,7 @@ Environment:
   FAN_PROFILE=name            thermalforge watch profile (default: balanced)
   GLM_DS4_MTP=1               Enable model-embedded MTP speculation (default off)
   GLM_DS4_MTP_TIMING=1        Print MTP acceptance/verify timing (diagnostic)
+  GLM_DS4_CTX=N               Context tokens (default: 371712 = 363K; model max 1048576)
   GLM_DS4_MTP_MAX_CTX=N       Turn MTP off past N context tokens (default 32768; 0 = never)
   GLM_DS4_TRACE=path          Write ds4-server request/cache trace to path
 EOF
@@ -124,6 +126,10 @@ fi
 if [[ ! $MONITOR_INTERVAL_SECONDS =~ ^[1-9][0-9]*$ || ${#MONITOR_INTERVAL_SECONDS} -gt 4 ]] ||
     (( 10#$MONITOR_INTERVAL_SECONDS > 3600 )); then
     echo "MONITOR_INTERVAL_SECONDS must be an integer between 1 and 3600" >&2
+    exit 2
+fi
+if [[ ! $CTX =~ ^[1-9][0-9]*$ ]] || (( CTX > 1048576 )); then
+    echo "GLM_DS4_CTX must be a positive integer <= 1048576, got: $CTX" >&2
     exit 2
 fi
 if [[ ! $MTP_MAX_CTX =~ ^(0|[1-9][0-9]*)$ ]]; then

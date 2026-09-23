@@ -1,0 +1,8 @@
+turn 1 hop 1: finish=tool_calls prompt=180 cached=0 completion=12 wall=2.2s
+turn 1 hop 2: finish=stop prompt=217 cached=192 completion=25 wall=0.9s
+  answer: 'The entry point is **`src/main.py`** (per README.md; config lives in `config.toml`).'
+turn 2 hop 1: finish=tool_calls prompt=260 cached=242 completion=13 wall=0.6s
+turn 2 hop 2: finish=stop prompt=300 cached=273 completion=28 wall=1.2s
+  answer: "It prints the **`port`** key from `config.toml` (`cfg['port']`)."
+tool_calls: 2
+stats: {"last_decode_tps": 30.72, "last_prefill_tps": 84.04, "prefill_cancelled": 0}
