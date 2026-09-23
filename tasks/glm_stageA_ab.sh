@@ -5,12 +5,13 @@
 # Short sweep: 2K frontier, ABBA x REPS. Long sweep: 32K and 100K frontiers,
 # one ABBA cycle. Fixed fans, cool-down between processes, nothing else on GPU.
 # Mid sweep: 32K frontier alone, same 100K allocation as the long sweep, ABBA x REPS.
-# Usage: [SWEEP=short,long|mid] [REPS=n] tasks/glm_stageA_ab.sh [out-dir]
+# MA/MB override the two arms (default: O1-uncen vs stage A).
+# Usage: [MA=a.gguf MB=b.gguf] [SWEEP=short,long|mid] [REPS=n] tasks/glm_stageA_ab.sh [out-dir]
 set -uo pipefail
 cd "$(dirname "$0")/.."
 OUT=${1:-$PWD/tasks/data/glm-stageA-ab-$(date +%Y%m%d)}; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
-MA=$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf
-MB=$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-KDAvoQ4K-Q2.gguf
+MA=${MA:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-Q2.gguf}
+MB=${MB:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-KDAvoQ4K-Q2.gguf}
 P=$PWD/speed-bench/promessi_sposi.txt
 GEN=256
 GAP=30

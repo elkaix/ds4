@@ -82,9 +82,13 @@ parameters. Everything else totals 8.9B parameters.
      prefill unchanged.
    - avg_nll 0.4525 → 0.4557 (paired CI includes 0).
    - Data: `tasks/data/glm-stageA-ab-20260922` and `-mid` (32K rerun).
-2. **Spend the headroom on expert layers.** Measure the planned memory at 262K first.
-   - The sweep ranks groups g17-23 and g10-16 best (0.4368 / 0.4372 for 7 layers).
-   - Each extra layer costs about −0.54% decode.
+2. **Stage 2: experts L20-23 to Q4_K (g17-23)** — adopted 2026-09-22.
+   - avg_nll 0.4557 → 0.4399 (−0.0158, paired CI95 [−0.0208, −0.0110]); first_match 87 → 89.
+     Sweep + stage A predicted 0.4400.
+   - Decode vs stage A (steady, paired): ×0.992 at 2K, ×0.994 at 32K, ×0.944 at 100K (n=2);
+     predicted ×0.978. Prefill unchanged.
+   - Memory: +7.59 GiB; 108.18 GiB planned at 262K (derived) vs 115.23 GiB.
+   - Data: `tasks/data/glm-stage2-ab-20260922` and `-mid`.
 3. **B/C: MLA attn_output and the other MLA projections**, one at a time. These are the
    highest-risk dense tensors [ds4-618].
 4. **D: dense FFN (layers 0–2)**, then **F: output head**. Keep the embedding, since it

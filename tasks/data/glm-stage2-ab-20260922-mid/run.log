@@ -1,0 +1,25 @@
+== 19:44:26 mid-A-1-1 start
+== 19:46:44 mid-A-1-1 rc=0 rows=1
+== 19:47:14 mid-B-1-1 start
+== 19:49:34 mid-B-1-1 rc=0 rows=1
+== 19:50:04 mid-B-1-2 start
+== 19:52:20 mid-B-1-2 rc=0 rows=1
+== 19:52:50 mid-A-1-2 start
+== 19:55:11 mid-A-1-2 rc=0 rows=1
+== 19:55:41 mid-A-2-1 start
+== 19:57:51 mid-A-2-1 rc=0 rows=1
+== 19:58:21 mid-B-2-1 start
+== 20:00:43 mid-B-2-1 rc=0 rows=1
+== 20:01:13 mid-B-2-2 start
+== 20:03:23 mid-B-2-2 rc=0 rows=1
+== 20:03:53 mid-A-2-2 start
+== 20:06:13 mid-A-2-2 rc=0 rows=1
+== 20:06:43 mid-A-3-1 start
+== 20:08:54 mid-A-3-1 rc=0 rows=1
+== 20:09:24 mid-B-3-1 start
+== 20:11:44 mid-B-3-1 rc=0 rows=1
+== 20:12:14 mid-B-3-2 start
+== 20:14:23 mid-B-3-2 rc=0 rows=1
+== 20:14:53 mid-A-3-2 start
+== 20:17:13 mid-A-3-2 rc=0 rows=1
+== 20:17:43 done

@@ -1,0 +1,49 @@
+== 18:55:31 short-A-1-1 start
+== 18:56:00 short-A-1-1 rc=0 rows=1
+== 18:56:30 short-B-1-1 start
+== 18:56:57 short-B-1-1 rc=0 rows=1
+== 18:57:27 short-B-1-2 start
+== 18:57:43 short-B-1-2 rc=0 rows=1
+== 18:58:13 short-A-1-2 start
+== 18:58:40 short-A-1-2 rc=0 rows=1
+== 18:59:10 short-A-2-1 start
+== 18:59:26 short-A-2-1 rc=0 rows=1
+== 18:59:56 short-B-2-1 start
+== 19:00:23 short-B-2-1 rc=0 rows=1
+== 19:00:53 short-B-2-2 start
+== 19:01:10 short-B-2-2 rc=0 rows=1
+== 19:01:40 short-A-2-2 start
+== 19:02:06 short-A-2-2 rc=0 rows=1
+== 19:02:36 short-A-3-1 start
+== 19:02:52 short-A-3-1 rc=0 rows=1
+== 19:03:22 short-B-3-1 start
+== 19:03:49 short-B-3-1 rc=0 rows=1
+== 19:04:19 short-B-3-2 start
+== 19:04:35 short-B-3-2 rc=0 rows=1
+== 19:05:05 short-A-3-2 start
+== 19:05:32 short-A-3-2 rc=0 rows=1
+== 19:06:02 short-A-4-1 start
+== 19:06:18 short-A-4-1 rc=0 rows=1
+== 19:06:48 short-B-4-1 start
+== 19:07:17 short-B-4-1 rc=0 rows=1
+== 19:07:47 short-B-4-2 start
+== 19:08:04 short-B-4-2 rc=0 rows=1
+== 19:08:34 short-A-4-2 start
+== 19:09:01 short-A-4-2 rc=0 rows=1
+== 19:09:31 short-A-5-1 start
+== 19:09:47 short-A-5-1 rc=0 rows=1
+== 19:10:17 short-B-5-1 start
+== 19:10:43 short-B-5-1 rc=0 rows=1
+== 19:11:13 short-B-5-2 start
+== 19:11:30 short-B-5-2 rc=0 rows=1
+== 19:12:00 short-A-5-2 start
+== 19:12:26 short-A-5-2 rc=0 rows=1
+== 19:12:56 long-A-1 start
+== 19:20:15 long-A-1 rc=0 rows=2
+== 19:20:45 long-B-1 start
+== 19:27:59 long-B-1 rc=0 rows=2
+== 19:28:29 long-B-2 start
+== 19:35:59 long-B-2 rc=0 rows=2
+== 19:36:29 long-A-2 start
+== 19:43:56 long-A-2 rc=0 rows=2
+== 19:44:26 done

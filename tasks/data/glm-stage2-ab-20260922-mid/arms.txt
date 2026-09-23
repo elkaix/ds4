@@ -1,0 +1,3 @@
+332b878867d53805a333962689538e52d17e8dda 99369b49aed6628a Apple M5 Max  powermode            2 
+A=/Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-KDAvoQ4K-Q2.gguf
+B=/Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf
