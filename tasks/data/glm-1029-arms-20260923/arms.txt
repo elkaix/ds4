@@ -1,0 +1,41 @@
+base_commit f935161c7dd07b4dacf2feb7a2be82f8fef9326e
+Apple M5 Max
+ powermode            2
+model /Users/panda/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf
+A=base f1cfc7daf2dea479
+B=dense 50a777c2568e2dfd
+C=valid 40739b10987a52b0
+diff --git a/ds4.c b/ds4.c
+index 7efa4581..5c94c7b7 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -46188,10 +46188,9 @@ static bool glm53_graph_use_indexed_prefill(
+ 
+ static uint32_t glm_graph_dense_compact_attention_limit(
+         const ds4_glm_gpu_graph *g) {
+-    /* The incomplete GLM 5.3 pool is always included. Dense attention is
+-     * equivalent through top_k + pool_size - 1, not the work-window size. */
+-    return g && g->glm53 ? glm53_graph_indexer_selected_limit() :
+-                          glm_graph_indexer_top_k_limit();
++    /* EXPERIMENT #1029 arm dense: pre-0e9cc2d dense limit (not exact). */
++    if (g && g->glm53 && !g->full_kv_cache) return g->ctx_cap;
++    return glm_graph_indexer_top_k_limit();
+ }
+ 
+ static uint32_t glm_graph_limit_indexed_prefill_chunk(
+diff --git a/ds4.c b/ds4.c
+index 7efa4581..aa5f23ea 100644
+--- a/ds4.c
++++ b/ds4.c
+@@ -55229,9 +55229,8 @@ static bool glm_graph_forward_indexed_tokens(
+                                 DS4_ROPE_YARN_BETA_SLOW);
+                     } else {
+                         /* GLM 5.3 pads the incomplete pool with invalid IDs. */
+-                        rc = (g->glm53 ?
+-                                ds4_gpu_glm_attention_indexed_batch_lora_tensor :
+-                                ds4_gpu_glm_attention_indexed_batch_lora_valid_tensor)(
++                        /* EXPERIMENT #1029 arm valid: pre-0e9cc2d kernel (not exact). */
++                        rc = ds4_gpu_glm_attention_indexed_batch_lora_valid_tensor(
+                                 attn_lora_view,
+                                 q_view,
+                                 qk_low_view,

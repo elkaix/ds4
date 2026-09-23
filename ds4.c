@@ -46189,7 +46189,9 @@ static bool glm53_graph_use_indexed_prefill(
 static uint32_t glm_graph_dense_compact_attention_limit(
         const ds4_glm_gpu_graph *g) {
     /* The incomplete GLM 5.3 pool is always included. Dense attention is
-     * equivalent through top_k + pool_size - 1, not the work-window size. */
+     * equivalent through top_k + pool_size - 1, not the work-window size.
+     * Returning ctx_cap (4096) here is inexact; on M5 stage 2 it bought no
+     * continued-prefill speed (tasks/data/glm-1029-arms-20260923). */
     return g && g->glm53 ? glm53_graph_indexer_selected_limit() :
                           glm_graph_indexer_top_k_limit();
 }
@@ -55228,7 +55230,9 @@ static bool glm_graph_forward_indexed_tokens(
                                 DS4_ROPE_YARN_BETA_FAST,
                                 DS4_ROPE_YARN_BETA_SLOW);
                     } else {
-                        /* GLM 5.3 pads the incomplete pool with invalid IDs. */
+                        /* GLM 5.3 pads the incomplete pool with invalid IDs, so
+                         * the _valid kernel is wrong here; on M5 stage 2 it was
+                         * also no faster (tasks/data/glm-1029-arms-20260923). */
                         rc = (g->glm53 ?
                                 ds4_gpu_glm_attention_indexed_batch_lora_tensor :
                                 ds4_gpu_glm_attention_indexed_batch_lora_valid_tensor)(
