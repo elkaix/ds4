@@ -13,14 +13,14 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 GLM_DIR="${GLM_DS4_DIR:-$ROOT_DIR}"
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-KDAvoQ4K-Q2.gguf}"
+MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf}"
 HOST="127.0.0.1"
 PORT=8000
 CTX=262144
 TOKENS=32768
 # Clean-engine KV cache, per quant. Checkpoints are only valid for the model
 # that wrote them, so a model change needs a new directory.
-KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm53-m5-clean-kdavo-q4k}"
+KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm53-m5-clean-l17-23q4k-kdavo}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -97,7 +97,7 @@ runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
-  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-18-19Q4KExperts-KDAvoQ4K-Q2.gguf)
+  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf)
                               (pair it with GLM_DS4_KV_DIR -- the KV cache is per-quant)
   GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
   GLM_DS4_KV_CONTINUED_INTERVAL=N
