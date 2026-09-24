@@ -77,6 +77,10 @@ TRACE_PATH="${GLM_DS4_TRACE:-}"
 WIRED_LIMIT_MIN_MB=114688
 MONITOR_INTERVAL_SECONDS=${MONITOR_INTERVAL_SECONDS:-15}
 THERMALFORGE="${THERMALFORGE:-$(command -v thermalforge || echo /opt/homebrew/bin/thermalforge)}"
+# ThermalForge.app drives the fans through the same daemon when it is running.
+# Defer to it: no watch profile, no reset to Apple auto when the server stops.
+FAN_APP_OWNED=false
+if pgrep -xq ThermalForgeApp; then FAN_APP_OWNED=true; fi
 FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RESTORE_TIMEOUT_SECONDS=5
 FAN_PROFILE="${FAN_PROFILE:-balanced}"   # thermalforge watch profile: silent|balanced|performance|max
@@ -311,9 +315,11 @@ restore_fans() {
     return 1
 }
 
-if ! fan_control probe; then
+if [[ $FAN_APP_OWNED == true ]]; then fan_probe=status; else fan_probe=probe; fi
+if ! fan_control "$fan_probe" >/dev/null; then
     echo "Non-interactive verified fan control is unavailable; refusing to start ds4-server." >&2
     echo "Repair it with: sudo thermalforge install" >&2
+    echo "If fans are in manual mode, open ThermalForge.app (this script then defers to it) or run: thermalforge auto" >&2
     exit 1
 fi
 
@@ -792,7 +798,8 @@ while server_alive():
         if remaining <= 0:
             break
         time.sleep(min(1, remaining))
-restore_fans_after_server()
+if fan_controller:
+    restore_fans_after_server()
 # Hard-kill fallback for the launcher-side stop prune.
 if kv_ttl_hours > 0:
     prune_kv_cache("server-stopped")
@@ -803,7 +810,7 @@ try:
 except OSError:
     pass
 ' "$watched_pid" "$HOST" "$PORT" "$KV_DIR" "$KV_BUDGET_MB" \
-        "$MONITOR_INTERVAL_SECONDS" "$THERMALFORGE" \
+        "$MONITOR_INTERVAL_SECONDS" "$([[ $FAN_APP_OWNED == true ]] || echo "$THERMALFORGE")" \
         "$FAN_COMMAND_TIMEOUT_SECONDS" "$MACMON" \
         "$KV_PRUNE" "$KV_TTL_HOURS" "$KV_PRUNE_INTERVAL_SECONDS" &
     monitor_pid=$!
@@ -911,7 +918,9 @@ server_pid=$!
 server_started=true
 
 start_monitor "$server_pid"
-if ! set_fans_max; then
+if [[ $FAN_APP_OWNED == true ]]; then
+    echo "Fans managed by ThermalForge.app; leaving them as they are."
+elif ! set_fans_max; then
     echo "ThermalForge fan profile could not be started; stopping ds4-server." >&2
     exit 1
 fi
