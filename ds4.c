@@ -59643,6 +59643,9 @@ static bool qwen4_graph_attention_core(ds4_qwen4_gpu_graph *g, uint32_t il,
         if (n_sparse > 2u && n_sparse - r0 <= 2u) r0 = n_sparse - 3u;
         const uint32_t n = n_sparse - r0 < QWEN4_IDX_ROWS ? n_sparse - r0 : QWEN4_IDX_ROWS;
         const bool whole = r0 == 0 && n == n_sparse;
+        ds4_gpu_tensor *tile_max = n <= 2u &&
+            ds4_gpu_qwen4_idx_score_emits_tile_max(n, DS4_N_INDEXER_HEAD, DS4_N_INDEXER_HEAD_DIM) ?
+            g->tile_max : NULL;
         ds4_gpu_tensor *wiqn = whole ? iqn : ds4_gpu_tensor_view(iqn,
                 (uint64_t)r0 * DS4_N_INDEXER_HEAD * DS4_N_INDEXER_HEAD_DIM * sizeof(float),
                 (uint64_t)n * DS4_N_INDEXER_HEAD * DS4_N_INDEXER_HEAD_DIM * sizeof(float));
@@ -59653,10 +59656,10 @@ static bool qwen4_graph_attention_core(ds4_qwen4_gpu_graph *g, uint32_t il,
         ds4_gpu_tensor *wcnt = whole ? g->n_sel : ds4_gpu_tensor_view(g->n_sel,
                 (uint64_t)r0 * sizeof(uint32_t), (uint64_t)n * sizeof(uint32_t));
         ok = wiqn && wblk && wtok && wcnt &&
-            ds4_gpu_qwen4_idx_score_tensor(g->score, n <= 2u ? g->tile_max : NULL, wiqn,
+            ds4_gpu_qwen4_idx_score_tensor(g->score, tile_max, wiqn,
                                            g->layer_block_key[il], n, n_blocks_after,
                                            DS4_N_INDEXER_HEAD, DS4_N_INDEXER_HEAD_DIM, sp0 + r0, ratio) &&
-            qwen4_idx_select(wblk, g->score, n <= 2u ? g->tile_max : NULL, n_blocks_after, n, g->k_blocks) &&
+            qwen4_idx_select(wblk, g->score, tile_max, n_blocks_after, n, g->k_blocks) &&
             ds4_gpu_qwen4_idx_expand_tensor(wtok, wcnt, wblk, n, g->k_blocks, ratio, sp0 + r0, g->sel_stride);
         if (!whole) {
             ds4_gpu_tensor_free(wcnt);
