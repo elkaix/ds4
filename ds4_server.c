@@ -3911,6 +3911,33 @@ static DS4_SERVER_MAYBE_UNUSED char *render_live_tool_tail(
                                             msgs, start, NULL, think_mode);
 }
 
+/* The text that turns a syntax's thinking generation prompt into its
+ * non-thinking one, taken from the syntax's own tail renderer.  NULL when the
+ * non-thinking prompt is not the thinking prompt plus a suffix: such a model
+ * cannot close reasoning by appending to the live KV. */
+static char *generation_think_close_suffix(server_model_syntax syntax) {
+    chat_msg user = {.role = (char *)"user", .content = (char *)"x"};
+    chat_msgs msgs = {.v = &user, .len = 1, .cap = 1};
+    char *think = render_live_tool_tail_for_syntax(syntax, &msgs, 0, NULL, DS4_THINK_HIGH);
+    char *plain = render_live_tool_tail_for_syntax(syntax, &msgs, 0, NULL, DS4_THINK_NONE);
+    const size_t think_len = strlen(think);
+    char *suffix = NULL;
+    if (strlen(plain) > think_len && !strncmp(plain, think, think_len))
+        suffix = xstrdup(plain + think_len);
+    free(think);
+    free(plain);
+    return suffix;
+}
+
+static const char *server_model_syntax_name(server_model_syntax syntax) {
+    switch (syntax) {
+    case SERVER_MODEL_SYNTAX_QWEN: return "qwen";
+    case SERVER_MODEL_SYNTAX_GLM: return "glm";
+    case SERVER_MODEL_SYNTAX_DEEPSEEK41: return "deepseek41";
+    default: return "deepseek";
+    }
+}
+
 static char *render_request_live_tool_tail(server *s, const request *r,
                                            const chat_msgs *msgs, int start,
                                            const stop_list *ids) {
@@ -7083,9 +7110,16 @@ static bool http_error_context_length_exceeded(int fd, bool enable_cors,
                                                int ctx_size) {
     buf b = {0};
     char msg[160];
-    snprintf(msg, sizeof(msg),
-             "Prompt has %d tokens, but the configured context size is %d tokens",
-             n_prompt_tokens, ctx_size);
+    if (r && r->api == API_ANTHROPIC) {
+        /* Anthropic's wording: clients recognize it and retry with a
+         * truncated history. */
+        snprintf(msg, sizeof(msg), "prompt is too long: %d tokens > %d maximum",
+                 n_prompt_tokens, ctx_size);
+    } else {
+        snprintf(msg, sizeof(msg),
+                 "Prompt has %d tokens, but the configured context size is %d tokens",
+                 n_prompt_tokens, ctx_size);
+    }
 
     if (r && r->api == API_ANTHROPIC) {
         buf_puts(&b, "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":");
@@ -9375,6 +9409,21 @@ static bool anthropic_sse_start_live(int fd, const request *r, const char *id,
     return ok;
 }
 
+/* Nothing but message_start has reached the client. */
+static bool anthropic_stream_untouched(const anthropic_stream *st) {
+    return st->emit_pos == 0 && st->open_block == ANTH_BLOCK_NONE &&
+           st->next_index == 0 && !st->sent_thinking && !st->sent_text &&
+           !st->tool.active;
+}
+
+/* Recompute every field anthropic_sse_start_live derived from the thinking
+ * mode, after the request switched mode before its first sampled token. */
+static void anthropic_stream_rederive(anthropic_stream *st, const request *r) {
+    st->mode = ds4_think_mode_enabled(r->think_mode) ? ANTH_STREAM_THINKING : ANTH_STREAM_TEXT;
+    st->guard_second_reasoning = stream_needs_second_reasoning_guard(r);
+    st->checked_think_prefix = false;
+}
+
 static void anthropic_tool_stream_free(anthropic_tool_stream *ts) {
     if (!ts) return;
     for (int i = 0; i < ts->ids_cap; i++) free(ts->ids[i]);
@@ -10418,6 +10467,9 @@ struct server {
     server_image_cache image_cache; /* Protected by inference_mu. */
     bool disable_exact_dsml_tool_replay;
     bool enable_cors;
+    int anthropic_thinking_min_budget;
+    ds4_tokens tail_close_tokens; /* empty: tail-close disabled for this model */
+    char *tail_close_text;
     pthread_mutex_t tool_mu;
     pthread_mutex_t kv_mu;
     pthread_mutex_t inference_mu;
@@ -13210,6 +13262,24 @@ static int server_decode_budget(int requested, int generated, int room) {
     return remaining < room ? remaining : room;
 }
 
+/* A reasoning request whose real decode budget is at most the threshold
+ * would spend it all inside <think> and answer nothing.  Anthropic's own
+ * minimum thinking budget is 1024 tokens; a threshold of 0 disables this. */
+static bool anthropic_needs_tail_close(ds4_think_mode mode, int budget, int threshold) {
+    return threshold > 0 && ds4_think_mode_enabled(mode) && budget <= threshold;
+}
+
+/* Close reasoning at most once, on the first decode pass of an Anthropic
+ * request, and only while the client has seen nothing but message_start. */
+static bool tail_close_applies(api_style api, ds4_think_mode mode, int budget,
+                               int threshold, int recovery_completion,
+                               bool dsml_recovery_attempted, bool tail_close_done,
+                               bool stream_untouched) {
+    return api == API_ANTHROPIC && !tail_close_done && recovery_completion == 0 &&
+           !dsml_recovery_attempted && stream_untouched &&
+           anthropic_needs_tail_close(mode, budget, threshold);
+}
+
 static bool should_remember_thinking_checkpoint(const request *r,
                                                 const thinking_state *thinking,
                                                 const char *finish) {
@@ -14085,6 +14155,33 @@ static int server_eval_token(server *s, server_slot *slot, int token,
     return server_eval_tokens(s, slot, token, false, 0.0f, 0, 0.0f, 0.0f, NULL, accepted, &count, err, errlen);
 }
 
+typedef int (*server_eval_token_fn)(server *s, server_slot *slot, int token,
+                                    char *err, size_t errlen);
+
+/* Append the pre-resolved think-close suffix ids to the live session through
+ * the decode path (the model thread in batched mode), then switch the request
+ * and its Anthropic stream to non-thinking.  The prompt is never re-rendered
+ * or re-tokenized, so the prefilled KV is kept as is.  If any id fails, the
+ * checkpoint may hold a partial suffix: invalidate it and clear the slot's
+ * live state so no reuse tier can bind to it, and return false. */
+static bool anthropic_close_thinking_at_tail(server *s, server_slot *slot,
+                                             request *r, anthropic_stream *st,
+                                             server_eval_token_fn eval,
+                                             char *err, size_t errlen) {
+    for (int i = 0; i < s->tail_close_tokens.len; i++) {
+        if (eval(s, slot, s->tail_close_tokens.v[i], err, errlen) != 0) {
+            pthread_mutex_lock(&s->inference_mu);
+            ds4_session_invalidate(slot->session);
+            pthread_mutex_unlock(&s->inference_mu);
+            request_live_state_clear(s, slot);
+            return false;
+        }
+    }
+    r->think_mode = DS4_THINK_NONE;
+    anthropic_stream_rederive(st, r);
+    return true;
+}
+
 static long server_decode_coalesce_us(void) {
     long us = 2000;
     const char *env = getenv("DS4_SERVER_DECODE_COALESCE_US");
@@ -14765,6 +14862,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     }
 
     bool dsml_recovery_attempted = false;
+    bool tail_close_done = false; /* never re-applied after decode_again */
     int recovery_completion = 0;
     uint64_t rng = j->req.seed;
     if (!rng && !random_bytes(&rng, sizeof(rng))) {
@@ -14781,6 +14879,33 @@ decode_again:
     int room = ds4_session_ctx(slot->session) - ds4_session_pos(slot->session);
     int max_tokens = server_decode_budget(j->req.max_tokens,
                                           recovery_completion, room);
+    if (s->tail_close_tokens.len > 0 &&
+        tail_close_applies(j->req.api, j->req.think_mode, max_tokens,
+                           s->anthropic_thinking_min_budget, recovery_completion,
+                           dsml_recovery_attempted, tail_close_done,
+                           anthropic_stream_untouched(&anthropic_live)))
+    {
+        const int budget = max_tokens;
+        tail_close_done = true;
+        if (room <= s->tail_close_tokens.len) {
+            /* no room left for a visible token after the suffix */
+            server_log(DS4_LOG_GENERATION,
+                       "ds4-server: anthropic: thinking tail-close skipped (budget=%d room=%d)",
+                       budget, room);
+        } else if (!anthropic_close_thinking_at_tail(s, slot, &j->req, &anthropic_live,
+                                                     server_eval_token, err, sizeof(err))) {
+            finish = "error";
+            max_tokens = 0; /* skip decoding; leave through the error response */
+        } else {
+            room = ds4_session_ctx(slot->session) - ds4_session_pos(slot->session);
+            max_tokens = server_decode_budget(j->req.max_tokens,
+                                              recovery_completion, room);
+            server_log(DS4_LOG_GENERATION,
+                       "ds4-server: anthropic: thinking closed at tail (budget=%d room=%d max_tokens=%d <= %d, suffix_tokens=%d)",
+                       budget, room, j->req.max_tokens,
+                       s->anthropic_thinking_min_budget, s->tail_close_tokens.len);
+        }
+    }
     bool saw_tool_start = false;
     bool saw_tool_end = false;
     bool saw_orphan_tool_end = false;
@@ -14796,6 +14921,10 @@ decode_again:
     double last_decode_log_t = decode_t0;
     int last_decode_log_completion = 0;
     thinking_state thinking = thinking_state_from_prompt(&j->req);
+    if (tail_close_done && !ds4_think_mode_enabled(j->req.think_mode)) {
+        /* the live KV holds the closed tail that prompt_text lacks */
+        thinking_state_feed(&thinking, s->tail_close_text, strlen(s->tail_close_text));
+    }
     const bool thinking_gates_tool_markers = ds4_think_mode_enabled(j->req.think_mode);
     bool tool_scan_waiting_for_think_close =
         thinking_gates_tool_markers && thinking.inside;
@@ -16702,6 +16831,7 @@ typedef struct {
     bool enable_cors;
     int batched_sessions;
     int mixed_prefill_quantum;
+    int anthropic_thinking_min_budget;
 } server_config;
 
 static int parse_int_arg(const char *s, const char *opt) {
@@ -16773,11 +16903,60 @@ static void log_context_memory(ds4_backend backend, int ctx_size,
                    (caches * (double)session_count + (double)m.scratch_bytes) / gib);
     }
 }
+
+/* Resolve the think-close suffix once at startup.  Only the suffix text is
+ * tokenized, the same way rendered prompts are.  Its ids must render back to
+ * exactly that text with </think> as one thinking-control token; otherwise
+ * tail-close stays disabled for this model. */
+static void server_resolve_tail_close(server *s, server_model_syntax syntax) {
+    if (s->anthropic_thinking_min_budget <= 0) return;
+    const char *name = server_model_syntax_name(syntax);
+    char *suffix = generation_think_close_suffix(syntax);
+    if (!suffix) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: anthropic tail-close: syntax=%s has no think-close suffix, disabled",
+                   name);
+        return;
+    }
+    ds4_tokens ids = {0};
+    ds4_tokenize_rendered_chat(s->engine, suffix, &ids);
+    buf text = {0};
+    buf list = {0};
+    int closes = 0;
+    for (int i = 0; i < ids.len; i++) {
+        size_t len = 0;
+        char *piece = ds4_token_text(s->engine, ids.v[i], &len);
+        if (ds4_token_is_thinking_control(s->engine, ids.v[i]) &&
+            len == strlen("</think>") && !memcmp(piece, "</think>", len)) closes++;
+        buf_append(&text, piece, len);
+        buf_printf(&list, "%s%d", i ? "," : "", ids.v[i]);
+        free(piece);
+    }
+    const bool ok = closes == 1 && text.len == strlen(suffix) &&
+                    !memcmp(text.ptr, suffix, text.len);
+    server_log(DS4_LOG_DEFAULT, "ds4-server: anthropic tail-close suffix: syntax=%s tokens=[%s] (%d)",
+               name, list.ptr ? list.ptr : "", ids.len);
+    if (ok) {
+        s->tail_close_tokens = ids;
+        s->tail_close_text = suffix;
+    } else {
+        server_log(DS4_LOG_WARNING,
+                   "ds4-server: anthropic tail-close: suffix ids do not render back to the suffix with a single </think>, disabled");
+        ds4_tokens_free(&ids);
+        free(suffix);
+    }
+    buf_free(&text);
+    buf_free(&list);
+}
+
 static void server_close_resources(server *s) {
     if (s->trace) {
         fclose(s->trace);
         s->trace = NULL;
     }
+    ds4_tokens_free(&s->tail_close_tokens);
+    free(s->tail_close_text);
+    s->tail_close_text = NULL;
     kv_cache_close(&s->kv);
     tool_memory_free(&s->tool_mem);
     server_image_cache_clear(&s->image_cache);
@@ -16850,6 +17029,7 @@ static server_config parse_options(int argc, char **argv) {
         .default_tokens = 393216,
         .tool_memory_max_ids = DS4_TOOL_MEMORY_DEFAULT_MAX_IDS,
         .mixed_prefill_quantum = 128,
+        .anthropic_thinking_min_budget = 1024,
     };
     c.kv_cache = kv_cache_default_options();
 
@@ -16942,6 +17122,9 @@ static server_config parse_options(int argc, char **argv) {
             c.trace_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--batched-session")) {
             c.batched_sessions = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--anthropic-thinking-min-budget")) {
+            c.anthropic_thinking_min_budget =
+                parse_nonneg_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--mixed-prefill-quantum")) {
             c.mixed_prefill_quantum =
                 parse_int_arg(need_arg(&i, argc, argv, arg), arg);
@@ -17221,6 +17404,8 @@ int main(int argc, char **argv) {
     /* LOCAL PATCH */
     s.started_at = now_sec();
     s.model_path = cfg.engine.model_path;
+    s.anthropic_thinking_min_budget = cfg.anthropic_thinking_min_budget;
+    server_resolve_tail_close(&s, server_model_syntax_for_engine(engine));
     s.slots = xmalloc((size_t)slot_count * sizeof(*s.slots));
     memset(s.slots, 0, (size_t)slot_count * sizeof(*s.slots));
     if (s.batched_mode) {
@@ -17812,6 +17997,10 @@ static void test_context_length_error_uses_protocol_standard_shape(void) {
         TEST_ASSERT(strstr(out, "\"param\":\"messages\"") != NULL);
         TEST_ASSERT(strstr(out, "\"n_prompt_tokens\":16") != NULL);
         TEST_ASSERT(strstr(out, "\"n_ctx\":16") != NULL);
+        TEST_ASSERT(strstr(out,
+            "{\"error\":{\"message\":\"Prompt has 16 tokens, but the configured context size is 16 tokens\","
+            "\"type\":\"invalid_request_error\",\"param\":\"messages\",\"code\":\"context_length_exceeded\","
+            "\"n_prompt_tokens\":16,\"n_ctx\":16}}\n") != NULL);
         free(out);
         close(sv[0]);
         close(sv[1]);
@@ -17834,7 +18023,269 @@ static void test_context_length_error_uses_protocol_standard_shape(void) {
         close(sv[0]);
         close(sv[1]);
     }
+
+    /* Anthropic clients retry compaction with truncated history only on
+     * Anthropic's own wording. */
+    TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    if (sv[0] >= 0 && sv[1] >= 0) {
+        TEST_ASSERT(http_error_context_length_exceeded(sv[0], false, &a, 131799, 131072));
+        shutdown(sv[0], SHUT_WR);
+        char *out = read_socket_text(sv[1]);
+        TEST_ASSERT(strstr(out,
+            "\"message\":\"prompt is too long: 131799 tokens > 131072 maximum\"") != NULL);
+        free(out);
+        close(sv[0]);
+        close(sv[1]);
+    }
     request_free(&a);
+}
+
+static int tail_close_eval_calls;
+static int tail_close_eval_fail_at; /* 1-based call that fails; 0: none */
+static int tail_close_eval_seen[8];
+
+static int test_tail_close_eval(server *s, server_slot *slot, int token,
+                                char *err, size_t errlen) {
+    (void)s;
+    (void)slot;
+    if (tail_close_eval_calls < 8) tail_close_eval_seen[tail_close_eval_calls] = token;
+    if (++tail_close_eval_calls == tail_close_eval_fail_at) {
+        snprintf(err, errlen, "test eval failure");
+        return 1;
+    }
+    return 0;
+}
+
+static int count_substr(const char *s, const char *needle) {
+    int n = 0;
+    for (const char *p = s; p && (p = strstr(p, needle)) != NULL; p += strlen(needle)) n++;
+    return n;
+}
+
+/* A reasoning request with a tiny real decode budget closes its think block
+ * by appending the syntax's suffix ids to the live KV, once, before its first
+ * sampled token, and then answers in visible text. */
+static void test_anthropic_tail_close(void) {
+    /* The threshold is inclusive on the real budget; 0 disables. */
+    TEST_ASSERT(anthropic_needs_tail_close(DS4_THINK_HIGH, 180, 1024));
+    TEST_ASSERT(anthropic_needs_tail_close(DS4_THINK_HIGH, 1024, 1024));
+    TEST_ASSERT(!anthropic_needs_tail_close(DS4_THINK_HIGH, 1025, 1024));
+    TEST_ASSERT(anthropic_needs_tail_close(DS4_THINK_MAX, 180, 1024));
+    TEST_ASSERT(!anthropic_needs_tail_close(DS4_THINK_HIGH, 32000, 1024));
+    TEST_ASSERT(!anthropic_needs_tail_close(DS4_THINK_HIGH, 180, 0));
+    TEST_ASSERT(!anthropic_needs_tail_close(DS4_THINK_NONE, 180, 1024));
+    TEST_ASSERT(anthropic_needs_tail_close(DS4_THINK_HIGH, 0, 1024));
+
+    /* The suffix comes from each syntax's own generation prompt. */
+    char *qwen = generation_think_close_suffix(SERVER_MODEL_SYNTAX_QWEN);
+    TEST_ASSERT(qwen && !strcmp(qwen, "\n</think>\n\n"));
+    buf think = {0}, plain = {0};
+    append_qwen_generation_prompt(&think, true);
+    buf_puts(&think, qwen ? qwen : "");
+    append_qwen_generation_prompt(&plain, false);
+    TEST_ASSERT(think.len == plain.len && !memcmp(think.ptr, plain.ptr, plain.len));
+    buf_free(&think);
+    buf_free(&plain);
+    char *glm = generation_think_close_suffix(SERVER_MODEL_SYNTAX_GLM);
+    TEST_ASSERT(glm && !strcmp(glm, "</think>"));
+    free(glm);
+    /* "<think>" versus "</think>": no pure suffix, so tail-close is a no-op. */
+    TEST_ASSERT(generation_think_close_suffix(SERVER_MODEL_SYNTAX_DEEPSEEK) == NULL);
+    TEST_ASSERT(generation_think_close_suffix(SERVER_MODEL_SYNTAX_DEEPSEEK41) == NULL);
+
+    /* First decode pass only, and only while the stream is untouched. */
+    TEST_ASSERT(tail_close_applies(API_ANTHROPIC, DS4_THINK_HIGH, 180, 1024, 0, false, false, true));
+    TEST_ASSERT(!tail_close_applies(API_ANTHROPIC, DS4_THINK_HIGH, 180, 1024, 1, false, false, true));
+    TEST_ASSERT(!tail_close_applies(API_ANTHROPIC, DS4_THINK_HIGH, 180, 1024, 0, true, false, true));
+    TEST_ASSERT(!tail_close_applies(API_ANTHROPIC, DS4_THINK_HIGH, 180, 1024, 0, false, true, true));
+    TEST_ASSERT(!tail_close_applies(API_ANTHROPIC, DS4_THINK_HIGH, 180, 1024, 0, false, false, false));
+    TEST_ASSERT(!tail_close_applies(API_OPENAI, DS4_THINK_HIGH, 180, 1024, 0, false, false, true));
+    TEST_ASSERT(!tail_close_applies(API_RESPONSES, DS4_THINK_HIGH, 180, 1024, 0, false, false, true));
+
+    server s = {0};
+    pthread_mutex_init(&s.inference_mu, NULL);
+    pthread_mutex_init(&s.tool_mu, NULL);
+    const int suffix_ids[3] = {198, 151668, 271};
+    for (int i = 0; i < 3; i++) ds4_tokens_push(&s.tail_close_tokens, suffix_ids[i]);
+    s.tail_close_text = qwen;
+    const int ckpt[4] = {11, 12, 13, 14};
+    char err[128] = {0};
+
+    /* Success: ids arrive in order through the eval seam, the prompt is not
+     * re-tokenized, and thinking/stream state switch to visible text. */
+    {
+        server_slot slot = {0};
+        slot.session = ds4_session_new_test_checkpoint(ckpt, 4);
+        request r;
+        request_init(&r, REQ_CHAT, 180);
+        r.api = API_ANTHROPIC;
+        r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+        r.stream = true;
+        r.has_tools = true;
+        r.think_mode = DS4_THINK_HIGH;
+        r.prompt_text = xstrdup("<|im_start|>user\nsummarize<|im_end|>\n"
+                                "<|im_start|>assistant\n<think>\n");
+        for (int i = 0; i < 4; i++) ds4_tokens_push(&r.prompt, ckpt[i]);
+        char *prompt_before = xstrdup(r.prompt_text);
+
+        int sv[2];
+        TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+        anthropic_stream st;
+        TEST_ASSERT(anthropic_sse_start_live(sv[0], &r, "msg_tail", 5, &st));
+        TEST_ASSERT(st.mode == ANTH_STREAM_THINKING);
+        TEST_ASSERT(anthropic_stream_untouched(&st));
+
+        tail_close_eval_calls = 0;
+        tail_close_eval_fail_at = 0;
+        TEST_ASSERT(anthropic_close_thinking_at_tail(&s, &slot, &r, &st,
+                                                     test_tail_close_eval,
+                                                     err, sizeof(err)));
+        TEST_ASSERT(tail_close_eval_calls == 3);
+        for (int i = 0; i < 3; i++) TEST_ASSERT(tail_close_eval_seen[i] == suffix_ids[i]);
+        TEST_ASSERT(!strcmp(r.prompt_text, prompt_before));
+        TEST_ASSERT(r.prompt.len == 4);
+        for (int i = 0; i < 4 && r.prompt.len == 4; i++) TEST_ASSERT(r.prompt.v[i] == ckpt[i]);
+        TEST_ASSERT(ds4_session_checkpoint_valid(slot.session));
+        TEST_ASSERT(r.think_mode == DS4_THINK_NONE);
+        TEST_ASSERT(st.mode == ANTH_STREAM_TEXT);
+        TEST_ASSERT(!st.guard_second_reasoning);
+        TEST_ASSERT(!st.checked_think_prefix);
+
+        thinking_state th = thinking_state_from_prompt(&r);
+        TEST_ASSERT(th.inside);
+        thinking_state_feed(&th, s.tail_close_text, strlen(s.tail_close_text));
+        TEST_ASSERT(!th.inside);
+
+        const char *gen = "Summary: done.";
+        tool_calls none = {0};
+        TEST_ASSERT(anthropic_sse_stream_update(sv[0], NULL, &r, "msg_tail", &st,
+                                                gen, strlen(gen), false));
+        TEST_ASSERT(anthropic_sse_finish_live(sv[0], NULL, &r, "msg_tail", &st,
+                                              gen, strlen(gen), &none, "stop", 4));
+        shutdown(sv[0], SHUT_WR);
+        char *out = read_socket_text(sv[1]);
+        TEST_ASSERT(count_substr(out, "event: content_block_start") == 1);
+        TEST_ASSERT(strstr(out, "\"content_block\":{\"type\":\"text\"") != NULL);
+        TEST_ASSERT(strstr(out, "Summary: done.") != NULL);
+        TEST_ASSERT(strstr(out, "\"type\":\"thinking\"") == NULL);
+        free(out);
+        close(sv[0]);
+        close(sv[1]);
+
+        /* Final (non-streaming) response from the same generated text. */
+        const char *fin = "stop";
+        char *content = NULL, *reasoning = NULL;
+        tool_calls calls = {0};
+        bool recovered = false;
+        TEST_ASSERT(parse_generated_message_for_response_for_syntax(
+            r.model_syntax, gen, false, false, ds4_think_mode_enabled(r.think_mode),
+            &fin, err, sizeof(err), &content, &reasoning, &calls, &recovered, NULL));
+        TEST_ASSERT(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+        TEST_ASSERT(anthropic_final_response(sv[0], false, &r, "msg_tail_final",
+                                             content, reasoning, &calls, fin, 5, 4));
+        shutdown(sv[0], SHUT_WR);
+        out = read_socket_text(sv[1]);
+        TEST_ASSERT(count_substr(out, "\"type\":\"text\"") == 1);
+        TEST_ASSERT(strstr(out, "\"text\":\"Summary: done.\"") != NULL);
+        TEST_ASSERT(strstr(out, "\"type\":\"thinking\"") == NULL);
+        free(out);
+        close(sv[0]);
+        close(sv[1]);
+        free(content);
+        free(reasoning);
+        tool_calls_free(&calls);
+
+        anthropic_stream_free(&st);
+        free(prompt_before);
+        request_free(&r);
+        ds4_session_free_test_checkpoint(slot.session);
+    }
+
+    /* Re-derivation clears the second-reasoning guard where it was set, and
+     * a stream that already emitted anything is not untouched. */
+    {
+        request r;
+        request_init(&r, REQ_CHAT, 180);
+        r.model_syntax = SERVER_MODEL_SYNTAX_GLM;
+        r.has_tools = true;
+        r.think_mode = DS4_THINK_HIGH;
+        anthropic_stream st = {0};
+        st.mode = ANTH_STREAM_THINKING;
+        st.guard_second_reasoning = stream_needs_second_reasoning_guard(&r);
+        st.checked_think_prefix = true;
+        TEST_ASSERT(st.guard_second_reasoning);
+        r.think_mode = DS4_THINK_NONE;
+        anthropic_stream_rederive(&st, &r);
+        TEST_ASSERT(st.mode == ANTH_STREAM_TEXT);
+        TEST_ASSERT(!st.guard_second_reasoning);
+        TEST_ASSERT(!st.checked_think_prefix);
+        TEST_ASSERT(anthropic_stream_untouched(&st));
+        st.emit_pos = 7;
+        TEST_ASSERT(!anthropic_stream_untouched(&st));
+        request_free(&r);
+    }
+
+    /* A failure on the second id leaves no reusable partial suffix. */
+    {
+        server_slot slot = {0};
+        slot.session = ds4_session_new_test_checkpoint(ckpt, 4);
+        slot.anthropic_live.valid = true;
+        slot.anthropic_live.live_tokens = 4;
+        id_list_push_unique(&slot.anthropic_live.call_ids, "toolu-1");
+        slot.responses_live.valid = true;
+        slot.responses_live.live_tokens = 4;
+        slot.thinking_live.valid = true;
+        slot.thinking_live.live_tokens = 4;
+        slot.thinking_live.visible_text = xstrdup("conv");
+        slot.thinking_live.visible_len = 4;
+        job next = {0};
+        next.req.api = API_ANTHROPIC;
+        next.req.anthropic_live_suffix_text = xstrdup(" result");
+        id_list_push_unique(&next.req.anthropic_live_call_ids, "toolu-1");
+        for (int i = 0; i < 4; i++) ds4_tokens_push(&next.req.prompt, ckpt[i]);
+        ds4_tokens_push(&next.req.prompt, 15);
+        TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &next.req).kind ==
+                    REUSE_ANTHROPIC_TOOL_OUTPUT);
+
+        request r;
+        request_init(&r, REQ_CHAT, 180);
+        r.api = API_ANTHROPIC;
+        r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+        r.think_mode = DS4_THINK_HIGH;
+        anthropic_stream st = {0};
+        tail_close_eval_calls = 0;
+        tail_close_eval_fail_at = 2;
+        err[0] = '\0';
+        TEST_ASSERT(!anthropic_close_thinking_at_tail(&s, &slot, &r, &st,
+                                                      test_tail_close_eval,
+                                                      err, sizeof(err)));
+        TEST_ASSERT(tail_close_eval_calls == 2);
+        TEST_ASSERT(!strcmp(err, "test eval failure"));
+        TEST_ASSERT(!ds4_session_checkpoint_valid(slot.session));
+        TEST_ASSERT(!slot.anthropic_live.valid);
+        TEST_ASSERT(!slot.responses_live.valid);
+        TEST_ASSERT(!slot.thinking_live.valid);
+        TEST_ASSERT(r.think_mode == DS4_THINK_HIGH);
+        TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &next.req).kind == REUSE_NONE);
+        tail_close_eval_fail_at = 0;
+
+        request_free(&r);
+        request_free(&next.req);
+        live_tool_state_free(&slot.anthropic_live);
+        live_tool_state_free(&slot.responses_live);
+        visible_live_free(&slot.thinking_live);
+        ds4_session_free_test_checkpoint(slot.session);
+    }
+
+    char *default_argv[] = {"ds4-server"};
+    TEST_ASSERT(parse_options(1, default_argv).anthropic_thinking_min_budget == 1024);
+    char *off_argv[] = {"ds4-server", "--anthropic-thinking-min-budget", "0"};
+    TEST_ASSERT(parse_options(3, off_argv).anthropic_thinking_min_budget == 0);
+
+    ds4_tokens_free(&s.tail_close_tokens);
+    free(qwen);
+    pthread_mutex_destroy(&s.inference_mu);
+    pthread_mutex_destroy(&s.tool_mu);
 }
 
 static void test_cors_headers_are_opt_in(void) {
@@ -25233,6 +25684,7 @@ static void ds4_server_unit_tests_run(void) {
     test_openai_tool_args_preserve_call_order();
     test_anthropic_thinking_and_tool_args_preserve_call_order();
     test_context_length_error_uses_protocol_standard_shape();
+    test_anthropic_tail_close();
     test_cors_headers_are_opt_in();
     test_cors_preflight_response_is_no_content();
     test_cors_sse_headers();

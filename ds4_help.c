@@ -363,6 +363,7 @@ static void print_server_thinking(FILE *fp, const help_colors *c) {
     para(fp, c, "V4.1, GLM, and Qwen honor the requested effort at any context.");
     para(fp, c, "thinking={type:disabled}, think=false, or model=deepseek-chat selects non-thinking mode.");
     para(fp, c, "In thinking mode, client sampling knobs are ignored like the official API.");
+    opt(fp, c, "--anthropic-thinking-min-budget N", "Close reasoning before decoding a /v1/messages answer whose real budget is <= N. Default: 1024; 0 disables.");
     fputc('\n', fp);
 }
 
