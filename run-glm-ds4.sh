@@ -16,8 +16,8 @@ SERVER_BIN="$GLM_DIR/ds4-server"
 MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf}"
 HOST="127.0.0.1"
 PORT=8000
-# 363K (363 x 1024) tokens; the model's native limit is 1,048,576.
-CTX="${GLM_DS4_CTX:-371712}"
+# 512K (512 x 1024) tokens; the model's native limit is 1,048,576.
+CTX="${GLM_DS4_CTX:-524288}"
 TOKENS=32768
 # Clean-engine KV cache, per quant. Checkpoints are only valid for the model
 # that wrote them, so a model change needs a new directory.
@@ -113,7 +113,7 @@ Environment:
   FAN_PROFILE=name            thermalforge watch profile (default: balanced)
   GLM_DS4_MTP=1               Enable model-embedded MTP speculation (default off)
   GLM_DS4_MTP_TIMING=1        Print MTP acceptance/verify timing (diagnostic)
-  GLM_DS4_CTX=N               Context tokens (default: 371712 = 363K; model max 1048576)
+  GLM_DS4_CTX=N               Context tokens (default: 524288 = 512K; model max 1048576)
   GLM_DS4_MTP_MAX_CTX=N       Turn MTP off past N context tokens (default 32768; 0 = never)
   GLM_DS4_TRACE=path          Write ds4-server request/cache trace to path
 EOF
