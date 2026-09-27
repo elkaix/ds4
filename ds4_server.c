@@ -877,6 +877,9 @@ typedef struct {
     stop_list anthropic_live_call_ids;
     char *anthropic_live_suffix_text;
     tool_replay_stats tool_replay;
+    /* Server-owned think-close suffix, set once this request closed reasoning
+     * at the tail: the live KV holds it between prompt_text and the output. */
+    const char *tail_close_text;
 } request;
 
 static void tool_call_free(tool_call *tc) {
@@ -13510,6 +13513,21 @@ static char *build_tool_checkpoint_suffix(const request *r, const char *content,
     return buf_take(&suffix);
 }
 
+/* The transcript a finished tool-call turn should leave in the live KV, in the
+ * form the next request renders it.  After a tail close the KV holds the close
+ * suffix between the prompt and the turn, and the next request renders the
+ * turn with an empty think block: the same bytes. */
+static char *build_tool_checkpoint_text(const request *r, const char *content,
+                                        const char *reasoning, const tool_calls *calls) {
+    char *suffix = build_tool_checkpoint_suffix(r, content, reasoning, calls);
+    buf text = {0};
+    buf_puts(&text, r->prompt_text ? r->prompt_text : "");
+    if (r->tail_close_text) buf_puts(&text, r->tail_close_text);
+    buf_puts(&text, suffix);
+    free(suffix);
+    return buf_take(&text);
+}
+
 static char *build_responses_visible_assistant_suffix(const request *r,
                                                       const char *content,
                                                       const char *reasoning,
@@ -13862,11 +13880,10 @@ static void canonicalize_tool_checkpoint(server *s, server_slot *slot,
                                          const char *reasoning, const tool_calls *calls) {
     if (!calls || calls->len == 0 || !j->req.prompt_text) return;
 
-    char *suffix_text = build_tool_checkpoint_suffix(&j->req, content, reasoning, calls);
-
+    char *text = build_tool_checkpoint_text(&j->req, content, reasoning, calls);
     buf rendered = {0};
-    buf_puts(&rendered, j->req.prompt_text);
-    buf_puts(&rendered, suffix_text);
+    buf_puts(&rendered, text);
+    free(text);
 
     ds4_tokens canonical = {0};
     ds4_tokenize_rendered_chat(s->engine, rendered.ptr ? rendered.ptr : "", &canonical);
@@ -14027,7 +14044,6 @@ static void canonicalize_tool_checkpoint(server *s, server_slot *slot,
 done:
     ds4_tokens_free(&canonical);
     buf_free(&rendered);
-    free(suffix_text);
 }
 
 static bool should_canonicalize_tool_checkpoint(const server *s, const tool_calls *calls) {
@@ -14178,6 +14194,7 @@ static bool anthropic_close_thinking_at_tail(server *s, server_slot *slot,
         }
     }
     r->think_mode = DS4_THINK_NONE;
+    r->tail_close_text = s->tail_close_text;
     anthropic_stream_rederive(st, r);
     return true;
 }
@@ -14921,9 +14938,9 @@ decode_again:
     double last_decode_log_t = decode_t0;
     int last_decode_log_completion = 0;
     thinking_state thinking = thinking_state_from_prompt(&j->req);
-    if (tail_close_done && !ds4_think_mode_enabled(j->req.think_mode)) {
+    if (j->req.tail_close_text) {
         /* the live KV holds the closed tail that prompt_text lacks */
-        thinking_state_feed(&thinking, s->tail_close_text, strlen(s->tail_close_text));
+        thinking_state_feed(&thinking, j->req.tail_close_text, strlen(j->req.tail_close_text));
     }
     const bool thinking_gates_tool_markers = ds4_think_mode_enabled(j->req.think_mode);
     bool tool_scan_waiting_for_think_close =
@@ -18284,6 +18301,113 @@ static void test_anthropic_tail_close(void) {
 
     ds4_tokens_free(&s.tail_close_tokens);
     free(qwen);
+    pthread_mutex_destroy(&s.inference_mu);
+    pthread_mutex_destroy(&s.tool_mu);
+}
+
+/* A tool call sampled after a tail close: the tool checkpoint must describe
+ * the bytes the live KV holds, so canonicalization keeps the closed tail, and
+ * the next request, which renders that turn with an empty think block,
+ * continues from the live KV. */
+static void test_anthropic_tail_close_tool_checkpoint(void) {
+    chat_msgs msgs = {0};
+    chat_msg user = {0};
+    user.role = xstrdup("user");
+    user.content = xstrdup("run it");
+    chat_msgs_push(&msgs, user);
+
+    server s = {0};
+    pthread_mutex_init(&s.inference_mu, NULL);
+    pthread_mutex_init(&s.tool_mu, NULL);
+    const int suffix_ids[3] = {198, 151668, 271};
+    for (int i = 0; i < 3; i++) ds4_tokens_push(&s.tail_close_tokens, suffix_ids[i]);
+    s.tail_close_text = generation_think_close_suffix(SERVER_MODEL_SYNTAX_QWEN);
+
+    request r;
+    request_init(&r, REQ_CHAT, 180);
+    r.api = API_ANTHROPIC;
+    r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+    r.has_tools = true;
+    r.think_mode = DS4_THINK_HIGH;
+    r.tool_orders = make_bash_order();
+    r.prompt_text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_QWEN, &msgs,
+                                                       NULL, &r.tool_orders, DS4_THINK_HIGH);
+    int live_tok[16];
+    for (int i = 0; i < 16; i++) live_tok[i] = 100 + i;
+    server_slot slot = {0};
+    slot.session = ds4_session_new_test_checkpoint(live_tok, 5);
+    anthropic_stream st = {0};
+    char err[128] = {0};
+    tail_close_eval_calls = 0;
+    tail_close_eval_fail_at = 0;
+    TEST_ASSERT(anthropic_close_thinking_at_tail(&s, &slot, &r, &st, test_tail_close_eval,
+                                                 err, sizeof(err)));
+    TEST_ASSERT(r.tail_close_text == s.tail_close_text);
+
+    /* The sampled turn stops at </tool_call>; <|im_end|> is the stop token. */
+    const char *call_text =
+        "Running.\n\n<tool_call>\n<function=bash>\n<parameter=command>\necho hi\n</parameter>\n"
+        "<parameter=timeout>\n10\n</parameter>\n</function>\n</tool_call>";
+    buf live = {0};
+    buf_puts(&live, r.prompt_text);
+    buf_puts(&live, "\n</think>\n\n");
+    buf_puts(&live, call_text);
+
+    tool_calls calls = {0};
+    tool_call tc = {0};
+    tc.name = xstrdup("bash");
+    tc.arguments = xstrdup("{\"command\": \"echo hi\", \"timeout\": 10}");
+    tool_calls_push(&calls, tc);
+    char *checkpoint = build_tool_checkpoint_text(&r, "Running.", NULL, &calls);
+    /* Byte-identical to the live KV up to the stop token: canonicalization
+     * has nothing to rewrite before the closed tail. */
+    TEST_ASSERT(checkpoint && strlen(checkpoint) == live.len + strlen("<|im_end|>"));
+    TEST_ASSERT(checkpoint && !strncmp(checkpoint, live.ptr, live.len));
+    TEST_ASSERT(checkpoint && !strcmp(checkpoint + live.len, "<|im_end|>"));
+
+    /* Continuation: the next request replays the turn without reasoning. */
+    chat_msg asst = {0};
+    asst.role = xstrdup("assistant");
+    asst.content = xstrdup("Running.");
+    tool_call tc2 = {0};
+    tc2.name = xstrdup("bash");
+    tc2.arguments = xstrdup("{\"command\": \"echo hi\", \"timeout\": 10}");
+    tool_calls_push(&asst.calls, tc2);
+    chat_msgs_push(&msgs, asst);
+    chat_msg result = {0};
+    result.role = xstrdup("tool");
+    result.content = xstrdup("hi");
+    chat_msgs_push(&msgs, result);
+    char *next_text = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_QWEN, &msgs,
+                                                         NULL, &r.tool_orders, DS4_THINK_HIGH);
+    TEST_ASSERT(checkpoint && next_text && !strncmp(next_text, checkpoint, strlen(checkpoint)));
+
+    /* The slot's live text, rendered from the live tokens, binds the next
+     * request through the memory-text tier: no cold prefill. */
+    ds4_session_free_test_checkpoint(slot.session);
+    slot.session = ds4_session_new_test_checkpoint(live_tok, 16);
+    slot.live_text = buf_take(&live);
+    slot.live_text_len = strlen(slot.live_text);
+    slot.live_text_pos = 16;
+    job next = {0};
+    next.req.kind = REQ_CHAT;
+    next.req.api = API_ANTHROPIC;
+    next.req.prompt_text = next_text;
+    ds4_tokens_push(&next.req.prompt, 999); /* canonical tokens diverge at the close */
+    slot_reuse pr = slot_probe_reuse_locked(&s, &slot, &next.req);
+    TEST_ASSERT(pr.kind == REUSE_MEMORY_TEXT);
+    TEST_ASSERT(pr.reuse_tokens == 16);
+    TEST_ASSERT(pr.suffix_off == slot.live_text_len);
+
+    request_free(&next.req);
+    free(slot.live_text);
+    ds4_session_free_test_checkpoint(slot.session);
+    free(checkpoint);
+    tool_calls_free(&calls);
+    request_free(&r);
+    chat_msgs_free(&msgs);
+    ds4_tokens_free(&s.tail_close_tokens);
+    free(s.tail_close_text);
     pthread_mutex_destroy(&s.inference_mu);
     pthread_mutex_destroy(&s.tool_mu);
 }
@@ -25685,6 +25809,7 @@ static void ds4_server_unit_tests_run(void) {
     test_anthropic_thinking_and_tool_args_preserve_call_order();
     test_context_length_error_uses_protocol_standard_shape();
     test_anthropic_tail_close();
+    test_anthropic_tail_close_tool_checkpoint();
     test_cors_headers_are_opt_in();
     test_cors_preflight_response_is_no_content();
     test_cors_sse_headers();
