@@ -44,8 +44,9 @@ sampling and output-budget fields are supported; explicit request parameters
 take precedence over defaults.
 
 The default sampling settings are temperature 1, top-p 1, and min-p 0.05.
-For DeepSeek, thinking is on by default. `reasoning_effort=max` selects Think
-Max only with sufficient context; otherwise it falls back to normal thinking.
+For DeepSeek, thinking is on by default. On DeepSeek V4, `reasoning_effort=max`
+requires `--ctx >= 393216`; smaller contexts fall back to normal thinking.
+V4.1 and the GLM/Qwen families honor the requested effort at any context.
 `xhigh` maps to normal thinking, not Think Max. Use `think:false`, a disabled
 thinking object, or a non-thinking model alias for direct answers.
 

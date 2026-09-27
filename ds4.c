@@ -60979,7 +60979,11 @@ uint32_t ds4_think_max_min_context(void) {
 }
 
 ds4_think_mode ds4_think_mode_for_context(ds4_think_mode mode, int ctx_size) {
-    if (DS4_MODEL_FAMILY != DS4_MODEL_FAMILY_DEEPSEEK41 &&
+    /* The 384K Think-Max floor is DeepSeek V4's: the V4 max prompt asks for a
+     * reasoning budget the allocated context is meant to hold.  V4.1 and the
+     * other families (GLM, Qwen) carry their own effort handling and keep the
+     * requested mode at any context. */
+    if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK4 &&
         mode == DS4_THINK_MAX && (uint32_t)(ctx_size > 0 ? ctx_size : 0) < DS4_THINK_MAX_MIN_CONTEXT) {
         return DS4_THINK_HIGH;
     }

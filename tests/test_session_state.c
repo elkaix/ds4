@@ -525,6 +525,28 @@ static void test_glm_spec_rollback(void) {
 }
 #endif
 
+/* The Think-Max context floor is DeepSeek V4's; V4.1 and the non-DeepSeek
+ * families keep the requested effort at any context. */
+static void test_think_mode_family_scope(void) {
+    const ds4_shape saved = g_ds4_shape;
+    const int min_ctx = (int)ds4_think_max_min_context();
+
+    g_ds4_shape = DS4_SHAPE_FLASH;
+    assert(ds4_think_mode_for_context(DS4_THINK_MAX, 32768) == DS4_THINK_HIGH);
+    assert(ds4_think_mode_for_context(DS4_THINK_MAX, min_ctx) == DS4_THINK_MAX);
+
+    g_ds4_shape = DS4_SHAPE_FLASH41;
+    assert(ds4_think_mode_for_context(DS4_THINK_MAX, 32768) == DS4_THINK_MAX);
+
+    g_ds4_shape = DS4_SHAPE_GLM53;
+    assert(ds4_think_mode_for_context(DS4_THINK_MAX, 32768) == DS4_THINK_MAX);
+
+    g_ds4_shape = DS4_SHAPE_QWEN4_EXP;
+    assert(ds4_think_mode_for_context(DS4_THINK_MAX, 32768) == DS4_THINK_MAX);
+
+    g_ds4_shape = saved;
+}
+
 int main(void) {
     test_vision_prefix();
     test_rewind();
@@ -532,6 +554,7 @@ int main(void) {
     test_payload_tokens();
     test_snapshot_bytes();
     test_text_observations();
+    test_think_mode_family_scope();
 #ifndef DS4_NO_GPU
     test_glm_attention_budget();
     test_glm_spec_rollback();

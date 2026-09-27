@@ -359,7 +359,8 @@ static void print_server_thinking(FILE *fp, const help_colors *c) {
     title(fp, c, "Server Thinking Defaults");
     para(fp, c, "DeepSeek-compatible chat requests default to high-effort thinking.");
     para(fp, c, "reasoning_effort=max or output_config.effort=max requests Think Max.");
-    para(fp, c, "Think Max requires --ctx >= 393216; smaller contexts use high.");
+    para(fp, c, "On DeepSeek V4, Think Max requires --ctx >= 393216; smaller contexts use high.");
+    para(fp, c, "V4.1, GLM, and Qwen honor the requested effort at any context.");
     para(fp, c, "thinking={type:disabled}, think=false, or model=deepseek-chat selects non-thinking mode.");
     para(fp, c, "In thinking mode, client sampling knobs are ignored like the official API.");
     fputc('\n', fp);

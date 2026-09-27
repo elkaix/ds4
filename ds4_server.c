@@ -19275,8 +19275,14 @@ static void test_render_glm_chat_prompt_text(void) {
         "<arg_value>{arg-value-2}</arg_value>...</tool_call>"
         "<|system|>You are terse.<|user|>Hello<|assistant|><think>";
     TEST_ASSERT(!strcmp(prompt, expected));
-
     free(prompt);
+
+    char *max_prompt = render_chat_prompt_text_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, &msgs, NULL, NULL, DS4_THINK_MAX);
+    TEST_ASSERT(max_prompt != NULL);
+    TEST_ASSERT(strstr(max_prompt, "<|system|>Reasoning Effort: Max<|system|>") != NULL);
+    free(max_prompt);
+
     tool_schema_orders_free(&orders);
     chat_msgs_free(&msgs);
 }
