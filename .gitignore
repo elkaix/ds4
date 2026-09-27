@@ -1,3 +1,4 @@
+/ds4-memory-check
 /ds4
 /ds4-server
 /ds4-bench
@@ -100,3 +101,4 @@ __pycache__/
 /tests/test_deepseek41_live_edges
 
 dashboard_html.h
+.lavish/
