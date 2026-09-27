@@ -57,7 +57,9 @@ budget; `0` disables) would spend it all thinking and return no text. Before its
 first sampled token the server appends the model's think-close suffix, the
 difference between its thinking and non-thinking generation prompts, to the
 live KV and decodes a visible answer. The prompt is not re-rendered, so the
-prefilled cache is kept. Models whose non-thinking prompt is not a pure suffix
+prefilled cache is kept. This applies only when the rendered prompt ends inside
+an open think block; a trailing assistant message whose reasoning is already
+closed is left as is. Models whose non-thinking prompt is not a pure suffix
 of the thinking one are unaffected. An Anthropic prompt that exceeds the
 context returns `prompt is too long: N tokens > M maximum`, the wording
 Anthropic clients retry on with truncated history.

@@ -14177,18 +14177,26 @@ typedef int (*server_eval_token_fn)(server *s, server_slot *slot, int token,
 /* Append the pre-resolved think-close suffix ids to the live session through
  * the decode path (the model thread in batched mode), then switch the request
  * and its Anthropic stream to non-thinking.  The prompt is never re-rendered
- * or re-tokenized, so the prefilled KV is kept as is.  If any id fails, the
- * checkpoint may hold a partial suffix: invalidate it and clear the slot's
- * live state so no reuse tier can bind to it, and return false. */
+ * or re-tokenized, so the prefilled KV is kept as is.  If any id fails, clear
+ * the slot's live state and return false.  The checkpoint is invalidated
+ * unless the first id was interrupted before it reached the backend (client
+ * gone or shutdown): it then still holds exactly the prefilled prompt, which
+ * a retry of the same request reuses instead of prefilling again. */
 static bool anthropic_close_thinking_at_tail(server *s, server_slot *slot,
                                              request *r, anthropic_stream *st,
                                              server_eval_token_fn eval,
                                              char *err, size_t errlen) {
+    const int pos = ds4_session_pos(slot->session);
     for (int i = 0; i < s->tail_close_tokens.len; i++) {
-        if (eval(s, slot, s->tail_close_tokens.v[i], err, errlen) != 0) {
-            pthread_mutex_lock(&s->inference_mu);
-            ds4_session_invalidate(slot->session);
-            pthread_mutex_unlock(&s->inference_mu);
+        const int rc = eval(s, slot, s->tail_close_tokens.v[i], err, errlen);
+        if (rc != 0) {
+            const bool untouched = i == 0 && rc == DS4_SESSION_SYNC_INTERRUPTED &&
+                                   ds4_session_pos(slot->session) == pos;
+            if (!untouched) {
+                pthread_mutex_lock(&s->inference_mu);
+                ds4_session_invalidate(slot->session);
+                pthread_mutex_unlock(&s->inference_mu);
+            }
             request_live_state_clear(s, slot);
             return false;
         }
@@ -14197,6 +14205,58 @@ static bool anthropic_close_thinking_at_tail(server *s, server_slot *slot,
     r->tail_close_text = s->tail_close_text;
     anthropic_stream_rederive(st, r);
     return true;
+}
+
+typedef enum {
+    TAIL_CLOSE_NONE,    /* the rule does not apply to this pass */
+    TAIL_CLOSE_NO_ROOM, /* it applies, but the suffix would fill the context */
+    TAIL_CLOSE_CLOSED,
+    TAIL_CLOSE_FAILED,  /* decoding is skipped: max_tokens is 0 */
+} tail_close_outcome;
+
+/* The tail-close step of a decode pass, run before its first sampled token.
+ * It fires only when the rendered prompt ends inside an open think block: a
+ * trailing assistant message whose reasoning is already closed must not get
+ * a second close.  On success the room and the decode budget are recomputed
+ * from the tokens the suffix took. */
+static tail_close_outcome anthropic_tail_close_pass(server *s, server_slot *slot,
+                                                    request *r, anthropic_stream *st,
+                                                    server_eval_token_fn eval,
+                                                    int recovery_completion,
+                                                    bool dsml_recovery_attempted,
+                                                    bool *done, int *room,
+                                                    int *max_tokens,
+                                                    char *err, size_t errlen) {
+    if (s->tail_close_tokens.len == 0 ||
+        !tail_close_applies(r->api, r->think_mode, *max_tokens,
+                            s->anthropic_thinking_min_budget, recovery_completion,
+                            dsml_recovery_attempted, *done,
+                            anthropic_stream_untouched(st)) ||
+        !thinking_state_from_prompt(r).inside)
+    {
+        return TAIL_CLOSE_NONE;
+    }
+    const int budget = *max_tokens;
+    *done = true;
+    if (*room <= s->tail_close_tokens.len) {
+        server_log(DS4_LOG_GENERATION,
+                   "ds4-server: anthropic: thinking tail-close skipped (budget=%d <= %d, but ctx room=%d leaves no token after the %d-token suffix)",
+                   budget, s->anthropic_thinking_min_budget, *room,
+                   s->tail_close_tokens.len);
+        return TAIL_CLOSE_NO_ROOM;
+    }
+    const int pos = ds4_session_pos(slot->session);
+    if (!anthropic_close_thinking_at_tail(s, slot, r, st, eval, err, errlen)) {
+        *max_tokens = 0;
+        return TAIL_CLOSE_FAILED;
+    }
+    *room -= ds4_session_pos(slot->session) - pos;
+    *max_tokens = server_decode_budget(r->max_tokens, recovery_completion, *room);
+    server_log(DS4_LOG_GENERATION,
+               "ds4-server: anthropic: thinking closed at tail (budget=%d <= %d from requested max_tokens=%d; suffix_tokens=%d, decode_max=%d ctx_room=%d)",
+               budget, s->anthropic_thinking_min_budget, r->max_tokens,
+               s->tail_close_tokens.len, *max_tokens, *room);
+    return TAIL_CLOSE_CLOSED;
 }
 
 static long server_decode_coalesce_us(void) {
@@ -14896,32 +14956,11 @@ decode_again:
     int room = ds4_session_ctx(slot->session) - ds4_session_pos(slot->session);
     int max_tokens = server_decode_budget(j->req.max_tokens,
                                           recovery_completion, room);
-    if (s->tail_close_tokens.len > 0 &&
-        tail_close_applies(j->req.api, j->req.think_mode, max_tokens,
-                           s->anthropic_thinking_min_budget, recovery_completion,
-                           dsml_recovery_attempted, tail_close_done,
-                           anthropic_stream_untouched(&anthropic_live)))
-    {
-        const int budget = max_tokens;
-        tail_close_done = true;
-        if (room <= s->tail_close_tokens.len) {
-            /* no room left for a visible token after the suffix */
-            server_log(DS4_LOG_GENERATION,
-                       "ds4-server: anthropic: thinking tail-close skipped (budget=%d room=%d)",
-                       budget, room);
-        } else if (!anthropic_close_thinking_at_tail(s, slot, &j->req, &anthropic_live,
-                                                     server_eval_token, err, sizeof(err))) {
-            finish = "error";
-            max_tokens = 0; /* skip decoding; leave through the error response */
-        } else {
-            room = ds4_session_ctx(slot->session) - ds4_session_pos(slot->session);
-            max_tokens = server_decode_budget(j->req.max_tokens,
-                                              recovery_completion, room);
-            server_log(DS4_LOG_GENERATION,
-                       "ds4-server: anthropic: thinking closed at tail (budget=%d room=%d max_tokens=%d <= %d, suffix_tokens=%d)",
-                       budget, room, j->req.max_tokens,
-                       s->anthropic_thinking_min_budget, s->tail_close_tokens.len);
-        }
+    if (anthropic_tail_close_pass(s, slot, &j->req, &anthropic_live, server_eval_token,
+                                  recovery_completion, dsml_recovery_attempted,
+                                  &tail_close_done, &room, &max_tokens,
+                                  err, sizeof(err)) == TAIL_CLOSE_FAILED) {
+        finish = "error"; /* leave through the error or cancellation path */
     }
     bool saw_tool_start = false;
     bool saw_tool_end = false;
@@ -18059,17 +18098,20 @@ static void test_context_length_error_uses_protocol_standard_shape(void) {
 
 static int tail_close_eval_calls;
 static int tail_close_eval_fail_at; /* 1-based call that fails; 0: none */
+static int tail_close_eval_fail_rc = 1;
 static int tail_close_eval_seen[8];
 
+/* Stands in for a decode: a successful id is appended to the test
+ * checkpoint, as ds4_session_eval() appends it to the live session. */
 static int test_tail_close_eval(server *s, server_slot *slot, int token,
                                 char *err, size_t errlen) {
     (void)s;
-    (void)slot;
     if (tail_close_eval_calls < 8) tail_close_eval_seen[tail_close_eval_calls] = token;
     if (++tail_close_eval_calls == tail_close_eval_fail_at) {
         snprintf(err, errlen, "test eval failure");
-        return 1;
+        return tail_close_eval_fail_rc;
     }
+    ds4_tokens_push((ds4_tokens *)ds4_session_tokens(slot->session), token);
     return 0;
 }
 
@@ -18405,6 +18447,200 @@ static void test_anthropic_tail_close_tool_checkpoint(void) {
     free(checkpoint);
     tool_calls_free(&calls);
     request_free(&r);
+    chat_msgs_free(&msgs);
+    ds4_tokens_free(&s.tail_close_tokens);
+    free(s.tail_close_text);
+    pthread_mutex_destroy(&s.inference_mu);
+    pthread_mutex_destroy(&s.tool_mu);
+}
+
+static void tail_close_test_request(request *r, api_style api, const char *prompt_text,
+                                    const int *ckpt, int n, int max_tokens) {
+    request_init(r, REQ_CHAT, max_tokens);
+    r->api = api;
+    r->model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+    r->think_mode = DS4_THINK_HIGH;
+    r->prompt_text = xstrdup(prompt_text);
+    for (int i = 0; i < n; i++) ds4_tokens_push(&r->prompt, ckpt[i]);
+}
+
+/* One first decode pass over a fresh 4-token checkpoint, with the budget the
+ * generation loop computes from the request and the room. */
+static tail_close_outcome tail_close_test_pass(server *s, server_slot *slot, request *r,
+                                               int *room, int *max_tokens, bool *done,
+                                               bool touched, int fail_at, int fail_rc) {
+    anthropic_stream st = {0};
+    st.mode = ANTH_STREAM_THINKING;
+    if (touched) st.emit_pos = 1;
+    char err[128] = {0};
+    *max_tokens = server_decode_budget(r->max_tokens, 0, *room);
+    tail_close_eval_calls = 0;
+    tail_close_eval_fail_at = fail_at;
+    tail_close_eval_fail_rc = fail_rc;
+    tail_close_outcome out = anthropic_tail_close_pass(s, slot, r, &st, test_tail_close_eval,
+                                                       0, false, done, room, max_tokens,
+                                                       err, sizeof(err));
+    tail_close_eval_fail_at = 0;
+    tail_close_eval_fail_rc = 1;
+    return out;
+}
+
+/* The decode-pass hook as generate_job_inner() runs it: which prompts it
+ * closes, the room guard, the budget it recomputes, and what a failed or
+ * interrupted suffix leaves in the slot. */
+static void test_anthropic_tail_close_pass(void) {
+    server s = {0};
+    pthread_mutex_init(&s.inference_mu, NULL);
+    pthread_mutex_init(&s.tool_mu, NULL);
+    s.anthropic_thinking_min_budget = 1024;
+    const int suffix_ids[3] = {198, 151668, 271};
+    for (int i = 0; i < 3; i++) ds4_tokens_push(&s.tail_close_tokens, suffix_ids[i]);
+    s.tail_close_text = generation_think_close_suffix(SERVER_MODEL_SYNTAX_QWEN);
+    const int ckpt[4] = {11, 12, 13, 14};
+
+    /* The same conversation, ending at the generation prompt (an open think
+     * block) and with a trailing assistant prefill whose reasoning is closed. */
+    chat_msgs msgs = {0};
+    chat_msg user = {0};
+    user.role = xstrdup("user");
+    user.content = xstrdup("Say hi.");
+    chat_msgs_push(&msgs, user);
+    char *open_prompt = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_QWEN, &msgs,
+                                                           NULL, NULL, DS4_THINK_HIGH);
+    chat_msg prefill = {0};
+    prefill.role = xstrdup("assistant");
+    prefill.reasoning = xstrdup("A greeting is enough.");
+    prefill.content = xstrdup("Hi");
+    chat_msgs_push(&msgs, prefill);
+    char *closed_prompt = render_chat_prompt_text_for_syntax(SERVER_MODEL_SYNTAX_QWEN, &msgs,
+                                                             NULL, NULL, DS4_THINK_HIGH);
+    TEST_ASSERT(closed_prompt && strstr(closed_prompt, "A greeting is enough.\n</think>\n\nHi") != NULL);
+
+    struct {
+        const char *name;
+        api_style api;
+        const char *prompt;
+        int max_tokens, room;
+        bool done, touched;
+        int fail_at, fail_rc;
+        tail_close_outcome want;
+        int want_max_tokens, want_room, want_evals;
+        bool want_done;
+    } cases[] = {
+        /* A closed prefill tail is left alone; the open tail is closed. */
+        {"closed prefill", API_ANTHROPIC, closed_prompt, 32000, 180, false, false, 0, 1,
+         TAIL_CLOSE_NONE, 180, 180, 0, false},
+        {"open tail", API_ANTHROPIC, open_prompt, 32000, 180, false, false, 0, 1,
+         TAIL_CLOSE_CLOSED, 177, 177, 3, true},
+        /* Budget recompute: the room loses the suffix, the request's own
+         * max_tokens still caps the decode. */
+        {"max_tokens cap", API_ANTHROPIC, open_prompt, 100, 5000, false, false, 0, 1,
+         TAIL_CLOSE_CLOSED, 100, 4997, 3, true},
+        {"room edge", API_ANTHROPIC, open_prompt, 180, 4, false, false, 0, 1,
+         TAIL_CLOSE_CLOSED, 1, 1, 3, true},
+        /* Room guard: a suffix that fills the context is skipped, once. */
+        {"no room", API_ANTHROPIC, open_prompt, 180, 3, false, false, 0, 1,
+         TAIL_CLOSE_NO_ROOM, 3, 3, 0, true},
+        /* Passes the rule does not apply to. */
+        {"already done", API_ANTHROPIC, open_prompt, 180, 180, true, false, 0, 1,
+         TAIL_CLOSE_NONE, 180, 180, 0, true},
+        {"large budget", API_ANTHROPIC, open_prompt, 32000, 5000, false, false, 0, 1,
+         TAIL_CLOSE_NONE, 5000, 5000, 0, false},
+        {"stream touched", API_ANTHROPIC, open_prompt, 180, 180, false, true, 0, 1,
+         TAIL_CLOSE_NONE, 180, 180, 0, false},
+        {"openai", API_OPENAI, open_prompt, 180, 180, false, false, 0, 1,
+         TAIL_CLOSE_NONE, 180, 180, 0, false},
+        {"responses", API_RESPONSES, open_prompt, 180, 180, false, false, 0, 1,
+         TAIL_CLOSE_NONE, 180, 180, 0, false},
+        /* Failures skip decoding. */
+        {"interrupted first", API_ANTHROPIC, open_prompt, 180, 180, false, false,
+         1, DS4_SESSION_SYNC_INTERRUPTED, TAIL_CLOSE_FAILED, 0, 180, 1, true},
+        {"backend error first", API_ANTHROPIC, open_prompt, 180, 180, false, false,
+         1, 1, TAIL_CLOSE_FAILED, 0, 180, 1, true},
+        {"interrupted second", API_ANTHROPIC, open_prompt, 180, 180, false, false,
+         2, DS4_SESSION_SYNC_INTERRUPTED, TAIL_CLOSE_FAILED, 0, 180, 2, true},
+    };
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        server_slot slot = {0};
+        slot.session = ds4_session_new_test_checkpoint(ckpt, 4);
+        slot.thinking_live.valid = true;
+        slot.thinking_live.live_tokens = 4;
+        slot.thinking_live.visible_text = xstrdup("conv");
+        slot.thinking_live.visible_len = 4;
+        request r;
+        tail_close_test_request(&r, cases[c].api, cases[c].prompt, ckpt, 4, cases[c].max_tokens);
+        int room = cases[c].room, max_tokens = 0;
+        bool done = cases[c].done;
+        tail_close_outcome out = tail_close_test_pass(&s, &slot, &r, &room, &max_tokens, &done,
+                                                      cases[c].touched, cases[c].fail_at,
+                                                      cases[c].fail_rc);
+        const bool closed = out == TAIL_CLOSE_CLOSED;
+        if (out != cases[c].want || max_tokens != cases[c].want_max_tokens ||
+            room != cases[c].want_room || tail_close_eval_calls != cases[c].want_evals ||
+            done != cases[c].want_done)
+        {
+            fprintf(stderr, "tail-close pass case %s: out=%d max_tokens=%d room=%d evals=%d done=%d\n",
+                    cases[c].name, out, max_tokens, room, tail_close_eval_calls, done);
+        }
+        TEST_ASSERT(out == cases[c].want);
+        TEST_ASSERT(max_tokens == cases[c].want_max_tokens);
+        TEST_ASSERT(room == cases[c].want_room);
+        TEST_ASSERT(tail_close_eval_calls == cases[c].want_evals);
+        TEST_ASSERT(done == cases[c].want_done);
+        /* Only a closed pass switches mode and records the suffix. */
+        TEST_ASSERT(r.think_mode == (closed ? DS4_THINK_NONE : DS4_THINK_HIGH));
+        TEST_ASSERT((r.tail_close_text != NULL) == closed);
+        TEST_ASSERT(!strcmp(r.prompt_text, cases[c].prompt));
+        TEST_ASSERT(r.prompt.len == 4);
+
+        /* Error cleanup: live state goes on any failure.  The checkpoint
+         * survives only an interrupt before the first id, which left it at
+         * the prefilled prompt: a retry of the same request reuses it. */
+        const bool failed = out == TAIL_CLOSE_FAILED;
+        const bool kept = !failed || (cases[c].fail_at == 1 &&
+                                      cases[c].fail_rc == DS4_SESSION_SYNC_INTERRUPTED);
+        TEST_ASSERT(slot.thinking_live.valid == !failed);
+        TEST_ASSERT(ds4_session_checkpoint_valid(slot.session) == kept);
+        if (failed && kept) {
+            TEST_ASSERT(ds4_session_pos(slot.session) == 4);
+            request retry;
+            tail_close_test_request(&retry, API_ANTHROPIC, cases[c].prompt, ckpt, 4, 180);
+            slot_reuse pr = slot_probe_reuse_locked(&s, &slot, &retry);
+            TEST_ASSERT(pr.kind == REUSE_MEMORY_TOKEN && pr.reuse_tokens == 4);
+            request_free(&retry);
+        } else if (failed) {
+            request retry;
+            tail_close_test_request(&retry, API_ANTHROPIC, cases[c].prompt, ckpt, 4, 180);
+            TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &retry).kind == REUSE_NONE);
+            request_free(&retry);
+        } else {
+            TEST_ASSERT(ds4_session_pos(slot.session) == 4 + tail_close_eval_calls);
+        }
+
+        request_free(&r);
+        visible_live_free(&slot.thinking_live);
+        ds4_session_free_test_checkpoint(slot.session);
+    }
+
+    /* A model without a think-close suffix (DeepSeek) never closes. */
+    {
+        server none = {0};
+        none.anthropic_thinking_min_budget = 1024;
+        server_slot slot = {0};
+        slot.session = ds4_session_new_test_checkpoint(ckpt, 4);
+        request r;
+        tail_close_test_request(&r, API_ANTHROPIC, open_prompt, ckpt, 4, 180);
+        int room = 180, max_tokens = 0;
+        bool done = false;
+        TEST_ASSERT(tail_close_test_pass(&none, &slot, &r, &room, &max_tokens, &done,
+                                         false, 0, 1) == TAIL_CLOSE_NONE);
+        TEST_ASSERT(tail_close_eval_calls == 0 && !done && r.think_mode == DS4_THINK_HIGH);
+        request_free(&r);
+        ds4_session_free_test_checkpoint(slot.session);
+    }
+
+    free(open_prompt);
+    free(closed_prompt);
     chat_msgs_free(&msgs);
     ds4_tokens_free(&s.tail_close_tokens);
     free(s.tail_close_text);
@@ -25810,6 +26046,7 @@ static void ds4_server_unit_tests_run(void) {
     test_context_length_error_uses_protocol_standard_shape();
     test_anthropic_tail_close();
     test_anthropic_tail_close_tool_checkpoint();
+    test_anthropic_tail_close_pass();
     test_cors_headers_are_opt_in();
     test_cors_preflight_response_is_no_content();
     test_cors_sse_headers();
