@@ -1,0 +1,3 @@
+b5417e733bed93521a3a751321f86dfb79249c88 17 145b02c97f9ffb4b Apple M5 Max  powermode            2 122880 
+41547:               getenv("DS4_METAL_ENABLE_DOWNSUM8") != NULL))) &&
+41554:                                "(DS4_METAL_ENABLE_DOWNSUM8)\n");

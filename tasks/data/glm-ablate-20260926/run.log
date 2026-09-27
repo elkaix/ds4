@@ -1,0 +1,27 @@
+== 19:35:26 base-1 start (ABLATE=none)
+== 19:35:43 base-1 rc=0 steady=0
+== 19:36:13 abl-routed-1 start (ABLATE=routed)
+== 19:36:26 abl-routed-1 rc=0 steady=0
+== 19:36:56 base-2 start (ABLATE=none)
+== 19:37:11 base-2 rc=0 steady=0
+== 19:37:41 abl-routed-2 start (ABLATE=routed)
+== 19:37:54 abl-routed-2 rc=0 steady=0
+== 19:38:24 base-3 start (ABLATE=none)
+== 19:38:39 base-3 rc=0 steady=0
+== 19:39:09 abl-routed-3 start (ABLATE=routed)
+== 19:39:21 abl-routed-3 rc=0 steady=0
+== 19:39:51 base-4 start (ABLATE=none)
+== 19:40:05 base-4 rc=0 steady=0
+== 19:41:28 abl-routed-4 rc=0
+== 19:42:10 abl-shared-1 rc=0
+== 19:42:13 abl-shared-1 rc=0
+== 19:42:43 base-extra rc=0
+== 19:42:55 base-extra rc=0
+== 19:43:25 abl-shared-2 rc=0
+== 19:43:27 abl-shared-2 rc=0
+== 19:43:57 prof-l5f rc=0
+== 19:44:09 prof-l5f rc=0
+== 19:44:40 prof-l20f rc=0
+== 19:44:51 prof-l20f rc=0
+== 19:45:10 cont-done
+== 19:45:21 cont-done

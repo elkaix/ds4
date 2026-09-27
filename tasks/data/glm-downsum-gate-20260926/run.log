@@ -1,0 +1,6 @@
+ppl rc=0 arm=off
+greedy rc=2 arm=off sum8=0
+ppl rc=0 arm=on
+greedy rc=2 arm=on sum8=0
+ppl rc=0 arm=off
+ppl rc=0 arm=on

@@ -1,0 +1,36 @@
+== 19:52:07 A-1-1 start (DOWNSUM8=0)
+== 19:52:21 A-1-1 rc=0 sum8=0
+== 19:52:51 B-1-1 start (DOWNSUM8=1)
+== 19:53:06 B-1-1 rc=0 sum8=1
+== 19:53:36 B-1-2 start (DOWNSUM8=1)
+== 19:53:50 B-1-2 rc=0 sum8=1
+== 19:54:20 A-1-2 start (DOWNSUM8=0)
+== 19:54:34 A-1-2 rc=0 sum8=0
+== 19:55:04 done
+== 19:55:15 A-2-1 start (DOWNSUM8=0)
+== 19:55:29 A-2-1 rc=0 sum8=0
+== 19:55:59 B-2-1 start (DOWNSUM8=1)
+== 19:56:14 B-2-1 rc=0 sum8=1
+== 19:56:44 B-2-2 start (DOWNSUM8=1)
+== 19:56:58 B-2-2 rc=0 sum8=1
+== 19:57:28 A-2-2 start (DOWNSUM8=0)
+== 19:57:42 A-2-2 rc=0 sum8=0
+== 19:58:12 done
+== 19:58:15 A-3-1 start (DOWNSUM8=0)
+== 19:58:30 A-3-1 rc=0 sum8=0
+== 19:59:00 B-3-1 start (DOWNSUM8=1)
+== 19:59:14 B-3-1 rc=0 sum8=1
+== 19:59:44 B-3-2 start (DOWNSUM8=1)
+== 19:59:58 B-3-2 rc=0 sum8=1
+== 20:00:28 A-3-2 start (DOWNSUM8=0)
+== 20:00:43 A-3-2 rc=0 sum8=0
+== 20:01:13 done
+== 20:01:18 A-4-1 start (DOWNSUM8=0)
+== 20:01:33 A-4-1 rc=0 sum8=0
+== 20:02:03 B-4-1 start (DOWNSUM8=1)
+== 20:02:30 B-4-1 rc=0 sum8=1
+== 20:03:00 B-4-2 start (DOWNSUM8=1)
+== 20:03:27 B-4-2 rc=0 sum8=1
+== 20:03:57 A-4-2 start (DOWNSUM8=0)
+== 20:04:12 A-4-2 rc=0 sum8=0
+== 20:04:42 done

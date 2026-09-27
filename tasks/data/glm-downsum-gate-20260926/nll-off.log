@@ -1,0 +1,18 @@
+ds4: Metal device Apple M5 Max, 128.00 GiB RAM
+ds4: Metal 4 tensor API disabled by DS4_METAL_DISABLE_TENSOR_API
+ds4: Metal 4 tensor API probe failed; using legacy Metal kernels
+ds4: drift-patch flags hc_stable=on norm_unify=on kv_raw_f32=off rope_exp2_log2=off math_safe=off tensor_matmul=off
+ds4: Metal model views created in 2.409 ms, residency requested in 453.299 ms, warmup 3.163 ms (mapped 104546.06 MiB from offset 9.08 MiB)
+ds4: Metal mapped mmaped model as 2 overlapping shared buffers
+ds4: metal backend initialized for graph diagnostics
+ds4: memory: KV 0.37 GiB (raw 0.00 + compressed 0.37) + buffers 2.98 GiB + resident model 102.10 GiB = 105.44 GiB planned
+ds4: memory detail: ctx=32768 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=32768 backend=metal
+ds4: memory: KV 0.37 GiB (raw 0.00 + compressed 0.37) + buffers 2.98 GiB = 3.34 GiB context
+ds4: memory detail: ctx=32768 prefill_cap=2048 raw_kv_rows=0 compressed_kv_rows=32768 backend=metal
+ds4: glm53 tuning supported=1 hc_fuse=1 kda_pair=1 kda_trio=1 kda_out_hc=1 attn_out_hc=1 ffn_hc=1 shared_down_hc=1 dsa_exact=1
+ds4: GLM session ctx=32768 (model max=1048576); prefill/work cap=4096; dense attention limit=2051
+ds4: GLM graph using compact DSA KV only; expanded full-attention KV cache is skipped
+ds4: GLM graph allocating compact DSA cache: rows=32768 logical_ctx=32768 kv_layers=45 indexer_layers=11 f16 0.37 GiB
+ds4: GLM compact indexed prefill chunk=2048 score_rows=2048 score_scratch=64.00 MiB
+ds4: perplexity scored 256/5079ds4: perplexity scored 512/5079ds4: perplexity scored 768/5079ds4: perplexity scored 1024/5079ds4: perplexity scored 1280/5079ds4: perplexity scored 1536/5079ds4: perplexity scored 1792/5079ds4: perplexity scored 2048/5079ds4: perplexity scored 2304/5079ds4: perplexity scored 2560/5079ds4: perplexity scored 2816/5079ds4: perplexity scored 3072/5079ds4: perplexity scored 3328/5079ds4: perplexity scored 3584/5079ds4: perplexity scored 3840/5079ds4: perplexity scored 4096/5079ds4: perplexity scored 4352/5079ds4: perplexity scored 4608/5079ds4: perplexity scored 4864/5079ds4: perplexity scored 5079/5079
+tokens=5111 scored=5079 nll=11390.286605450 avg_nll=2.242623864 ppl=9.418010475
