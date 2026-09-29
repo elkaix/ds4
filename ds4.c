@@ -61279,6 +61279,8 @@ struct ds4_session {
     float *qwen4_verify_logits;
     uint64_t qwen4_spec_cycles;
     uint64_t qwen4_spec_accepted;
+    uint64_t qwen4_copy_cycles;
+    uint64_t qwen4_copy_accepted;
 #endif
     uint32_t glm_dense_cache_len;
     /* GLM MTP speculative state.  parent is the token that conditioned the
@@ -74364,6 +74366,10 @@ void ds4_session_free(ds4_session *s) {
                 fprintf(stderr, "ds4: Qwen3.8 mtp: %" PRIu64 " verify cycles, %" PRIu64 " drafts accepted (%.1f%%)\n",
                         s->qwen4_spec_cycles, s->qwen4_spec_accepted,
                         100.0 * (double)s->qwen4_spec_accepted / (double)s->qwen4_spec_cycles);
+                if (s->qwen4_copy_cycles) {
+                    fprintf(stderr, "ds4: Qwen3.8 copy drafts: %" PRIu64 " cycles, %" PRIu64 " tokens accepted\n",
+                            s->qwen4_copy_cycles, s->qwen4_copy_accepted);
+                }
             }
             free(s->qwen4_verify_logits);
             if (s->qwen4_slot >= 0 && s->engine) {
@@ -75103,6 +75109,41 @@ static void qwen4_session_draft(ds4_session *s, uint32_t row, int parent, uint32
     }
 }
 
+/* Context-copy drafts (DS4_QWEN4_COPY_SPEC=N, N >= 2 the minimum match):
+ * when the last N tokens of the transcript plus first_token occurred
+ * earlier, propose the two tokens that followed that occurrence.  The
+ * verify still decides every token, so greedy output is unchanged; a copy
+ * only replaces the MTP guesses when the text repeats (file edits, quoted
+ * code).  ponytail: scans the last 64K tokens backwards, a suffix index
+ * if long contexts make the scan show up in the cycle time. */
+static int qwen4_copy_min(void) {
+    const char *env = getenv("DS4_QWEN4_COPY_SPEC");
+    const int v = env && env[0] ? atoi(env) : 0;
+    return v >= 2 ? v : 0;
+}
+
+static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, int out[2]) {
+    const int *h = s->checkpoint.v;
+    const int n = s->checkpoint.len;   /* first_token follows h[n-1] */
+    if (n < min_match + 2) return 0;
+    const int floor = n > 65536 ? n - 65536 : 0;
+    /* candidate i: h[i] == first_token and h[i-min_match+1 .. i-1] match the
+     * transcript tail; continuation h[i+1], h[i+2] must exist */
+    for (int i = n - 3; i >= floor + min_match - 1; i--) {
+        if (h[i] != first_token) continue;
+        int k = 1;
+        while (k < min_match && h[i - k] == h[n - k]) k++;
+        if (k < min_match) continue;
+        int c = 0;
+        for (int j = 1; j <= 2 && i + j < n; j++) {
+            if (ds4_token_is_stop(s->engine, h[i + j])) break;
+            out[c++] = h[i + j];
+        }
+        return c;
+    }
+    return 0;
+}
+
 /* Draft depth policy for the Qwen3.8 cycle: DS4_QWEN4_MTP_DEPTH=2 or =3
  * forces a fixed depth (read per cycle so the A/B harnesses can switch it
  * per step); 0/auto, the default, drafts two tokens while the rolling
@@ -75154,9 +75195,25 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
     if (qwen4_session_replay_if_stale(s, err, errlen) != 0) return -1;
     const uint32_t pos = g->pos;
     const uint32_t V = DS4_N_VOCAB;
-    const int depth = (exact_sampling && temperature > 0.0f) || getenv("DS4_QWEN4_NO_MTP_BATCH") != NULL
+    int depth = (exact_sampling && temperature > 0.0f) || getenv("DS4_QWEN4_NO_MTP_BATCH") != NULL
         ? 2 : qwen4_spec_depth(s);
     if (s->glm_mtp_have && first_token != s->glm_mtp_parent) s->glm_mtp_have = 0;
+    /* a context copy overrides the MTP guesses (greedy only: sampled
+     * decoding keeps the predictor's point-mass proposals) */
+    bool copied = false;
+    const int copy_min = !(exact_sampling && temperature > 0.0f) ? qwen4_copy_min() : 0;
+    if (copy_min && s->glm_mtp_have) {
+        int c[2];
+        const int nc = qwen4_copy_propose(s, first_token, copy_min, c);
+        if (nc == 2 && depth == 2 && getenv("DS4_QWEN4_NO_MTP_BATCH") == NULL) depth = 3;
+        if (nc >= 1 && (c[0] != s->glm_mtp_draft || (nc == 2 && depth == 3))) {
+            copied = true;
+            s->glm_mtp_draft = c[0];
+            s->glm_mtp_have2 = nc == 2;
+            if (nc == 2) s->glm_mtp_draft2 = c[1];
+            s->qwen4_copy_cycles++;
+        }
+    }
     if (depth == 3 && s->glm_mtp_have && s->glm_mtp_have2 && !g->snap2_ple_hist &&
         accepted_cap >= 3 && pos + 3u <= g->ctx_cap && g->cap_tokens >= 3u) {
         (void)qwen4_graph_ensure_snap2(g);
@@ -75257,10 +75314,15 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
             }
         }
     }
-    qwen4_spec_note_first_draft(s, accept);
-    if (deep) {
-        if (accept2) s->qwen4_reject2_streak = 0u;
-        else if (accept) s->qwen4_reject2_streak++;
+    if (copied) {
+        s->qwen4_copy_accepted += (uint64_t)accept + (uint64_t)accept2;
+    } else {
+        /* the depth window tracks the predictor, not the copies */
+        qwen4_spec_note_first_draft(s, accept);
+        if (deep) {
+            if (accept2) s->qwen4_reject2_streak = 0u;
+            else if (accept) s->qwen4_reject2_streak++;
+        }
     }
     if (qwen4_spec_trace()) {
         fprintf(stderr, "ds4: spec pos %u token %d draft %d %s%s\n", pos, first_token, d,

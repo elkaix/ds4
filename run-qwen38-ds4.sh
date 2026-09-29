@@ -65,6 +65,11 @@ MTP_DRAFT_MAX=16
 # +2.7..5.6% decode with thinking on, identical text (2026-09-29). 0 = full head.
 MTP_DRAFT_ROWS="${QWEN_DS4_MTP_DRAFT_ROWS:-80000}"
 if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAFT_ROWS"; fi
+# Context-copy drafts: when the last 8 tokens repeat earlier text, draft the
+# two tokens that followed it (verify decides, so text is unchanged).
+# +3.4% decode on a file-edit prompt, neutral on prose (2026-09-29). 0 = off.
+COPY_SPEC="${QWEN_DS4_COPY_SPEC:-8}"
+if [[ "$COPY_SPEC" != 0 ]]; then export DS4_QWEN4_COPY_SPEC="$COPY_SPEC"; fi
 # Every chunk size gives bit-identical logits (the dense rows 2048..2050 run
 # as their own batch).  4096: +13% prefill over 2048 for +2.7 GiB buffers;
 # 8192 adds ~2% more for another ~5 GiB.
@@ -132,6 +137,7 @@ Environment:
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
+  QWEN_DS4_COPY_SPEC=N           Context-copy draft min match, 0 = off (default: 8)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
   FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
 EOF
@@ -831,7 +837,7 @@ Starting monitored ds4-server (Qwen3.8 Uncensored native BF16 n-grams, Q4_K/Q8_0
   repo:       $ds4_tree (code: $ds4_code)
   binary:     $binary_state, built $binary_stamp
   model file: $model_stamp
-  MTP:        $mtp_state (draft rows ${MTP_DRAFT_ROWS})
+  MTP:        $mtp_state (draft rows ${MTP_DRAFT_ROWS}, copy match ${COPY_SPEC})
   batched:    $BATCHED_SESSION session(s)
   tools RAM:  $TOOL_MEMORY_MAX_IDS tool-call IDs
   CORS:       $([ "$CORS" = 0 ] && echo off || echo on)
