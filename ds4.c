@@ -59417,12 +59417,36 @@ static bool qwen4_graph_attention_core(ds4_qwen4_gpu_graph *g, uint32_t il,
     const uint32_t sparse_pos = (g->k_blocks + 1u) * ratio - 1u;
     const uint32_t clast = cpos0 + cT - 1u;
     const uint32_t n_dense = clast < sparse_pos ? cT : (sparse_pos > cpos0 ? sparse_pos - cpos0 : 0u);
-    if (n_dense > 0 &&
+    /* The dense rows from k_blocks * ratio (2048) up to the first sparse row
+     * run as their own short batch, on the decode arithmetic, as they do when
+     * a chunk boundary falls at 2048.  In one wide batch they would take the
+     * half-rounded matrix tiles instead, and the sparse block selection after
+     * them diverges, so chunks above 2048 would not match smaller ones. */
+    const uint32_t tail0 = g->k_blocks * ratio;
+    const uint32_t n_lead = cT > 2u && cpos0 < tail0 && cpos0 + n_dense > tail0 ? tail0 - cpos0 : n_dense;
+    if (n_lead > 0 &&
         !ds4_gpu_qwen4_attn_decode_tensor(o_rows, q_rows, gate_rows, g->layer_k_cache[il], g->layer_v_cache[il],
-                                          g->sel_tokens, g->n_sel, cT <= 2u ? g->attn_part : NULL, n_dense,
+                                          g->sel_tokens, g->n_sel, cT <= 2u ? g->attn_part : NULL, n_lead,
                                           DS4_N_HEAD, DS4_N_HEAD_KV, DS4_N_HEAD_DIM, cpos0, false, g->sel_stride,
                                           scale)) {
         return false;
+    }
+    if (n_dense > n_lead) {
+        const uint32_t nt = n_dense - n_lead;
+        ds4_gpu_tensor *tq = ds4_gpu_tensor_view(q_rows, (uint64_t)n_lead * q_dim * sizeof(float),
+                                                 (uint64_t)nt * q_dim * sizeof(float));
+        ds4_gpu_tensor *tg = ds4_gpu_tensor_view(gate_rows, (uint64_t)n_lead * q_dim * sizeof(float),
+                                                 (uint64_t)nt * q_dim * sizeof(float));
+        ds4_gpu_tensor *to = ds4_gpu_tensor_view(o_rows, (uint64_t)n_lead * q_dim * sizeof(float),
+                                                 (uint64_t)nt * q_dim * sizeof(float));
+        const bool ok = tq && tg && to &&
+            ds4_gpu_qwen4_attn_decode_tensor(to, tq, tg, g->layer_k_cache[il], g->layer_v_cache[il],
+                                             g->sel_tokens, g->n_sel, NULL, nt, DS4_N_HEAD, DS4_N_HEAD_KV,
+                                             DS4_N_HEAD_DIM, cpos0 + n_lead, false, g->sel_stride, scale);
+        ds4_gpu_tensor_free(to);
+        ds4_gpu_tensor_free(tg);
+        ds4_gpu_tensor_free(tq);
+        if (!ok) return false;
     }
     if (n_dense >= cT) return true;
     const uint32_t n_sparse = cT - n_dense;
