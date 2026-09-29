@@ -51,7 +51,7 @@ fi
 choice="${1:-}"
 if [[ -z $choice ]]; then
     PS3="Model to start on :$PORT: "
-    select picked in "glm       GLM 5.3 Flash stage 2 (363K ctx)" \
+    select picked in "glm       GLM 5.3 Flash stage 2 (512K ctx)" \
                      "qwen      Qwen3.8 Flash Next (262K ctx)" \
                      "deepseek  DeepSeek V4 Flash O2b (363K ctx)"; do
         [[ -n $picked ]] && break
