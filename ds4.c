@@ -86203,8 +86203,6 @@ void ds4_session_invalidate(ds4_session *s) {
 #endif
 }
 
-/* True when ds4_session_rewind(s, pos) keeps a valid checkpoint, so callers can
- * avoid a rewind that would discard the live state before it is persisted. */
 #if !defined(DS4_NO_GPU) && defined(DS4_HAS_QWEN4_GPU)
 /* The verify snapshot that restores Qwen3.8 recurrent state at pos, as the
  * verify-logits row it pairs with: the verified block's row-0 state (0), its
@@ -86220,6 +86218,8 @@ static int qwen4_rewind_snapshot_row(const ds4_session *s, int pos) {
 }
 #endif
 
+/* True when ds4_session_rewind(s, pos) keeps a valid checkpoint, so callers can
+ * avoid a rewind that would discard the live state before it is persisted. */
 bool ds4_session_rewind_keeps_state(ds4_session *s, int pos) {
     if (!s || !s->checkpoint_valid) return false;
     if (pos < 0) pos = 0;

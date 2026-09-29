@@ -14437,10 +14437,9 @@ decode_again:
         dsml_decode_state dsml_state = j->req.kind == REQ_CHAT && j->req.has_tools ?
             dsml_tracker.decode : DSML_DECODE_OUTSIDE;
         const bool in_tool_call = dsml_decode_state_is_tool(dsml_state);
-        /* The turn cannot end while a tool call is still open: the block has
-         * no executable meaning until its closing marker arrives. */
-        /* BEHAVIOR CHANGE: a stop token after a closed Qwen/GLM call ends the
-         * turn; only a call still inside its markers suppresses it. */
+        /* The turn cannot end while a call is inside its markers: the block
+         * has no executable meaning until its closing marker arrives.  A stop
+         * token after a closed Qwen/GLM call does end the turn. */
         const bool open_tool_call = j->req.kind == REQ_CHAT && j->req.has_tools &&
                                     !saw_tool_end &&
                                     dsml_tracker_call_open(&dsml_tracker);
