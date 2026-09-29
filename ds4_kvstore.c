@@ -781,6 +781,23 @@ void ds4_kvstore_restore_suppressed_continued(ds4_kvstore *kc,
     }
 }
 
+/* Write the session payload at fp: streamed from the session when
+ * direct_bytes is its known size (checked against what was written),
+ * else copied from the staged file. */
+static bool kv_write_payload(ds4_session *session, const ds4_session_payload_file *staged,
+                             uint64_t direct_bytes, FILE *fp, char *err, size_t err_len) {
+    if (!direct_bytes) return ds4_session_write_staged_payload(staged, fp, err, err_len) == 0;
+    const off_t start = ftello(fp);
+    if (start < 0 || ds4_session_save_payload(session, fp, err, err_len) != 0) return false;
+    const off_t end = ftello(fp);
+    if (end < 0 || (uint64_t)(end - start) != direct_bytes) {
+        if (err && err_len) snprintf(err, err_len, "payload wrote %lld bytes, expected %llu",
+                                     (long long)(end - start), (unsigned long long)direct_bytes);
+        return false;
+    }
+    return true;
+}
+
 static bool kv_cache_file_size_bytes(uint64_t text_bytes,
                                      uint64_t payload_bytes,
                                      uint64_t trailer_bytes,
@@ -1017,8 +1034,13 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         return true;
     }
 
+    /* When the session reports its payload size up front, stream the payload
+     * straight into the cache file; otherwise stage it in /tmp first to
+     * measure it.  Staging writes every 1-4 GiB payload twice. */
     ds4_session_payload_file staged = {0};
-    if (ds4_session_stage_payload(session, &staged,
+    const uint64_t direct_bytes = ds4_session_payload_bytes(session);
+    if (direct_bytes == 0 &&
+        ds4_session_stage_payload(session, &staged,
                                   save_err, sizeof(save_err)) != 0) {
         kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
                 "%s: kv cache skipped tokens=%d reason=%s because KV payload staging failed: %s",
@@ -1033,7 +1055,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
         ds4_tokens_free(&store_tokens);
         return false;
     }
-    uint64_t payload_bytes = staged.bytes;
+    uint64_t payload_bytes = direct_bytes ? direct_bytes : staged.bytes;
 
     uint64_t est_file_bytes = 0, est_required_bytes = 0;
     if (!ds4_kvstore_file_size_fits(kc, (uint64_t)text_len, payload_bytes,
@@ -1098,8 +1120,8 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
     bool ok = fwrite(h, 1, sizeof(h), fp) == sizeof(h) &&
               fwrite(tb, 1, sizeof(tb), fp) == sizeof(tb) &&
               fwrite(text, 1, text_len, fp) == text_len &&
-              ds4_session_write_staged_payload(&staged, fp,
-                                               save_err, sizeof(save_err)) == 0 &&
+              kv_write_payload(session, &staged, direct_bytes, fp,
+                               save_err, sizeof(save_err)) &&
               kv_trailer_write(hooks, fp, text, &trailer_bytes) &&
               fflush(fp) == 0;
     int saved_errno = errno;
