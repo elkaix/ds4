@@ -7657,6 +7657,15 @@ static dsml_decode_state dsml_decode_state_for_text(const char *raw, size_t raw_
 }
 #endif
 
+/* True from a call's start marker to its own end marker.  Qwen and GLM wait
+ * BETWEEN calls for another one with every call closed, so saw_tool_start &&
+ * !saw_tool_end is not "a call is open" for them. */
+static bool dsml_tracker_call_open(const dsml_decode_tracker *dt) {
+    return dt->mode == DSML_TRACK_STRUCTURAL ||
+           dt->mode == DSML_TRACK_STRING_BODY ||
+           dt->mode == DSML_TRACK_JSON_PARAM;
+}
+
 static bool dsml_decode_state_is_tool(dsml_decode_state state) {
     return state != DSML_DECODE_OUTSIDE;
 }
@@ -14253,8 +14262,11 @@ decode_again:
         const bool in_tool_call = dsml_decode_state_is_tool(dsml_state);
         /* The turn cannot end while a tool call is still open: the block has
          * no executable meaning until its closing marker arrives. */
+        /* BEHAVIOR CHANGE: a stop token after a closed Qwen/GLM call ends the
+         * turn; only a call still inside its markers suppresses it. */
         const bool open_tool_call = j->req.kind == REQ_CHAT && j->req.has_tools &&
-                                    saw_tool_start && !saw_tool_end;
+                                    !saw_tool_end &&
+                                    dsml_tracker_call_open(&dsml_tracker);
         if (!(j->req.kind == REQ_CHAT && j->req.has_tools && (saw_tool_start || in_tool_call))) {
             if (!multimodal) kv_cache_maybe_store_continued(s, slot);
         }
@@ -21022,8 +21034,13 @@ static void test_glm_decode_tracker_boundaries(void) {
                 dsml_decode_tracker_update(&tracker, raw.ptr, raw.len);
             }
             TEST_ASSERT(tracker.decode == expected[i]);
+            /* Open from the start marker until the call's own end marker. */
+            TEST_ASSERT(dsml_tracker_call_open(&tracker) ==
+                        (i + 1 < sizeof(parts) / sizeof(parts[0])));
         }
         TEST_ASSERT(tracker.mode == DSML_TRACK_BETWEEN && tracker.calls_end == raw.len);
+        /* A stop token here ends the turn instead of being suppressed. */
+        TEST_ASSERT(!dsml_tracker_call_open(&tracker));
         buf_puts(&raw, "<tool_call>pwd</tool_call>");
         dsml_decode_tracker_update(&tracker, raw.ptr, raw.len);
         TEST_ASSERT(tracker.mode == DSML_TRACK_BETWEEN && tracker.calls_end == raw.len);
