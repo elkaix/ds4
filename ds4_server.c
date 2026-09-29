@@ -14827,14 +14827,15 @@ decode_again:
         snprintf(err, sizeof(err), "shutdown requested");
     }
 
-    /* Qwen/GLM calls end at EOS: keep the closed ones and drop a cut-off one */
-    bool tool_calls_closed_at_eos = false;
+    /* Qwen/GLM calls end at EOS: keep the closed ones and drop a cut-off one.
+     * Calls that closed before a stop token finished the turn exactly like a
+     * DSML end marker does in the decode loop. */
     if (j->req.kind == REQ_CHAT && j->req.has_tools && !saw_tool_end &&
         dsml_tracker.calls_end && dsml_tracker.calls_end <= text.len) {
         text.len = dsml_tracker.calls_end;
         text.ptr[text.len] = '\0';
         saw_tool_end = true;
-        tool_calls_closed_at_eos = !client_stop && !strcmp(finish, "stop");
+        if (!client_stop && !strcmp(finish, "stop")) finish = "tool_calls";
     }
     if (j->req.kind == REQ_CHAT && j->req.has_tools &&
         saw_tool_start && !saw_tool_end && strcmp(finish, "error") != 0)
@@ -15207,11 +15208,7 @@ decode_again:
                                      parsed_content ? parsed_content : "",
                                      parsed_reasoning, &parsed_calls);
     } else if (parsed_calls.len) {
-        /* Qwen/GLM calls that closed at EOS end with decode finish "stop";
-         * they are this frontier as much as a DSML end marker is.  The
-         * live-tail check decides whether the KV really ends there. */
-        remember_tool_turn_visible(s, slot, j, ctx_span,
-                                   tool_calls_closed_at_eos ? "tool_calls" : finish,
+        remember_tool_turn_visible(s, slot, j, ctx_span, finish,
                                    thinking.inside, parsed_content, &parsed_calls);
     } else if (!parsed_calls.len &&
                (should_remember_thinking_checkpoint(&j->req, &thinking, final_finish) ||
