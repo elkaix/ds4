@@ -45065,6 +45065,28 @@ static bool ds4_darwin_wired_bytes(uint64_t *out) {
     *out = (uint64_t)vm.wire_count * (uint64_t)page;
     return true;
 }
+
+/* Wired bytes once the count stops falling.  The kernel unwires an exited
+ * process's memory after its exit status is already visible (measured on an
+ * M5 Max: 96 GiB still wired right after a GLM run returned, 6.7 GiB 0.55 s
+ * later), so a restart right after a stop would otherwise charge the previous
+ * instance's model against this one and refuse it.  A rising count stops the
+ * wait at once: that memory belongs to someone else. */
+static bool ds4_darwin_settled_wired_bytes(uint64_t *out) {
+    const uint64_t noise = 256ull * 1024ull * 1024ull;
+    uint64_t wired = 0;
+    if (!ds4_darwin_wired_bytes(&wired)) return false;
+    for (int i = 0; i < 50; i++) {          /* 50 x 100 ms bounds the wait at 5 s */
+        sleep_sec(0.1);
+        uint64_t now = 0;
+        if (!ds4_darwin_wired_bytes(&now)) break;
+        const bool falling = now + noise < wired;
+        wired = now;
+        if (!falling) break;
+    }
+    *out = wired;
+    return true;
+}
 #endif
 
 /* OS headroom kept free beyond memory already wired at engine open. An idle
@@ -71469,7 +71491,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
 #endif
 #if defined(__APPLE__) && !defined(DS4_NO_GPU)
     g_glm_metal_guard_wired_baseline = 0;
-    (void)ds4_darwin_wired_bytes(&g_glm_metal_guard_wired_baseline);
+    (void)ds4_darwin_settled_wired_bytes(&g_glm_metal_guard_wired_baseline);
 #endif
     e->model.fd = -1;
     e->mtp_model.fd = -1;
