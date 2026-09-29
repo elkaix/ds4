@@ -666,6 +666,15 @@ static NSMutableDictionary<NSString *, DS4MetalQ4ExpertTable *> *g_q4_expert_tab
 static NSMutableDictionary<NSString *, id> *g_q4_expert_layer_residency_cache;
 static NSMutableArray<id<MTLBuffer>> *g_transient_buffers;
 static id g_model_residency_set;
+/* The queue keepalive thread reads g_model_residency_set; this lock keeps it
+ * from racing a model map change that ends or replaces the set. */
+static pthread_mutex_t g_model_residency_mu = PTHREAD_MUTEX_INITIALIZER;
+/* Monotonic ms of the last engine command buffer created or completed. */
+static uint64_t g_gpu_last_work_ms;
+static double ds4_gpu_now_ms(void);
+static void ds4_gpu_note_work(void) {
+    __atomic_store_n(&g_gpu_last_work_ms, (uint64_t)ds4_gpu_now_ms(), __ATOMIC_RELAXED);
+}
 
 typedef struct {
     id<MTLBuffer> __strong mask;
@@ -1471,6 +1480,7 @@ void ds4_gpu_test_invalidate_completion_counters(void) {
 
 static int ds4_gpu_wait_command_buffer(id<MTLCommandBuffer> cb, const char *label) {
     [cb waitUntilCompleted];
+    ds4_gpu_note_work();
     if (getenv("DS4_METAL_CB_TIMES")) {
         static double prev_gpu_end;
         static uint64_t n_printed;
@@ -1511,6 +1521,7 @@ static id<MTLCommandBuffer> ds4_gpu_new_command_buffer(void) {
         use_unretained = getenv("DS4_METAL_UNRETAINED_COMMAND_BUFFERS") != NULL;
         initialized = 1;
     }
+    ds4_gpu_note_work();
     if (use_unretained) {
         return [g_queue commandBufferWithUnretainedReferences];
     }
@@ -2218,6 +2229,7 @@ static void ds4_gpu_model_views_remove_map(const void *model_map) {
 static void ds4_gpu_model_residency_clear(void) {
 #if TARGET_OS_OSX
     if (@available(macOS 15.0, *)) {
+        pthread_mutex_lock(&g_model_residency_mu);
         if (g_model_residency_set) {
             if (g_model_residency_added_to_queue &&
                 g_queue &&
@@ -2228,6 +2240,7 @@ static void ds4_gpu_model_residency_clear(void) {
             [g_model_residency_set removeAllAllocations];
             g_model_residency_set = nil;
         }
+        pthread_mutex_unlock(&g_model_residency_mu);
     }
 #endif
     g_model_residency_count = 0;
@@ -2267,8 +2280,10 @@ static int ds4_gpu_model_residency_request_views(void) {
         desc.initialCapacity = g_model_view_count;
 
         NSError *error = nil;
+        pthread_mutex_lock(&g_model_residency_mu);
         g_model_residency_set = [g_device newResidencySetWithDescriptor:desc error:&error];
         if (!g_model_residency_set) {
+            pthread_mutex_unlock(&g_model_residency_mu);
             fprintf(stderr, "ds4: Metal model residency set creation failed: %s\n",
                     [[error localizedDescription] UTF8String]);
             return 0;
@@ -2286,6 +2301,7 @@ static int ds4_gpu_model_residency_request_views(void) {
             g_model_residency_added_to_queue = 1;
         }
         g_model_residency_count = g_model_view_count;
+        pthread_mutex_unlock(&g_model_residency_mu);
     }
 #endif
 
@@ -11519,9 +11535,18 @@ int ds4_gpu_warm_command_queue(void) {
  * engine's command queue has been idle for about 3 s, the next command
  * buffer on it starts 600-800 ms late (the driver drops and rebuilds the
  * process's GPU mappings; 76-145 GB of no-copy model views here).  Work on
- * other queues does not prevent it.  One 1 KB kernel per second on this
- * queue keeps the mappings alive at no measurable cost.
- * DS4_METAL_DISABLE_QUEUE_KEEPALIVE=1 opts out. */
+ * other queues does not prevent it.  One 1 KB kernel per idle second on this
+ * queue keeps the mappings alive.
+ *
+ * macOS 27 also unwires the model views about 2 s after the last GPU work,
+ * even though the model residency set is attached to the queue; the kernel
+ * alone does not stop it, and the next request re-wires ~100 GiB (1-10 s)
+ * inside the command buffer submit.  Naming the set's allocations in each
+ * idle tick's encoder keeps them wired (re-requesting residency does not
+ * reliably).  Ticks are skipped while the engine has submitted work within
+ * the last period, so they never queue behind or in front of a request.
+ * DS4_METAL_DISABLE_QUEUE_KEEPALIVE=1 opts out of both;
+ * DS4_METAL_DISABLE_KEEPALIVE_RESIDENCY=1 keeps only the kernel. */
 static pthread_t g_queue_keepalive_thread;
 static volatile int g_queue_keepalive_running;
 static volatile int g_queue_keepalive_stop;
@@ -11534,20 +11559,48 @@ static void *ds4_gpu_queue_keepalive_thread(void *arg) {
     if (!pipeline || !scratch) return NULL;
     memset(scratch.contents, 0, 256u * sizeof(float));
     const uint32_t iters = 1u;
-    uint64_t period_ms = ds4_gpu_env_u64("DS4_METAL_QUEUE_KEEPALIVE_MS", 1000u, 50u, 10000u);
+    const uint64_t period_ms = ds4_gpu_env_u64("DS4_METAL_QUEUE_KEEPALIVE_MS", 1000u, 50u, 10000u);
+    const int keep_residency = getenv("DS4_METAL_DISABLE_KEEPALIVE_RESIDENCY") == NULL;
+    const int trace = getenv("DS4_METAL_CB_TIMES") != NULL;
+    uint64_t last_tick_ms = 0;
     while (!g_queue_keepalive_stop) {
-        @autoreleasepool {
-            id<MTLCommandBuffer> cb = [g_queue commandBuffer];
-            id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-            [enc setComputePipelineState:pipeline];
-            [enc setBuffer:scratch offset:0 atIndex:0];
-            [enc setBytes:&iters length:sizeof(iters) atIndex:1];
-            [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
-            [enc endEncoding];
-            [cb commit];
+        const uint64_t work_ms = __atomic_load_n(&g_gpu_last_work_ms, __ATOMIC_RELAXED);
+        const uint64_t now_ms = (uint64_t)ds4_gpu_now_ms();
+        const uint64_t idle_ms = now_ms > work_ms ? now_ms - work_ms : 0;
+        if (idle_ms >= period_ms && now_ms - last_tick_ms >= period_ms) {
+            last_tick_ms = now_ms;
+            @autoreleasepool {
+                NSArray *model_allocs = nil;
+#if TARGET_OS_OSX
+                if (keep_residency) {
+                    if (@available(macOS 15.0, *)) {
+                        pthread_mutex_lock(&g_model_residency_mu);
+                        if (g_model_residency_set) model_allocs = [g_model_residency_set allAllocations];
+                        pthread_mutex_unlock(&g_model_residency_mu);
+                    }
+                }
+#endif
+                id<MTLCommandBuffer> cb = [g_queue commandBuffer];
+                id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
+                [enc setComputePipelineState:pipeline];
+                for (id alloc in model_allocs)
+                    [enc useResource:(id<MTLResource>)alloc usage:MTLResourceUsageRead];
+                [enc setBuffer:scratch offset:0 atIndex:0];
+                [enc setBytes:&iters length:sizeof(iters) atIndex:1];
+                [enc dispatchThreadgroups:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(256, 1, 1)];
+                [enc endEncoding];
+                if (trace) {
+                    [cb addCompletedHandler:^(id<MTLCommandBuffer> done) {
+                        fprintf(stderr, "ds4: queue keepalive idle %llu ms, %lu model allocations, submit %.1f ms, gpu %.3f ms\n",
+                                (unsigned long long)idle_ms, (unsigned long)[model_allocs count],
+                                (done.kernelEndTime - done.kernelStartTime) * 1e3,
+                                (done.GPUEndTime - done.GPUStartTime) * 1e3);
+                    }];
+                }
+                [cb commit];
+            }
         }
-        for (uint64_t slept = 0; slept < period_ms && !g_queue_keepalive_stop; slept += 50)
-            usleep(50000);
+        usleep(50000);
     }
     return NULL;
 }
