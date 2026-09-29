@@ -12144,11 +12144,14 @@ static void trace_write_cache_diag(
     }
 }
 
-static int live_prefix_rewind_target(bool backend_can_rewind,
-                                     int old_pos, int prompt_len, int common) {
-    if (!backend_can_rewind || prompt_len <= 1 || prompt_len >= old_pos) return -1;
-    if (common != prompt_len) return -1;
-    return prompt_len - 1;
+/* Live position to rewind to so the prompt continues from the retained
+ * prefix, or -1 when no rewind applies.  A fully cached prompt keeps its last
+ * token for re-evaluation, since the sampler needs its logits; a prompt that
+ * diverges keeps the common prefix and evaluates the rest.  Whether the rewind
+ * can keep the engine state is ds4_session_rewind_keeps_state()'s decision. */
+static int live_prefix_rewind_target(int old_pos, int prompt_len, int common) {
+    if (common <= 1 || common >= old_pos) return -1;
+    return common == prompt_len ? prompt_len - 1 : common;
 }
 
 static void trace_time(FILE *fp) {
@@ -13777,8 +13780,7 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
         return;
     } else if (cached == 0 && live_vision_match) {
         const int rewind_to = live_prefix_rewind_target(
-            ds4_engine_is_glm_dsa(s->engine), old_pos,
-            j->req.prompt.len, common);
+            old_pos, j->req.prompt.len, common);
         bool rewind_keeps_state = false;
         if (rewind_to >= 0) {
             pthread_mutex_lock(&s->inference_mu);
@@ -13786,10 +13788,12 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                 ds4_session_rewind_keeps_state(slot->session, rewind_to);
             pthread_mutex_unlock(&s->inference_mu);
             if (!rewind_keeps_state) {
-                /* A GLM 5.3 rewind outside the MTP cycle destroys the live
-                 * checkpoint; keep it so the evict store below persists it. */
+                /* A rewind the engine cannot roll back (GLM 5.3 outside the
+                 * MTP cycle, Qwen3.8 without a verify snapshot, DeepSeek)
+                 * destroys the live checkpoint; keep it so the evict store
+                 * below persists it. */
                 server_log(DS4_LOG_KVCACHE,
-                           "ds4-server: GLM live prefix rewind from %d to %d would discard live state; kept for evict",
+                           "ds4-server: live prefix rewind from %d to %d would discard live state; kept for evict",
                            old_pos, rewind_to);
             }
         }
@@ -13809,11 +13813,13 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
                 cache_source = "memory-rewind";
                 cache_diag.rewind_to = rewind_to;
                 server_log(DS4_LOG_KVCACHE,
-                           "ds4-server: rewound GLM live prefix from %d to %d; final prompt token will be reevaluated",
-                           old_pos, rewind_to);
+                           "ds4-server: rewound live prefix from %d to %d; %s",
+                           old_pos, rewind_to,
+                           rewind_to == common ? "suffix tokens will be evaluated" :
+                                                 "final prompt token will be reevaluated");
             } else {
                 server_log(DS4_LOG_KVCACHE,
-                           "ds4-server: GLM live prefix rewind from %d to %d requires rebuild",
+                           "ds4-server: live prefix rewind from %d to %d requires rebuild",
                            old_pos, rewind_to);
             }
         } else if (rewind_to < 0) {
@@ -21777,12 +21783,17 @@ static void test_glm_stop_thinking_checkpoint_eligible(void) {
 }
 
 static void test_live_prefix_rewind_target(void) {
-    TEST_ASSERT(live_prefix_rewind_target(true, 17, 8, 8) == 7);
-    TEST_ASSERT(live_prefix_rewind_target(true, 49826, 48379, 48379) == 48378);
-    TEST_ASSERT(live_prefix_rewind_target(false, 17, 8, 8) == -1);
-    TEST_ASSERT(live_prefix_rewind_target(true, 17, 8, 7) == -1);
-    TEST_ASSERT(live_prefix_rewind_target(true, 8, 8, 8) == -1);
-    TEST_ASSERT(live_prefix_rewind_target(true, 17, 1, 1) == -1);
+    TEST_ASSERT(live_prefix_rewind_target(17, 8, 8) == 7);
+    TEST_ASSERT(live_prefix_rewind_target(49826, 48379, 48379) == 48378);
+    /* A diverging prompt keeps the common prefix (#1005). */
+    TEST_ASSERT(live_prefix_rewind_target(17, 8, 7) == 7);
+    TEST_ASSERT(live_prefix_rewind_target(165755, 4977, 4973) == 4973);
+    TEST_ASSERT(live_prefix_rewind_target(17, 30, 12) == 12);
+    /* Nothing behind the live frontier to rewind to. */
+    TEST_ASSERT(live_prefix_rewind_target(8, 8, 8) == -1);
+    TEST_ASSERT(live_prefix_rewind_target(8, 30, 8) == -1);
+    TEST_ASSERT(live_prefix_rewind_target(17, 1, 1) == -1);
+    TEST_ASSERT(live_prefix_rewind_target(17, 30, 0) == -1);
 }
 
 static void test_client_socket_nonblocking_flag(void) {

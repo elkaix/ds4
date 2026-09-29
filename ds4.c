@@ -86183,13 +86183,30 @@ void ds4_session_invalidate(ds4_session *s) {
 
 /* True when ds4_session_rewind(s, pos) keeps a valid checkpoint, so callers can
  * avoid a rewind that would discard the live state before it is persisted. */
+#if !defined(DS4_NO_GPU) && defined(DS4_HAS_QWEN4_GPU)
+/* The verify snapshot that restores Qwen3.8 recurrent state at pos, as the
+ * verify-logits row it pairs with: the verified block's row-0 state (0), its
+ * row-1 state under depth 3 (1), or the pre-verify start kept for
+ * exact-sampling resample rewinds (3); -1 when none matches. */
+static int qwen4_rewind_snapshot_row(const ds4_session *s, int pos) {
+    const ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
+    if (!s->qwen4_verify_logits) return -1;
+    if (g->snap_valid && g->snap_pos == (uint32_t)pos) return 0;
+    if (g->snap2_valid && g->snap2_pos == (uint32_t)pos) return 1;
+    if (g->snap0_valid && g->snap0_pos == (uint32_t)pos) return 3;
+    return -1;
+}
+#endif
+
 bool ds4_session_rewind_keeps_state(ds4_session *s, int pos) {
     if (!s || !s->checkpoint_valid) return false;
     if (pos < 0) pos = 0;
     if (pos >= s->checkpoint.len) return true;
 #ifndef DS4_NO_GPU
 #ifdef DS4_HAS_QWEN4_GPU
-    if (ds4_session_is_qwen4(s)) return true;
+    /* Without a verify snapshot at pos, rewind resets the recurrent graph and
+     * the next sync replays the whole transcript from token 0. */
+    if (ds4_session_is_qwen4(s)) return qwen4_rewind_snapshot_row(s, pos) >= 0;
 #endif
     if (ds4_session_is_glm(s)) {
         return !s->glm_graph.glm53 || ds4_session_glm_mtp_rewind_possible(s, pos);
@@ -86217,15 +86234,11 @@ void ds4_session_rewind(ds4_session *s, int pos) {
          * under depth 3); anything else resets the recurrent state and the
          * kept tokens are replayed on the next eval */
         ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
-        int logit_row = -1;
-        if (s->qwen4_verify_logits) {
-            if (g->snap_valid && g->snap_pos == (uint32_t)pos && qwen4_graph_state_copy(g, false))
-                logit_row = 0;
-            else if (g->snap2_valid && g->snap2_pos == (uint32_t)pos && qwen4_graph_state_copy2(g, false))
-                logit_row = 1;
-            else if (g->snap0_valid && g->snap0_pos == (uint32_t)pos && qwen4_graph_state_copy0(g, false))
-                logit_row = 3;
-        }
+        int logit_row = qwen4_rewind_snapshot_row(s, pos);
+        if ((logit_row == 0 && !qwen4_graph_state_copy(g, false)) ||
+            (logit_row == 1 && !qwen4_graph_state_copy2(g, false)) ||
+            (logit_row == 3 && !qwen4_graph_state_copy0(g, false)))
+            logit_row = -1;
         if (logit_row >= 0) {
             memcpy(s->logits, s->qwen4_verify_logits + (size_t)logit_row * DS4_N_VOCAB,
                    (size_t)DS4_N_VOCAB * sizeof(float));
