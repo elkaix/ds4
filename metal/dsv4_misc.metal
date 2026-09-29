@@ -4206,7 +4206,7 @@ kernel void kernel_glm_attention_indexed_batch_group2(
 /* Original one-head reference from 8969dbb. Keep its expressions and
  * specializations independent of the wider-head implementation below. */
 template <bool assume_valid_rows, bool assume_valid_heads>
-kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_impl(
+static inline void glm_attention_indexed_batch_lora_group8_vec_body(
         constant ds4_metal_args_glm_attention_indexed_batch & args,
         device const char *q,
         device const char *qk_low,
@@ -4214,11 +4214,12 @@ kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_impl(
         device const char *k_rope_cache,
         device const uint32_t *selected,
         device char *lora_out,
-        threadgroup half4 *scratch [[threadgroup(0)]],
-        uint3 tgpig [[threadgroup_position_in_grid]],
-        ushort tid_u [[thread_index_in_threadgroup]],
-        ushort lane_u [[thread_index_in_simdgroup]],
-        ushort sg_u [[simdgroup_index_in_threadgroup]]) {
+        threadgroup half4 *scratch,
+        uint3 tgpig,
+        ushort tid_u,
+        ushort lane_u,
+        ushort sg_u,
+        uint active_rows) {
     constexpr uint group_heads = 8u;
     constexpr uint stage_rows = 16u;
     const uint token = tgpig.y;
@@ -4290,8 +4291,8 @@ kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_impl(
     float4 o2 = 0.0f;
     float4 o3 = 0.0f;
 
-    for (uint base = 0u; base < args.n_selected; base += stage_rows) {
-        const uint rows = min(stage_rows, args.n_selected - base);
+    for (uint base = 0u; base < active_rows; base += stage_rows) {
+        const uint rows = min(stage_rows, active_rows - base);
         for (uint off = tid; off < rows * kv_vecs; off += 256u) {
             const uint rr = off / kv_vecs;
             const uint vv = off - rr * kv_vecs;
@@ -4391,6 +4392,46 @@ kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_impl(
     }
 }
 
+template <bool assume_valid_rows, bool assume_valid_heads, bool check_prefix = false>
+kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_impl(
+        constant ds4_metal_args_glm_attention_indexed_batch & args,
+        device const char *q,
+        device const char *qk_low,
+        device const char *kv_lora_cache,
+        device const char *k_rope_cache,
+        device const uint32_t *selected,
+        device char *lora_out,
+        threadgroup half4 *scratch [[threadgroup(0)]],
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tid_u [[thread_index_in_threadgroup]],
+        ushort lane_u [[thread_index_in_simdgroup]],
+        ushort sg_u [[simdgroup_index_in_threadgroup]]) {
+    uint active_rows = args.n_selected;
+    if (check_prefix) {
+        if (tgpig.y >= args.n_tokens) return;
+        device const uint32_t *ids = selected + (uint64_t)tgpig.y * args.n_selected;
+        uint first_invalid = args.n_selected;
+        uint last_valid = 0u;
+        // Each SIMDgroup proves the same prefix, so the branch is TG-uniform.
+        for (uint i = lane_u; i < args.n_selected; i += 32u) {
+            if (ids[i] < args.cache_cap) last_valid = max(last_valid, i + 1u);
+            else first_invalid = min(first_invalid, i);
+        }
+        first_invalid = simd_min(first_invalid);
+        active_rows = simd_max(last_valid);
+        // Keep the physical stride; omit only padding from the attention loop.
+        if (first_invalid >= active_rows) {
+            glm_attention_indexed_batch_lora_group8_vec_body<true, assume_valid_heads>(
+                args, q, qk_low, kv_lora_cache, k_rope_cache, selected, lora_out,
+                scratch, tgpig, tid_u, lane_u, sg_u, active_rows);
+            return;
+        }
+    }
+    glm_attention_indexed_batch_lora_group8_vec_body<assume_valid_rows, assume_valid_heads>(
+        args, q, qk_low, kv_lora_cache, k_rope_cache, selected, lora_out,
+        scratch, tgpig, tid_u, lane_u, sg_u, active_rows);
+}
+
 typedef decltype(kernel_glm_attention_indexed_batch_lora_group8_vec_impl<false, false>)
         glm_attention_indexed_batch_lora_group8_vec_t;
 
@@ -4420,7 +4461,7 @@ kernel_glm_attention_indexed_batch_lora_group8_vec_impl<true, true>;
  * same expressions in the same order, so every head's output is bit-identical
  * across the instantiations. */
 template <bool assume_valid_rows, bool assume_valid_heads, uint heads_per_sg>
-kernel void kernel_glm_attention_indexed_batch_lora_heads_impl(
+static inline void glm_attention_indexed_batch_lora_heads_body(
         constant ds4_metal_args_glm_attention_indexed_batch & args,
         device const char *q,
         device const char *qk_low,
@@ -4428,11 +4469,12 @@ kernel void kernel_glm_attention_indexed_batch_lora_heads_impl(
         device const char *k_rope_cache,
         device const uint32_t *selected,
         device char *lora_out,
-        threadgroup half4 *scratch [[threadgroup(0)]],
-        uint3 tgpig [[threadgroup_position_in_grid]],
-        ushort tid_u [[thread_index_in_threadgroup]],
-        ushort lane_u [[thread_index_in_simdgroup]],
-        ushort sg_u [[simdgroup_index_in_threadgroup]]) {
+        threadgroup half4 *scratch,
+        uint3 tgpig,
+        ushort tid_u,
+        ushort lane_u,
+        ushort sg_u,
+        uint active_rows) {
     constexpr uint group_heads = 8u;
     constexpr uint stage_rows = 16u;
     const uint token = tgpig.y;
@@ -4515,8 +4557,8 @@ kernel void kernel_glm_attention_indexed_batch_lora_heads_impl(
         o[k][3] = 0.0f;
     }
 
-    for (uint base = 0u; base < args.n_selected; base += stage_rows) {
-        const uint rows = min(stage_rows, args.n_selected - base);
+    for (uint base = 0u; base < active_rows; base += stage_rows) {
+        const uint rows = min(stage_rows, active_rows - base);
         for (uint off = tid; off < rows * kv_vecs; off += 256u) {
             const uint rr = off / kv_vecs;
             const uint vv = off - rr * kv_vecs;
@@ -4625,6 +4667,49 @@ kernel void kernel_glm_attention_indexed_batch_lora_heads_impl(
     }
 }
 
+/* #1147 on the wide-head kernel: a token whose selected IDs are a valid prefix
+ * followed only by padding runs the checked-free body over that prefix.
+ * Padding rows score -inf and never update M/S/o, so the output is unchanged. */
+template <bool assume_valid_rows, bool assume_valid_heads, uint heads_per_sg,
+          bool check_prefix = false>
+kernel void kernel_glm_attention_indexed_batch_lora_heads_impl(
+        constant ds4_metal_args_glm_attention_indexed_batch & args,
+        device const char *q,
+        device const char *qk_low,
+        device const char *kv_lora_cache,
+        device const char *k_rope_cache,
+        device const uint32_t *selected,
+        device char *lora_out,
+        threadgroup half4 *scratch [[threadgroup(0)]],
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tid_u [[thread_index_in_threadgroup]],
+        ushort lane_u [[thread_index_in_simdgroup]],
+        ushort sg_u [[simdgroup_index_in_threadgroup]]) {
+    uint active_rows = args.n_selected;
+    if (check_prefix) {
+        if (tgpig.y >= args.n_tokens) return;
+        device const uint32_t *ids = selected + (uint64_t)tgpig.y * args.n_selected;
+        uint first_invalid = args.n_selected;
+        uint last_valid = 0u;
+        // Each SIMDgroup proves the same prefix, so the branch is TG-uniform.
+        for (uint i = lane_u; i < args.n_selected; i += 32u) {
+            if (ids[i] < args.cache_cap) last_valid = max(last_valid, i + 1u);
+            else first_invalid = min(first_invalid, i);
+        }
+        first_invalid = simd_min(first_invalid);
+        active_rows = simd_max(last_valid);
+        if (first_invalid >= active_rows) {
+            glm_attention_indexed_batch_lora_heads_body<true, assume_valid_heads, heads_per_sg>(
+                args, q, qk_low, kv_lora_cache, k_rope_cache, selected, lora_out,
+                scratch, tgpig, tid_u, lane_u, sg_u, active_rows);
+            return;
+        }
+    }
+    glm_attention_indexed_batch_lora_heads_body<assume_valid_rows, assume_valid_heads, heads_per_sg>(
+        args, q, qk_low, kv_lora_cache, k_rope_cache, selected, lora_out,
+        scratch, tgpig, tid_u, lane_u, sg_u, active_rows);
+}
+
 template [[host_name("kernel_glm_attention_indexed_batch_lora_group16_vec_fullheads")]]
 kernel glm_attention_indexed_batch_lora_group8_vec_t
 kernel_glm_attention_indexed_batch_lora_heads_impl<false, true, 2u>;
@@ -4632,6 +4717,14 @@ kernel_glm_attention_indexed_batch_lora_heads_impl<false, true, 2u>;
 template [[host_name("kernel_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads")]]
 kernel glm_attention_indexed_batch_lora_group8_vec_t
 kernel_glm_attention_indexed_batch_lora_heads_impl<true, true, 2u>;
+
+template [[host_name("kernel_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads")]]
+kernel glm_attention_indexed_batch_lora_group8_vec_t
+kernel_glm_attention_indexed_batch_lora_heads_impl<false, true, 2u, true>;
+
+template [[host_name("kernel_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads")]]
+kernel glm_attention_indexed_batch_lora_group8_vec_t
+kernel_glm_attention_indexed_batch_lora_group8_vec_impl<false, true, true>;
 
 template <bool assume_valid_heads>
 kernel void kernel_glm_attention_indexed_batch_lora_group8_vec_causal_impl(

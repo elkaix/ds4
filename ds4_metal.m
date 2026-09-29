@@ -600,10 +600,12 @@ static id<MTLComputePipelineState> g_glm_attention_indexed_batch_group2_pipeline
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_q2_group4_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_group8_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_pipeline;
+static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_valid_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_valid_fullheads_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group16_vec_fullheads_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads_pipeline;
+static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_causal_pipeline;
 static id<MTLComputePipelineState> g_glm_attention_indexed_batch_lora_group8_vec_causal_fullheads_pipeline;
 static id<MTLComputePipelineState> g_glm_q4_k_pair_swiglu_f32_pipeline;
@@ -9244,6 +9246,8 @@ int ds4_gpu_init(void) {
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_group8");
         g_glm_attention_indexed_batch_lora_group8_vec_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group8_vec");
+        g_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads_pipeline =
+            ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads");
         g_glm_attention_indexed_batch_lora_group8_vec_valid_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group8_vec_valid");
         g_glm_attention_indexed_batch_lora_group8_vec_valid_fullheads_pipeline =
@@ -9252,6 +9256,8 @@ int ds4_gpu_init(void) {
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group16_vec_fullheads");
         g_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads");
+        g_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads_pipeline =
+            ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads");
         g_glm_attention_indexed_batch_lora_group8_vec_causal_pipeline =
             ds4_gpu_get_pipeline("kernel_glm_attention_indexed_batch_lora_group8_vec_causal");
         g_glm_attention_indexed_batch_lora_group8_vec_causal_fullheads_pipeline =
@@ -9355,10 +9361,12 @@ int ds4_gpu_init(void) {
             !g_glm_attention_indexed_batch_q2_group4_pipeline ||
             !g_glm_attention_indexed_batch_group8_pipeline ||
             !g_glm_attention_indexed_batch_lora_group8_vec_pipeline ||
+            !g_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads_pipeline ||
             !g_glm_attention_indexed_batch_lora_group8_vec_valid_pipeline ||
             !g_glm_attention_indexed_batch_lora_group8_vec_valid_fullheads_pipeline ||
             !g_glm_attention_indexed_batch_lora_group16_vec_fullheads_pipeline ||
             !g_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads_pipeline ||
+            !g_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads_pipeline ||
             !g_glm_attention_indexed_batch_lora_group8_vec_causal_pipeline ||
             !g_glm_attention_indexed_batch_lora_group8_vec_causal_fullheads_pipeline ||
             !g_glm_q4_k_pair_swiglu_f32_pipeline ||
@@ -12034,10 +12042,12 @@ void ds4_gpu_cleanup(void) {
         g_glm_attention_indexed_batch_q2_group4_pipeline = nil;
         g_glm_attention_indexed_batch_group8_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group8_vec_pipeline = nil;
+        g_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group8_vec_valid_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group8_vec_valid_fullheads_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group16_vec_fullheads_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads_pipeline = nil;
+        g_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group8_vec_causal_pipeline = nil;
         g_glm_attention_indexed_batch_lora_group8_vec_causal_fullheads_pipeline = nil;
         g_glm_q4_k_pair_swiglu_f32_pipeline = nil;
@@ -38575,6 +38585,8 @@ static int ds4_gpu_glm_attention_indexed_batch_lora_layout_tensor(
             n_head == 64u && qk_nope == 256u &&
             (head_count % (8u * heads_per_sg)) == 0u &&
             ds4_gpu_glm53_tuning_available();
+        const bool use_prefix = !g_tp_attn_head_split &&
+            !getenv("DS4_METAL_DISABLE_GLM_PREFILL_PREFIX");
         id<MTLComputePipelineState> pipeline = nil;
         if (use_wide_head_groups) {
             ds4_gpu_note_glm53_prefill_dispatch(DS4_GPU_GLM53_PREFILL_INDEXED_ATTN);
@@ -38582,6 +38594,10 @@ static int ds4_gpu_glm_attention_indexed_batch_lora_layout_tensor(
                 ds4_gpu_hot_pipeline(
                     g_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads_pipeline,
                     "kernel_glm_attention_indexed_batch_lora_group16_vec_valid_fullheads") :
+                use_prefix ?
+                ds4_gpu_hot_pipeline(
+                    g_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads_pipeline,
+                    "kernel_glm_attention_indexed_batch_lora_group16_vec_prefix_fullheads") :
                 ds4_gpu_hot_pipeline(
                     g_glm_attention_indexed_batch_lora_group16_vec_fullheads_pipeline,
                     "kernel_glm_attention_indexed_batch_lora_group16_vec_fullheads");
@@ -38593,6 +38609,10 @@ static int ds4_gpu_glm_attention_indexed_batch_lora_layout_tensor(
             pipeline = ds4_gpu_hot_pipeline(
                     g_glm_attention_indexed_batch_lora_group8_vec_valid_pipeline,
                     "kernel_glm_attention_indexed_batch_lora_group8_vec_valid");
+        } else if (use_vec_lora && full_head_groups && use_prefix) {
+            pipeline = ds4_gpu_hot_pipeline(
+                    g_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads_pipeline,
+                    "kernel_glm_attention_indexed_batch_lora_group8_vec_prefix_fullheads");
         } else if (use_vec_lora) {
             pipeline = ds4_gpu_hot_pipeline(
                     g_glm_attention_indexed_batch_lora_group8_vec_pipeline,
