@@ -55,14 +55,19 @@ MTP="${QWEN_DS4_MTP:-1}"
 # Per-step MTP acceptance/verify timing. Diagnostic only: the extra logging
 # perturbs the decode rate it measures, so leave it off for benchmarks.
 MTP_TIMING="${QWEN_DS4_MTP_TIMING:-0}"
-# Multi-token MTP draft width. Default 1. Throughput/acceptance for draft>1
-# is UNMEASURED on current main (batched MTP / concurrent n-gram reads landed
-# upstream). Prior qwen38-ivan+sidecar figures (draft 2/4/8 ≈ 0.986x/0.953x/
-# 0.960x of draft-1) are historical only — re-measure before changing this.
-# ds4 caps the width at 16.
+# --mtp-draft is ignored for Qwen3.8: the engine picks 2 or 3 verify rows
+# itself (qwen4_spec_depth; DS4_QWEN4_MTP_DEPTH=2|3 forces one).
 MTP_DRAFT="${QWEN_DS4_MTP_DRAFT:-1}"
 MTP_DRAFT_MAX=16
-PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-1024}"
+# The draft only needs its argmax, so score it over the first N output rows
+# (low ids are the frequent BPE tokens); verify rows keep the full head, so
+# committed tokens are unchanged. 80000: draft lm_head 675 -> 217 MB,
+# +2.7..5.6% decode with thinking on, identical text (2026-09-29). 0 = full head.
+MTP_DRAFT_ROWS="${QWEN_DS4_MTP_DRAFT_ROWS:-80000}"
+if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAFT_ROWS"; fi
+# 2048 gives logits bit-identical to 1024 with +10% prefill (+1.4 GiB buffers).
+# Above 2048 the numerics change (max logit delta ~0.7), so stay at 2048.
+PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-2048}"
 # Concurrent resident sessions for agentic multi-turn / parallel tool clients.
 # main batches decode-ready sessions when N>1. 1 = single stream.
 BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-1}"
@@ -96,7 +101,7 @@ native BF16 n-grams (Q4_K gate/up + Q8_0 down + embedded MTP). No --ple.
 Defaults tuned for agent / tool-loop workloads:
   ctx 262144 (full native) · max tokens 65536 · batched-session 1
   CORS on · KV cold-max 131072 · MTP on · tool-memory optional
-  fan profile performance · prefill-chunk 1024
+  fan profile performance · prefill-chunk 2048 · draft rows 80000
 
 Profiles:
   # First validation
@@ -122,10 +127,10 @@ Environment:
   QWEN_DS4_KV_MIN_TOKENS=N       Min tokens to save/load (default: 512)
   QWEN_DS4_KV_COLD_MAX_TOKENS=N  Cold first-prompt save cap (default: 131072)
   QWEN_DS4_KV_CONTINUED_INTERVAL=N  Continued frontier interval (default: 20480)
-  QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 1024)
+  QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 2048)
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
-  QWEN_DS4_MTP_DRAFT=N           MTP draft width 1..16 (default: 1)
+  QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
   FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
 EOF
@@ -825,7 +830,7 @@ Starting monitored ds4-server (Qwen3.8 Uncensored native BF16 n-grams, Q4_K/Q8_0
   repo:       $ds4_tree (code: $ds4_code)
   binary:     $binary_state, built $binary_stamp
   model file: $model_stamp
-  MTP:        $mtp_state
+  MTP:        $mtp_state (draft rows ${MTP_DRAFT_ROWS})
   batched:    $BATCHED_SESSION session(s)
   tools RAM:  $TOOL_MEMORY_MAX_IDS tool-call IDs
   CORS:       $([ "$CORS" = 0 ] && echo off || echo on)
