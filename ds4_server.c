@@ -13049,9 +13049,10 @@ static char *build_qwen_assistant_suffix(const request *r, const char *content,
         buf_puts(&suffix, "\n</think>\n\n");
     }
     buf body = {0};
-    append_trimmed_text(&body, content);
+    const bool has_content =
+        append_qwen_assistant_body(&body, content, calls && calls->len > 0);
     buf_puts(&suffix, body.ptr ? body.ptr : "");
-    append_qwen_tool_calls_text(&suffix, calls, body.len > 0, r ? &r->tool_orders : NULL);
+    append_qwen_tool_calls_text(&suffix, calls, has_content, r ? &r->tool_orders : NULL);
     buf_free(&body);
     buf_puts(&suffix, "<|im_end|>");
     return buf_take(&suffix);
@@ -21016,6 +21017,19 @@ static void test_responses_visible_suffix_matches_client_replay(void) {
     TEST_ASSERT(strstr(suffix, "tool summary</think>") != NULL);
     TEST_ASSERT(strstr(suffix, "<｜DSML｜tool_calls>") != NULL);
     free(suffix);
+
+    /* A Qwen plain answer keeps its trailing whitespace exactly as the
+     * renderer echoes it, or the key can never match the replayed turn. */
+    r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+    chat_msg m = {0};
+    m.content = "Done.\n";
+    buf rendered = {0};
+    append_qwen_assistant_message(&rendered, &m, NULL);
+    suffix = build_responses_visible_assistant_suffix(&r, m.content, NULL, NULL);
+    TEST_ASSERT(strstr(rendered.ptr, "Done.\n<|im_end|>") != NULL);
+    TEST_ASSERT(strstr(suffix, "Done.\n<|im_end|>") != NULL);
+    free(suffix);
+    buf_free(&rendered);
 
     tool_calls_free(&calls);
     request_free(&r);
