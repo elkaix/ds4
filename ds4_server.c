@@ -11680,17 +11680,62 @@ static void kv_cache_discard_failed_disk_entry(server *s, server_slot *slot,
     pthread_mutex_unlock(&s->inference_mu);
 }
 
+/* Disk key for the first store_len tokens of the live session.
+ *
+ * When the session continued from a thinking-visible frontier, the tokens up
+ * to that frontier hold sampled hidden reasoning the client never replays, so
+ * a detokenized key could never byte-prefix-match a later prompt (#1053:
+ * "continued" checkpoints written while prefilling turn N+1 were dead weight
+ * after a restart).  The client-visible key for that region is the remembered
+ * visible text; the tokens after the frontier are the tokenized visible
+ * suffix, so their detokenization is client-visible again.  Returns NULL when
+ * no visible frontier applies (caller uses the token text).  The frontier
+ * must describe this session: generate_job_inner() drops it before prefill
+ * unless the request continued from it or re-armed it from disk. */
+static char *kv_cache_visible_prefix_text(server *s, server_slot *slot,
+                                          const ds4_tokens *tokens,
+                                          int store_len) {
+    if (!s || !slot || !tokens || store_len <= 0 || store_len > tokens->len) return NULL;
+    char *visible = NULL;
+    int from = 0;
+    pthread_mutex_lock(&s->tool_mu);
+    const visible_live_state *tl = &slot->thinking_live;
+    if (tl->valid && !tl->token_text_disk_key &&
+        tl->visible_text && tl->visible_text[0] && tl->images.count == 0 &&
+        tl->live_tokens > 0 && tl->live_tokens <= store_len)
+    {
+        visible = xstrdup(tl->visible_text);
+        from = tl->live_tokens;
+    }
+    pthread_mutex_unlock(&s->tool_mu);
+    if (!visible || from == store_len) return visible;
+    const ds4_tokens suffix = {
+        .v = tokens->v + from, .len = store_len - from, .cap = 0,
+    };
+    size_t suffix_len = 0;
+    char *suffix_text = render_tokens_text(s->engine, &suffix, &suffix_len);
+    buf b = {0};
+    buf_puts(&b, visible);
+    if (suffix_text) buf_append(&b, suffix_text, suffix_len);
+    free(suffix_text);
+    free(visible);
+    return buf_take(&b);
+}
+
 static void kv_cache_maybe_store_continued(server *s, server_slot *slot) {
     if (!s || !slot) return;
-    kv_disk_cache *kc = &s->kv;
     const ds4_tokens *tokens = ds4_session_tokens(slot->session);
     if (!tokens) return;
     const int target = kv_cache_slot_continued_target(s, slot, tokens->len);
     if (target == 0) return;
-    if (kv_cache_store_live_prefix(s, slot, tokens, target, "continued")) {
-        (void)kc;
-        kv_cache_slot_note_store(slot, target);
-    }
+    char *visible = kv_cache_visible_prefix_text(s, slot, tokens, target);
+    const bool stored = visible
+        ? kv_cache_store_live_prefix_text(s, slot, tokens, target, "continued",
+                                          visible, KV_EXT_THINKING_VISIBLE,
+                                          "thinking-visible")
+        : kv_cache_store_live_prefix(s, slot, tokens, target, "continued");
+    free(visible);
+    if (stored) kv_cache_slot_note_store(slot, target);
 }
 
 #ifdef DS4_SERVER_TEST
@@ -11705,10 +11750,12 @@ static int kv_cache_try_load_text(server *s, server_slot *slot,
                                   ds4_tokens *effective_prompt,
                                   char **loaded_path_out,
                                   uint8_t *loaded_ext_flags_out,
+                                  size_t *loaded_text_bytes_out,
                                   bool responses_protocol) {
     if (!s || !slot) return 0;
     if (loaded_path_out) *loaded_path_out = NULL;
     if (loaded_ext_flags_out) *loaded_ext_flags_out = 0;
+    if (loaded_text_bytes_out) *loaded_text_bytes_out = 0;
     ds4_kvstore_load_result lr = {0};
     ds4_kvstore_trailer_hooks hooks = kv_cache_tool_map_hooks(s, NULL);
     pthread_mutex_lock(&s->inference_mu);
@@ -11727,6 +11774,7 @@ static int kv_cache_try_load_text(server *s, server_slot *slot,
     if (loaded > 0) {
         if (loaded_path_out && lr.path) *loaded_path_out = xstrdup(lr.path);
         if (loaded_ext_flags_out) *loaded_ext_flags_out = lr.ext_flags;
+        if (loaded_text_bytes_out) *loaded_text_bytes_out = lr.text_bytes;
     }
     ds4_kvstore_load_result_free(&lr);
     return loaded;
@@ -11735,11 +11783,13 @@ static int kv_cache_try_load_text(server *s, server_slot *slot,
 static int kv_cache_try_load(server *s, server_slot *slot, const request *req,
                              ds4_tokens *effective_prompt,
                              char **loaded_path_out,
-                             uint8_t *loaded_ext_flags_out) {
+                             uint8_t *loaded_ext_flags_out,
+                             size_t *loaded_text_bytes_out) {
     return kv_cache_try_load_text(s, slot, req ? req->prompt_text : NULL,
                                   effective_prompt,
                                   loaded_path_out,
                                   loaded_ext_flags_out,
+                                  loaded_text_bytes_out,
                                   req && req->api == API_RESPONSES);
 }
 
@@ -12838,12 +12888,16 @@ static bool should_remember_thinking_checkpoint(const request *r,
                                                 const thinking_state *thinking,
                                                 const char *finish) {
     if (!r || r->kind != REQ_CHAT) return false;
-    /* Qwen Chat Completions clients may omit reasoning even with tools.
-     * Remember an alternative visible key without changing exact replay.
+    /* Chat Completions clients may omit reasoning even with tools, whatever
+     * the model syntax: most OpenAI-compatible clients never send
+     * reasoning_content back.  Remember an alternative visible key without
+     * changing exact replay (see token_text_disk_key).  Without it, every
+     * evict/shutdown checkpoint of a tool conversation is keyed by the
+     * detokenized session, which embeds the sampled hidden reasoning and can
+     * never byte-prefix-match a replayed visible transcript (#1053).
      * Actual tool calls have their own checkpoint path at the call site. */
-    const bool qwen_chat = r->model_syntax == SERVER_MODEL_SYNTAX_QWEN &&
-                           r->api != API_RESPONSES && r->api != API_ANTHROPIC;
-    if ((r->has_tools || r->prompt_preserves_reasoning) && !qwen_chat) return false;
+    const bool chat_api = r->api != API_RESPONSES && r->api != API_ANTHROPIC;
+    if ((r->has_tools || r->prompt_preserves_reasoning) && !chat_api) return false;
     if (!ds4_think_mode_enabled(r->think_mode)) return false;
     if (finish && (!strcmp(finish, "error") || !strcmp(finish, "length"))) return false;
     if (thinking && thinking->inside) return false;
@@ -13104,6 +13158,12 @@ static char *build_thinking_visible_text(const request *r,
         buf_puts(&visible, "<think></think>");
         append_trimmed_text(&visible, content);
     } else {
+        /* render_deepseek_chat_prompt_text() / render_deepseek41_chat() echo
+         * an earlier assistant turn as "</think>content" in a plain chat, but
+         * as "<think>{reasoning}</think>content" once the history uses tool
+         * context.  A client that omits reasoning_content then produces
+         * "<think></think>content"; key the visible frontier by that. */
+        if (r->prompt_preserves_reasoning) buf_puts(&visible, "<think>");
         buf_puts(&visible, "</think>");
         buf_puts(&visible, content ? content : "");
         buf_puts(&visible, "<｜end▁of▁sentence｜>");
@@ -13163,17 +13223,6 @@ static char *build_qwen_tool_turn_visible_text(const request *r,
     return buf_take(&visible);
 }
 
-static void remember_qwen_tool_turn_visible(server *s, server_slot *slot,
-                                            const job *j, const char *ctx,
-                                            char *visible) {
-    thinking_live_remember(s, slot, visible, &j->req);
-    server_log(DS4_LOG_KVCACHE,
-               "ds4-server: qwen tool-turn visible checkpoint remembered ctx=%s live=%d visible=%zu",
-               ctx, ds4_session_pos(slot->session),
-               strlen(visible));
-    free(visible);
-}
-
 /* GLM counterpart of the Qwen tool-turn key.  A chat client that carries tool
  * schemas (Hermes, OpenAI-style agents) does not send the generated tool-call
  * text back as reasoning, so the exact sampled live KV can never be continued
@@ -13229,11 +13278,45 @@ static char *build_glm_tool_turn_visible_text(const request *r, const char *cont
     return buf_take(&visible);
 }
 
+/* DeepSeek / DeepSeek 4.1 counterpart (#1058).  In tool context the next Chat
+ * Completions request echoes this turn as
+ *   <｜Assistant｜><think>{reasoning_content}</think>{content}{raw DSML}<eos>
+ * and a client that omits reasoning_content turns that into
+ * "<think></think>{content}{raw DSML}", while the live KV holds the sampled
+ * reasoning.  Decoding stops at the tool-calls end marker, so the key ends
+ * there too and the next suffix evaluates the end-of-turn token. */
+static char *build_dsml_tool_turn_visible_text(const request *r, const char *finish,
+                                               bool inside_thinking,
+                                               const char *content,
+                                               const tool_calls *calls) {
+    if (!r || !calls || calls->len == 0) return NULL;
+    if (r->kind != REQ_CHAT || r->image_count != 0) return NULL;
+    if (r->api == API_RESPONSES || r->api == API_ANTHROPIC) return NULL;
+    if (!r->prompt_text || !r->prompt_text[0]) return NULL;
+    if (!calls->raw_tool_text || !calls->raw_tool_text[0]) return NULL;
+    if (!finish || strcmp(finish, "tool_calls") || inside_thinking) return NULL;
+    const bool think = ds4_think_mode_enabled(r->think_mode);
+    const char *think_tag = "<think>";
+    const size_t tag_len = strlen(think_tag);
+    const size_t pt_len = strlen(r->prompt_text);
+    /* thinking: the generation prompt ends in the open "<think>" */
+    if (think && (pt_len < tag_len ||
+                  memcmp(r->prompt_text + pt_len - tag_len, think_tag, tag_len) != 0))
+        return NULL;
+    buf visible = {0};
+    buf_append(&visible, r->prompt_text, pt_len);
+    if (think) buf_puts(&visible, "</think>");
+    buf_puts(&visible, content);
+    append_dsml_tool_calls_text(&visible, calls,
+                                r->model_syntax == SERVER_MODEL_SYNTAX_DEEPSEEK41);
+    return buf_take(&visible);
+}
+
 /* Visible key for a tool-call turn, rendered the way the family replays it;
  * NULL when the turn is not eligible.  content is the parsed assistant content
  * with the tool calls already removed: each family appends its own tool-call
- * block (Qwen re-renders it, GLM appends the sampled raw bytes), so passing the
- * raw tool text as content would put the call in the key twice. */
+ * block (Qwen re-renders it, GLM and DSML append the sampled raw bytes), so
+ * passing the raw tool text as content would put the call in the key twice. */
 static char *build_tool_turn_visible_text(const request *r, const char *finish,
                                           bool inside_thinking,
                                           const char *content,
@@ -13253,14 +13336,75 @@ static char *build_tool_turn_visible_text(const request *r, const char *finish,
             return NULL;
         return build_glm_tool_turn_visible_text(r, content, calls);
     }
+    case SERVER_MODEL_SYNTAX_DEEPSEEK:
+    case SERVER_MODEL_SYNTAX_DEEPSEEK41:
+        return build_dsml_tool_turn_visible_text(r, finish, inside_thinking,
+                                                 content, calls);
     default:
         return NULL;
     }
 }
 
-/* GLM + tools never hits should_remember_thinking_checkpoint (has_tools).
- * finish=stop with an open "<think>" still needs a visible key so omit-reasoning
- * follow-ups can keep the sampled KV (#1093 covers tool_calls only). */
+/* Every family's tool-turn key ends with the sampled raw tool block, and the
+ * next request's suffix is evaluated right after it.  The live frontier must
+ * end there too.  The last DSML token can carry bytes past the end marker, and
+ * Qwen/GLM keep decoding after a closed call in case another follows (#1140),
+ * so the KV can hold whitespace, trailing text or a cut-off call that the
+ * transcript drops.  A key over such a frontier would splice the next suffix
+ * after bytes the client never sees. */
+static bool tool_turn_live_tail_matches(const char *live, size_t live_len,
+                                        const tool_calls *calls) {
+    const char *raw = calls ? calls->raw_tool_text : NULL;
+    const size_t raw_len = raw ? strlen(raw) : 0;
+    return live && raw_len > 0 && live_len >= raw_len &&
+           memcmp(live + live_len - raw_len, raw, raw_len) == 0;
+}
+
+/* The one remember path for tool-call turns of every family: the visible key
+ * when the frontier is aligned with it, otherwise no live checkpoint at all
+ * (evict/shutdown then store the exact token text). */
+static void remember_tool_turn_visible(server *s, server_slot *slot,
+                                       const job *j, const char *ctx,
+                                       const char *finish, bool inside_thinking,
+                                       const char *content,
+                                       const tool_calls *calls) {
+    char *visible = build_tool_turn_visible_text(&j->req, finish, inside_thinking,
+                                                 content, calls);
+    if (!visible) {
+        thinking_live_clear(s, slot);
+        return;
+    }
+    /* Each token renders at least one byte, so the last raw_len tokens cover
+     * the raw block; a shorter rendering just fails the check. */
+    const ds4_tokens *live = ds4_session_tokens(slot->session);
+    const size_t raw_len = calls->raw_tool_text ? strlen(calls->raw_tool_text) : 0;
+    const int n = !live ? 0 : raw_len < (size_t)live->len ? (int)raw_len : live->len;
+    size_t tail_len = 0;
+    char *tail = NULL;
+    if (n > 0) {
+        const ds4_tokens t = {.v = live->v + live->len - n, .len = n, .cap = 0};
+        tail = render_tokens_text(s->engine, &t, &tail_len);
+    }
+    const bool aligned = tool_turn_live_tail_matches(tail, tail_len, calls);
+    free(tail);
+    if (!aligned) {
+        server_log(DS4_LOG_KVCACHE,
+                   "ds4-server: tool-turn visible checkpoint skipped ctx=%s live=%d reason=live-tail-mismatch",
+                   ctx, ds4_session_pos(slot->session));
+        free(visible);
+        thinking_live_clear(s, slot);
+        return;
+    }
+    thinking_live_remember(s, slot, visible, &j->req);
+    server_log(DS4_LOG_KVCACHE,
+               "ds4-server: tool-turn visible checkpoint remembered ctx=%s live=%d visible=%zu",
+               ctx, ds4_session_pos(slot->session), strlen(visible));
+    free(visible);
+}
+
+/* GLM finish=stop that never closed "<think>": should_remember_thinking_checkpoint()
+ * refuses an unfinished think block, but omit-reasoning follow-ups can still
+ * continue from a closed empty one and keep the sampled KV. */
 static bool glm_stop_thinking_checkpoint_eligible(const request *r,
                                                   const char *finish) {
     if (!r || r->model_syntax != SERVER_MODEL_SYNTAX_GLM) return false;
@@ -13355,7 +13499,7 @@ static void canonicalize_tool_checkpoint(server *s, server_slot *slot,
         ds4_tokens effective = {0};
         int loaded = kv_cache_try_load_text(s, slot,
                                             rendered.ptr ? rendered.ptr : "",
-                                            &effective, &path, NULL, false);
+                                            &effective, &path, NULL, NULL, false);
         if (loaded == 0) {
             pthread_mutex_lock(&s->inference_mu);
             ds4_session_invalidate(slot->session);
@@ -13889,11 +14033,14 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
          * would silently discard the newer conversation state. */
         kv_cache_store_current(s, slot, "evict");
     }
+    bool thinking_live_rearmed_from_disk = false;
     if (!multimodal && cached == 0) {
         const double t_restore0 = now_sec();
+        size_t disk_cache_text_bytes = 0;
         disk_cached = kv_cache_try_load(s, slot, &j->req, &effective_prompt,
                                         &disk_cache_path,
-                                        &disk_cache_ext_flags);
+                                        &disk_cache_ext_flags,
+                                        &disk_cache_text_bytes);
         if (disk_cached > 0) {
             cached = disk_cached;
             cache_source = "disk-text";
@@ -13907,7 +14054,29 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             s->stats.checkpoint_restores++;
             s->stats.checkpoint_restore_ns += (uint64_t)(t_restore_sec * 1e9);
             pthread_mutex_unlock(&s->mu);
+            if ((disk_cache_ext_flags & KV_EXT_THINKING_VISIBLE) &&
+                disk_cache_text_bytes > 0 && j->req.prompt_text &&
+                disk_cache_text_bytes <= strlen(j->req.prompt_text))
+            {
+                /* The restored payload holds hidden reasoning keyed by this
+                 * visible prefix.  Re-arm the visible frontier so continued
+                 * stores written while prefilling the rest of this prompt are
+                 * keyed by client-visible text again, not by the detokenized
+                 * hidden tokens (#1058). */
+                char *visible = xstrndup(j->req.prompt_text, disk_cache_text_bytes);
+                thinking_live_remember(s, slot, visible, &j->req);
+                free(visible);
+                thinking_live_rearmed_from_disk = true;
+            }
         }
+    }
+    /* A visible frontier this request neither continued from nor re-armed no
+     * longer describes the session: a disk load replaced it, a rewind cut
+     * below it, or a cold prefill rebuilds it.  Drop it before the prefill,
+     * whose continued stores would otherwise key this session's payload by
+     * that stale visible text. */
+    if (!thinking_live_continuation && !thinking_live_rearmed_from_disk) {
+        thinking_live_clear(s, slot);
     }
     const bool responses_reasoning_state_preserved =
         cached > 0 &&
@@ -14109,7 +14278,6 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
      * a binding only when this request explicitly continued from it. */
     if (!responses_live_continuation) responses_live_clear(s, slot);
     if (!anthropic_live_continuation) anthropic_live_clear(s, slot);
-    if (!thinking_live_continuation) thinking_live_clear(s, slot);
     ds4_session_set_progress(slot->session, NULL, NULL);
     ds4_session_set_display_progress(slot->session, NULL, NULL);
     if (!multimodal) kv_cache_maybe_store_continued(s, slot);
@@ -14660,11 +14828,13 @@ decode_again:
     }
 
     /* Qwen/GLM calls end at EOS: keep the closed ones and drop a cut-off one */
+    bool tool_calls_closed_at_eos = false;
     if (j->req.kind == REQ_CHAT && j->req.has_tools && !saw_tool_end &&
         dsml_tracker.calls_end && dsml_tracker.calls_end <= text.len) {
         text.len = dsml_tracker.calls_end;
         text.ptr[text.len] = '\0';
         saw_tool_end = true;
+        tool_calls_closed_at_eos = !client_stop && !strcmp(finish, "stop");
     }
     if (j->req.kind == REQ_CHAT && j->req.has_tools &&
         saw_tool_start && !saw_tool_end && strcmp(finish, "error") != 0)
@@ -15029,25 +15199,20 @@ decode_again:
          * path where we lack exact sampled DSML replay; when raw DSML is known,
          * replaying those bytes keeps future prompts aligned without rebuilding
          * hidden reasoning.  Responses deliberately skips this path because its
-         * previous_response_id contract binds the next turn to live state. */
+         * previous_response_id contract binds the next turn to live state.
+         * Drop the visible frontier first: a canonicalization rebuild resyncs
+         * the session, and its continued stores must not reuse that key. */
+        thinking_live_clear(s, slot);
         canonicalize_tool_checkpoint(s, slot, j, ctx_span, trace_id,
                                      parsed_content ? parsed_content : "",
                                      parsed_reasoning, &parsed_calls);
-        thinking_live_clear(s, slot);
     } else if (parsed_calls.len) {
-        char *visible = build_tool_turn_visible_text(&j->req, finish, thinking.inside,
-                                                     parsed_content, &parsed_calls);
-        if (!visible) {
-            thinking_live_clear(s, slot);
-        } else if (j->req.model_syntax == SERVER_MODEL_SYNTAX_QWEN) {
-            remember_qwen_tool_turn_visible(s, slot, j, ctx_span, visible);
-        } else {
-            /* GLM has no raw-DSML replay path (should_canonicalize_tool_checkpoint
-             * returns false once raw_tool_text is known) and no truncating rewind,
-             * so without this the live checkpoint is cleared and every follow-up
-             * turn rebuilds its prefix. */
-            remember_thinking_visible(s, slot, j, ctx_span, trace_id, visible, false);
-        }
+        /* Qwen/GLM calls that closed at EOS end with decode finish "stop";
+         * they are this frontier as much as a DSML end marker is.  The
+         * live-tail check decides whether the KV really ends there. */
+        remember_tool_turn_visible(s, slot, j, ctx_span,
+                                   tool_calls_closed_at_eos ? "tool_calls" : finish,
+                                   thinking.inside, parsed_content, &parsed_calls);
     } else if (!parsed_calls.len &&
                (should_remember_thinking_checkpoint(&j->req, &thinking, final_finish) ||
                 glm_stop_thinking_checkpoint_eligible(&j->req, final_finish))) {
@@ -21729,6 +21894,9 @@ static void test_tool_turn_visible_key_matches_replay_by_family(void) {
         char *visible = build_tool_turn_visible_text(
             &r, "tool_calls", false, asst.content, &asst.calls);
         TEST_ASSERT(visible != NULL);
+        /* the live-tail check relies on every key ending in the raw block */
+        TEST_ASSERT(visible && tool_turn_live_tail_matches(visible, strlen(visible),
+                                                           &asst.calls));
         TEST_ASSERT(build_tool_turn_visible_text(
             &r, "stop", false, asst.content, &asst.calls) == NULL);
         TEST_ASSERT(build_tool_turn_visible_text(
@@ -21737,10 +21905,6 @@ static void test_tool_turn_visible_key_matches_replay_by_family(void) {
         TEST_ASSERT(build_tool_turn_visible_text(
             &r, "tool_calls", false, asst.content, &asst.calls) == NULL);
         r.api = API_OPENAI;
-        r.model_syntax = SERVER_MODEL_SYNTAX_DEEPSEEK;
-        TEST_ASSERT(build_tool_turn_visible_text(
-            &r, "tool_calls", false, asst.content, &asst.calls) == NULL);
-        r.model_syntax = cases[i].syntax;
 
         /* Omit-reasoning client: content and the sampled call come back. */
         free(asst.reasoning);
@@ -22134,11 +22298,22 @@ static void test_thinking_checkpoint_remember_gate(void) {
     TEST_ASSERT(!should_remember_thinking_checkpoint(&r, &st, "length"));
     TEST_ASSERT(should_remember_thinking_checkpoint(&r, &st, "stop"));
 
+    /* Tool conversations on Chat Completions keep the visible key for every
+     * syntax: most clients omit reasoning_content, so the detokenized
+     * session could never match their replay (#1053). */
     r.prompt_preserves_reasoning = true;
-    TEST_ASSERT(!should_remember_thinking_checkpoint(&r, &st, "stop"));
+    TEST_ASSERT(should_remember_thinking_checkpoint(&r, &st, "stop"));
     r.prompt_preserves_reasoning = false;
     r.has_tools = true;
+    TEST_ASSERT(should_remember_thinking_checkpoint(&r, &st, "stop"));
+    TEST_ASSERT(!should_remember_thinking_checkpoint(&r, &st, "length"));
+    r.model_syntax = SERVER_MODEL_SYNTAX_GLM;
+    TEST_ASSERT(should_remember_thinking_checkpoint(&r, &st, "stop"));
+    r.api = API_RESPONSES;
     TEST_ASSERT(!should_remember_thinking_checkpoint(&r, &st, "stop"));
+    r.api = API_ANTHROPIC;
+    TEST_ASSERT(!should_remember_thinking_checkpoint(&r, &st, "stop"));
+    r.api = API_OPENAI;
     r.model_syntax = SERVER_MODEL_SYNTAX_QWEN;
     r.prompt_preserves_reasoning = true;
     TEST_ASSERT(should_remember_thinking_checkpoint(&r, &st, "stop"));
@@ -23225,6 +23400,213 @@ static void test_thinking_checkpoint_canonical_matches_future_prompt(void) {
     chat_msgs_free(&history_msgs);
 }
 
+/* #1053: a DeepSeek tool conversation whose client omits reasoning_content.
+ * The renderer echoes earlier assistant turns as "<think></think>content"
+ * once tool context is present, so the visible key must use that shape or
+ * nothing ever matches it. */
+static void test_thinking_visible_text_deepseek_tool_context(void) {
+    const char *tools = "[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\","
+                        "\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]";
+    for (int syntax_i = 0; syntax_i < 2; syntax_i++) {
+        const server_model_syntax syntax = syntax_i == 0
+            ? SERVER_MODEL_SYNTAX_DEEPSEEK : SERVER_MODEL_SYNTAX_DEEPSEEK41;
+        chat_msgs msgs = {0};
+        chat_msg user1 = {0};
+        user1.role = xstrdup("user");
+        user1.content = xstrdup("Hello there.");
+        chat_msgs_push(&msgs, user1);
+        char *prompt_text = render_chat_prompt_text_for_syntax(
+            syntax, &msgs, tools, NULL, DS4_THINK_HIGH);
+        size_t pt_len = strlen(prompt_text);
+        TEST_ASSERT(pt_len >= 7 && !memcmp(prompt_text + pt_len - 7, "<think>", 7));
+
+        request r;
+        request_init(&r, REQ_CHAT, 128);
+        r.think_mode = DS4_THINK_HIGH;
+        r.model_syntax = syntax;
+        r.has_tools = true;
+        r.prompt_preserves_reasoning = chat_history_uses_tool_context(&msgs, tools);
+        TEST_ASSERT(r.prompt_preserves_reasoning);
+        r.prompt_text = xstrdup(prompt_text);
+        const char *content = "No request detected.";
+        char *visible = build_thinking_visible_text(&r, content);
+        TEST_ASSERT(visible != NULL);
+        TEST_ASSERT(visible && strstr(visible, "<think></think>No request detected.") != NULL);
+
+        /* what the client replays next, without reasoning_content */
+        chat_msg asst = {0};
+        asst.role = xstrdup("assistant");
+        asst.content = xstrdup(content);
+        chat_msgs_push(&msgs, asst);
+        chat_msg user2 = {0};
+        user2.role = xstrdup("user");
+        user2.content = xstrdup("What is the weather in Paris?");
+        chat_msgs_push(&msgs, user2);
+        char *future = render_chat_prompt_text_for_syntax(
+            syntax, &msgs, tools, NULL, DS4_THINK_HIGH);
+        TEST_ASSERT(visible && strlen(future) > strlen(visible));
+        TEST_ASSERT(visible && !memcmp(future, visible, strlen(visible)));
+
+        /* a client that does replay reasoning renders differently and must
+         * not match the visible key (exact token replay handles it) */
+        msgs.v[1].reasoning = xstrdup("hidden reasoning");
+        char *with_reasoning = render_chat_prompt_text_for_syntax(
+            syntax, &msgs, tools, NULL, DS4_THINK_HIGH);
+        TEST_ASSERT(visible && memcmp(with_reasoning, visible, strlen(visible)) != 0);
+
+        free(with_reasoning);
+        free(future);
+        free(visible);
+        request_free(&r);
+        free(prompt_text);
+        chat_msgs_free(&msgs);
+    }
+
+    /* Without tool context the plain-chat shape "</think>content" stays. */
+    request plain;
+    request_init(&plain, REQ_CHAT, 128);
+    plain.think_mode = DS4_THINK_HIGH;
+    plain.prompt_text = xstrdup("<｜User｜>hi<｜Assistant｜><think>");
+    char *visible = build_thinking_visible_text(&plain, "yo");
+    TEST_ASSERT(visible && !strcmp(visible, "<｜User｜>hi<｜Assistant｜></think>yo<｜end▁of▁sentence｜>"));
+    free(visible);
+    request_free(&plain);
+}
+
+/* #1053: DSML tool-call turn checkpoint.  The live frontier stops at the
+ * sampled tool-calls end marker; the next request echoes the turn without
+ * reasoning as "<think></think>{content}{raw tool block}".  The visible key
+ * must be a byte prefix of that, ending exactly at the raw block.  GLM runs
+ * through its own builder, DeepSeek and DeepSeek 4.1 through the DSML one. */
+static void test_dsml_tool_visible_checkpoint_boundary(void) {
+    const char *tools = "[{\"type\":\"function\",\"function\":{\"name\":\"bash\","
+                        "\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]";
+    const server_model_syntax syntaxes[] = {
+        SERVER_MODEL_SYNTAX_DEEPSEEK, SERVER_MODEL_SYNTAX_DEEPSEEK41, SERVER_MODEL_SYNTAX_GLM,
+    };
+    for (size_t si = 0; si < sizeof(syntaxes) / sizeof(syntaxes[0]); si++) {
+        for (int with_content = 0; with_content < 2; with_content++) {
+            const server_model_syntax syntax = syntaxes[si];
+            chat_msgs msgs = {0};
+            chat_msg user = {0};
+            user.role = xstrdup("user");
+            user.content = xstrdup("run it");
+            chat_msgs_push(&msgs, user);
+            request r;
+            request_init(&r, REQ_CHAT, 128);
+            r.model_syntax = syntax;
+            r.think_mode = DS4_THINK_HIGH;
+            r.has_tools = true;
+            r.prompt_preserves_reasoning = true;
+            r.prompt_text = render_chat_prompt_text_for_syntax(
+                syntax, &msgs, tools, NULL, r.think_mode);
+            chat_msg assistant = {0};
+            assistant.role = xstrdup("assistant");
+            assistant.content = xstrdup(with_content ? "Running." : "");
+            tool_call call = {0};
+            call.name = xstrdup("bash");
+            call.arguments = xstrdup("{}");
+            tool_calls_push(&assistant.calls, call);
+            const char *raw = syntax == SERVER_MODEL_SYNTAX_GLM
+                ? "\n<tool_call>bash\n<arg_key>cmd</arg_key><arg_value>ls</arg_value>\n</tool_call>"
+                : syntax == SERVER_MODEL_SYNTAX_DEEPSEEK41
+                ? "\n\n" DS41_TOOL_CALLS_START "\n" DS41_INVOKE_START " name=\"bash\">\n"
+                  DS41_INVOKE_END "\n" DS41_TOOL_CALLS_END
+                : "\n\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"bash\">\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>";
+            assistant.calls.raw_tool_text = xstrdup(raw);
+            char *visible = build_tool_turn_visible_text(
+                &r, "tool_calls", false, assistant.content, &assistant.calls);
+            TEST_ASSERT(visible != NULL);
+            TEST_ASSERT(build_tool_turn_visible_text(
+                &r, "length", false, assistant.content, &assistant.calls) == NULL);
+            TEST_ASSERT(build_tool_turn_visible_text(
+                &r, "tool_calls", true, assistant.content, &assistant.calls) == NULL);
+            r.image_count = 1;
+            TEST_ASSERT(build_tool_turn_visible_text(
+                &r, "tool_calls", false, assistant.content, &assistant.calls) == NULL);
+            r.image_count = 0;
+            r.api = API_RESPONSES;
+            TEST_ASSERT(build_tool_turn_visible_text(
+                &r, "tool_calls", false, assistant.content, &assistant.calls) == NULL);
+            r.api = API_OPENAI;
+            /* the key ends at the sampled tool block: no end-of-turn token */
+            TEST_ASSERT(visible && strstr(visible, "<think></think>") != NULL);
+            TEST_ASSERT(visible && strstr(visible, "end▁of▁sentence") == NULL);
+            TEST_ASSERT(visible && tool_turn_live_tail_matches(visible, strlen(visible),
+                                                               &assistant.calls));
+
+            chat_msgs_push(&msgs, assistant);
+            chat_msg tool = {0};
+            tool.role = xstrdup("tool");
+            tool.content = xstrdup("ok");
+            chat_msgs_push(&msgs, tool);
+            char *next = render_chat_prompt_text_for_syntax(
+                syntax, &msgs, tools, NULL, r.think_mode);
+            TEST_ASSERT(visible && strlen(next) > strlen(visible) &&
+                        !strncmp(next, visible, strlen(visible)));
+            msgs.v[1].reasoning = xstrdup("hidden reasoning");
+            char *with_reasoning = render_chat_prompt_text_for_syntax(
+                syntax, &msgs, tools, NULL, r.think_mode);
+            TEST_ASSERT(visible && strncmp(with_reasoning, visible, strlen(visible)) != 0);
+            free(with_reasoning);
+            free(next);
+            free(visible);
+            request_free(&r);
+            chat_msgs_free(&msgs);
+        }
+    }
+}
+
+/* The tool-turn key ends at the raw block, so the live frontier must end
+ * there too.  Qwen/GLM keep decoding after a closed call (#1140) and the
+ * transcript is cut back to the last closed call, while the KV keeps the
+ * extra tokens; a DSML end-marker token can also carry trailing bytes. */
+static void test_tool_turn_live_tail_matches(void) {
+    const char *glm_turn = "<think>need ls</think>\n\n<tool_call>bash<arg_key>command</arg_key>"
+                           "<arg_value>ls</arg_value></tool_call>";
+    char *content = NULL, *reasoning = NULL;
+    tool_calls calls = {0};
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(
+        SERVER_MODEL_SYNTAX_GLM, glm_turn, true, &content, &reasoning, &calls));
+    TEST_ASSERT(calls.len == 1 && calls.raw_tool_text != NULL);
+    TEST_ASSERT(tool_turn_live_tail_matches(glm_turn, strlen(glm_turn), &calls));
+    /* bytes decoded past the last </tool_call>: whitespace before EOS,
+     * trailing prose, or a second call cut off by the budget */
+    const char *extras[] = {"\n", "\n\ndone", "\n<tool_call>pw"};
+    for (size_t i = 0; i < sizeof(extras) / sizeof(extras[0]); i++) {
+        buf live = {0};
+        buf_puts(&live, glm_turn);
+        buf_puts(&live, extras[i]);
+        TEST_ASSERT(!tool_turn_live_tail_matches(live.ptr, live.len, &calls));
+        buf_free(&live);
+    }
+    TEST_ASSERT(!tool_turn_live_tail_matches(NULL, 0, &calls));
+    TEST_ASSERT(!tool_turn_live_tail_matches("</tool_call>", 12, &calls));
+    free(calls.raw_tool_text);
+    calls.raw_tool_text = NULL;   /* JSON-rendered block: nothing to align */
+    TEST_ASSERT(!tool_turn_live_tail_matches(glm_turn, strlen(glm_turn), &calls));
+    free(content);
+    free(reasoning);
+    tool_calls_free(&calls);
+
+    const char *ds_turn = "need ls</think>Running.\n\n<｜DSML｜tool_calls>\n"
+                          "<｜DSML｜invoke name=\"bash\">\n</｜DSML｜invoke>\n</｜DSML｜tool_calls>";
+    content = reasoning = NULL;
+    tool_calls ds_calls = {0};
+    TEST_ASSERT(parse_generated_message_ex_for_syntax(
+        SERVER_MODEL_SYNTAX_DEEPSEEK, ds_turn, true, &content, &reasoning, &ds_calls));
+    TEST_ASSERT(ds_calls.len == 1 && ds_calls.raw_tool_text != NULL);
+    TEST_ASSERT(tool_turn_live_tail_matches(ds_turn, strlen(ds_turn), &ds_calls));
+    buf live = {0};
+    buf_puts(&live, ds_turn);
+    buf_puts(&live, "\n");
+    TEST_ASSERT(!tool_turn_live_tail_matches(live.ptr, live.len, &ds_calls));
+    buf_free(&live);
+    free(content);
+    free(reasoning);
+    tool_calls_free(&ds_calls);
+}
+
 static void test_thinking_canonical_empty_content(void) {
     /* Edge case: model thinks but produces empty content (e.g. tool-less
      * thinking where answer is entirely in reasoning).  Canonical should
@@ -24074,6 +24456,9 @@ static void ds4_server_unit_tests_run(void) {
     test_glm_kv_tool_map_adversarial_scan_is_bounded();
     test_kv_tool_map_restores_before_prompt_render();
     test_thinking_checkpoint_canonical_matches_future_prompt();
+    test_thinking_visible_text_deepseek_tool_context();
+    test_dsml_tool_visible_checkpoint_boundary();
+    test_tool_turn_live_tail_matches();
     test_thinking_canonical_empty_content();
     test_thinking_canonical_multi_turn();
     test_thinking_canonical_with_tools_preserves_reasoning();
