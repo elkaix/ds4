@@ -13944,21 +13944,16 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
     } else if (cached == 0 && live_vision_match) {
         const int rewind_to = live_prefix_rewind_target(
             old_pos, j->req.prompt.len, common);
+        /* A rewind the engine cannot roll back (GLM 5.3 outside the MTP
+         * cycle, Qwen3.8 without a verify snapshot, DeepSeek) would destroy
+         * the live checkpoint: skip it, so the text tiers below can still
+         * match the live state, or the evict store persists it. */
         bool rewind_keeps_state = false;
         if (rewind_to >= 0) {
             pthread_mutex_lock(&s->inference_mu);
             rewind_keeps_state =
                 ds4_session_rewind_keeps_state(slot->session, rewind_to);
             pthread_mutex_unlock(&s->inference_mu);
-            if (!rewind_keeps_state) {
-                /* A rewind the engine cannot roll back (GLM 5.3 outside the
-                 * MTP cycle, Qwen3.8 without a verify snapshot, DeepSeek)
-                 * destroys the live checkpoint; keep it so the evict store
-                 * below persists it. */
-                server_log(DS4_LOG_KVCACHE,
-                           "ds4-server: live prefix rewind from %d to %d would discard live state; kept for evict",
-                           old_pos, rewind_to);
-            }
         }
         if (rewind_keeps_state) {
             pthread_mutex_lock(&s->inference_mu);
