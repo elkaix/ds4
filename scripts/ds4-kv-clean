@@ -42,7 +42,7 @@ LAUNCHER_REF = re.compile(r"(?:server-kv/|KV_DEFAULT=)([A-Za-z0-9._-]+)")
 
 def live_kv_dirs():
     """--kv-disk-dir of every running ds4-server (any port: benchmarks use others)."""
-    out = subprocess.run(["ps", "-axo", "args="], capture_output=True, text=True,
+    out = subprocess.run(["ps", "-axwwo", "args="], capture_output=True, text=True,
                          timeout=10, check=True).stdout
     dirs = set()
     for line in out.splitlines():

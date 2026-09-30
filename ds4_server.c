@@ -24913,7 +24913,7 @@ static void test_kv_startup_check(void) {
     c.files = 3;
     c.disk_free_bytes = 500 * gib;
     const char *report =
-        "{\"time\": 1999999000, \"dry_run\": false, \"root\": \"/x\","
+        "{\n \"time\": 1999999000,\n \"dry_run\": false,\n \"root\": \"/x\",\n"
         " \"freed_bytes\": 1073741824, \"files_deleted\": 2, \"min_free_gb\": 150,"
         " \"per_dir\": {\"own\": {\"bytes\": 5, \"files\": 1, \"live\": false},"
         " \"other\": {\"bytes\": 214748364800, \"files\": 9, \"referenced\": true}, \"empty\": {}},"
