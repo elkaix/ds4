@@ -5,10 +5,8 @@
 #   ./run.sh                 # menu
 #   ./run.sh glm             # GLM 5.3 Flash stage 2    -> run-glm-ds4.sh
 #   ./run.sh qwen            # Qwen3.8 Flash Next       -> run-qwen38-ds4.sh
-#   ./run.sh deepseek        # DeepSeek V4 Flash O2b    -> run-ds4-monitored.sh
 # Per-model settings stay environment variables, e.g.
 #   GLM_DS4_CTX=262144 ./run.sh glm
-#   DS4_ARM=o1 ./run.sh deepseek
 
 set -Eeuo pipefail
 
@@ -16,14 +14,13 @@ ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 PORT=8000
 
 usage() {
-    sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
 }
 
 launcher_for() {
     case "$1" in
         glm) echo run-glm-ds4.sh ;;
         qwen) echo run-qwen38-ds4.sh ;;
-        deepseek | ds | dsv4) echo run-ds4-monitored.sh ;;
         *) return 1 ;;
     esac
 }
@@ -52,8 +49,7 @@ choice="${1:-}"
 if [[ -z $choice ]]; then
     PS3="Model to start on :$PORT: "
     select picked in "glm       GLM 5.3 Flash stage 2 (512K ctx)" \
-                     "qwen      Qwen3.8 Flash Next (262K ctx)" \
-                     "deepseek  DeepSeek V4 Flash O2b (363K ctx)"; do
+                     "qwen      Qwen3.8 Flash Next (262K ctx)"; do
         [[ -n $picked ]] && break
     done
     [[ -n ${picked:-} ]] || exit 1
@@ -61,7 +57,7 @@ if [[ -z $choice ]]; then
 fi
 
 if ! launcher=$(launcher_for "$choice"); then
-    echo "Unknown model: $choice (expected glm, qwen or deepseek)" >&2
+    echo "Unknown model: $choice (expected glm or qwen)" >&2
     exit 2
 fi
 

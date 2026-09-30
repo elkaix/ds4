@@ -8,7 +8,6 @@
 #   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
 #   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh          # safer first smoke
 #   QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh # more concurrent agent sessions
-#   QWEN_DS4_MODEL=~/models/gguf/Qwen3.8-Flash-Next-Q2.gguf ./run-qwen38-ds4.sh
 # Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 #
 # This launcher targets CURRENT main: one self-contained qwen4exp GGUF with
@@ -25,8 +24,7 @@ ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 QWEN_DIR="${QWEN_DS4_DIR:-$ROOT_DIR}"
 SERVER_BIN="$QWEN_DIR/ds4-server"
 # Router weights in F16 (exact for the BF16 source; -0.128 GB/token read,
-# verify ~-1.8%, NLL unchanged). The F32-router pack it was cloned from stays
-# on disk as the rollback: QWEN_DS4_MODEL=...-Q4KQ8-NativeBF16Ngrams.gguf
+# verify ~-1.8%, NLL unchanged).
 MODEL="${QWEN_DS4_MODEL:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-Q4KQ8-RouterF16-NativeBF16Ngrams.gguf}"
 HOST="127.0.0.1"
 PORT=8000
