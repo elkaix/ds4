@@ -139,6 +139,7 @@ export function App() {
   const remaining = stats ? Math.max(0, stats.ctx_size - stats.live_tokens) : undefined;
   const turnNs = last ? last.prompt_ns + last.first_token_ns + last.decode_ns : undefined;
   const storeAlarm = !!last && last.store_ns > 1e9;
+  const kvWarn = !!kv?.warnings?.some((w) => w.level === "warn");
 
   const isHealthy = !error && failures === 0;
   const statusText = error ? "Unreachable" : !stats ? "Connecting" : livePrefill ? "Prefilling" : stats.busy ? "Generating" : "Healthy";
@@ -217,7 +218,7 @@ export function App() {
                 onClick={() => { handleNavClick(item, i); }}
               >
                 <Icon name={item.name} />
-                {item.name === "bell" && (failures > 0 || (counters?.cancelled ?? 0) > 0 || storeAlarm) && (
+                {item.name === "bell" && (failures > 0 || (counters?.cancelled ?? 0) > 0 || storeAlarm || kvWarn) && (
                   <span className="notificationDot" />
                 )}
                 <span className="navTooltip">{item.label}</span>
@@ -272,6 +273,11 @@ export function App() {
             </section>
 
             {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
+            {kv?.warnings?.map((w) => (
+              <div key={w.code} className={`banner ${w.level === "warn" ? "warn" : "info"}`} role={w.level === "warn" ? "alert" : "status"}>
+                <strong>KV cache</strong> · {w.message} <code>{w.code}</code>
+              </div>
+            ))}
 
             {/* ── Top Grid (4 Primary Cards) ── */}
             <section className="topGrid" id="sec-performance">

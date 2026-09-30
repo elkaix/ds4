@@ -100,10 +100,26 @@ export interface RecentRequest {
   replay_ns: number;
 }
 
+export interface KvWarning { code: string; level: "warn" | "info"; message: string }
+
+export interface KvStartupCheck {
+  used_bytes: number;
+  budget_bytes: number;
+  files: number;
+  disk_free_bytes: number;
+  other_dirs_bytes: number;
+  clean_report: { time: number; dry_run: boolean; freed_bytes: number; files_deleted: number; error_count: number } | null;
+}
+
 export interface Stats {
   model: string;
   model_path: string;
-  kv_disk: { enabled: boolean; dir: string; used_mb: number; budget_mb: number; files: number };
+  kv_disk: {
+    enabled: boolean; dir: string; used_mb: number; budget_mb: number; files: number;
+    /** Startup KV cache check; absent on older servers. */
+    warnings?: KvWarning[];
+    startup_check?: KvStartupCheck;
+  };
   uptime_s: number;
   busy: boolean;
   queue_depth: number;
