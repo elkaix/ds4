@@ -473,6 +473,14 @@ ds4_session_rewrite_result ds4_session_rewrite_from_common(
         ds4_session *s, const ds4_tokens *prompt, int common,
         char *err, size_t errlen);
 int ds4_session_common_prefix(ds4_session *s, const ds4_tokens *prompt);
+bool ds4_session_checkpoint_valid(const ds4_session *s);
+/* Test helpers (ds4-test): allocate a session shell holding only the given
+ * checkpoint tokens, for server-side routing unit tests.  Not usable for
+ * inference; free with ds4_session_free_test_checkpoint(). */
+ds4_session *ds4_session_new_test_checkpoint(const int *tokens, int n);
+void ds4_session_free_test_checkpoint(ds4_session *s);
+/* Make a test checkpoint report ds4_session_prefix_reusable() == false. */
+void ds4_session_set_test_backend_stale(ds4_session *s, bool stale);
 int ds4_session_argmax(ds4_session *s);
 int ds4_session_argmax_excluding(ds4_session *s, int excluded_id);
 int ds4_session_argmax_ignoring_eos(ds4_session *s,
@@ -588,6 +596,12 @@ void ds4_session_invalidate(ds4_session *s);
 void ds4_session_rewind(ds4_session *s, int pos);
 bool ds4_session_rewind_keeps_state(ds4_session *s, int pos);
 int ds4_session_pos(ds4_session *s);
+/* True when the live checkpoint tokens and the backend state agree, so the
+ * checkpoint can be reused as a prefill prefix.  A backend rewind can reset
+ * recurrent state while the token checkpoint stays valid (e.g. a Qwen3.8
+ * verify rewind); callers that offer a live cache hit must treat that as a
+ * miss because the next sync would silently rebuild the whole prefix. */
+bool ds4_session_prefix_reusable(ds4_session *s);
 int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);
 int ds4_engine_routed_quant_bits(ds4_engine *e);
