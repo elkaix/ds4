@@ -79,6 +79,10 @@ if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAF
 # +3.4% decode on a file-edit prompt, neutral on prose (2026-09-29). 0 = off.
 COPY_SPEC="${QWEN_DS4_COPY_SPEC:-8}"
 if [[ "$COPY_SPEC" != 0 ]]; then export DS4_QWEN4_COPY_SPEC="$COPY_SPEC"; fi
+# Up to 7 copy drafts per cycle (8-row verify), text unchanged: +8.5% decode on a
+# 12K-token copy task, +1.6% on a file edit, prose neutral (2026-09-30). 3 = old cap.
+COPY_MAX="${QWEN_DS4_COPY_MAX:-7}"
+export DS4_QWEN4_COPY_MAX="$COPY_MAX"
 # Every chunk size gives bit-identical logits (the dense rows 2048..2050 run
 # as their own batch).  8192: +2.2% prefill over 4096 at a 230K prompt for
 # +2.9 GiB peak wired (109.5 GiB, no swap); 4096 is the lower-memory fallback.
@@ -147,6 +151,7 @@ Environment:
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
   QWEN_DS4_COPY_SPEC=N           Context-copy draft min match, 0 = off (default: 8)
+  QWEN_DS4_COPY_MAX=N            Max copy drafts per cycle, 3..7 (default: 7)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
   FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
 EOF
