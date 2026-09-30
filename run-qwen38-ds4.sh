@@ -80,9 +80,9 @@ if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAF
 COPY_SPEC="${QWEN_DS4_COPY_SPEC:-8}"
 if [[ "$COPY_SPEC" != 0 ]]; then export DS4_QWEN4_COPY_SPEC="$COPY_SPEC"; fi
 # Every chunk size gives bit-identical logits (the dense rows 2048..2050 run
-# as their own batch).  4096: +13% prefill over 2048 for +2.7 GiB buffers;
-# 8192 adds ~2% more for another ~5 GiB.
-PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-4096}"
+# as their own batch).  8192: +2.2% prefill over 4096 at a 230K prompt for
+# +2.9 GiB peak wired (109.5 GiB, no swap); 4096 is the lower-memory fallback.
+PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-8192}"
 # Concurrent resident sessions for agentic multi-turn / parallel tool clients.
 # main batches decode-ready sessions when N>1. 1 = single stream.
 BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-1}"
@@ -116,7 +116,7 @@ native BF16 n-grams (Q4_K gate/up + Q8_0 down + embedded MTP). No --ple.
 Defaults tuned for agent / tool-loop workloads:
   ctx 262144 (full native) · max tokens 65536 · batched-session 1
   CORS on · KV cold-max 131072 · MTP on · tool-memory optional
-  fan profile performance · prefill-chunk 4096 · draft rows 80000
+  fan profile performance · prefill-chunk 8192 · draft rows 80000
 
 Profiles:
   # First validation
@@ -142,7 +142,7 @@ Environment:
   QWEN_DS4_KV_MIN_TOKENS=N       Min tokens to save/load (default: 512)
   QWEN_DS4_KV_COLD_MAX_TOKENS=N  Cold first-prompt save cap (default: 131072)
   QWEN_DS4_KV_CONTINUED_INTERVAL=N  Continued frontier interval (default: 20480)
-  QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 4096)
+  QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 8192)
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
