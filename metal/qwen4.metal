@@ -2184,6 +2184,14 @@ static inline void qwen4_attn_decode_tile(
     }
 }
 
+/* The split count and width the host picks for one row from its key count
+ * (keys_per_split is the keys per split before the cap on splits). */
+static inline uint2 qwen4_attn_row_splits(uint n_keys, uint split_keys, uint max_splits) {
+    uint n_splits = (n_keys + split_keys - 1u) / split_keys;
+    n_splits = min(max(n_splits, 1u), max_splits);
+    return uint2(n_splits, (n_keys + n_splits - 1u) / n_splits);
+}
+
 template <uint NPT>
 kernel void kernel_qwen4_attn_decode(
         constant ds4_metal_args_qwen4_attn_decode & args,
@@ -2203,17 +2211,15 @@ kernel void kernel_qwen4_attn_decode(
     const uint tok = tgpig.z;
     if (split >= args.n_splits || kvh >= args.n_head_kv || tok >= args.n_tokens) return;
     const uint n = args.use_sel ? n_sel[tok] : args.pos0 + tok + 1;
-    qwen4_attn_decode_tile<NPT>(args, split, kvh, tok, n, args.n_splits, args.keys_per_split, args.n_splits,
+    /* each row splits its own key count as a one-row dispatch would, so a
+     * row's arithmetic does not depend on the rows batched with it;
+     * args.n_splits is the partials' stride and the cap */
+    const uint2 sp = qwen4_attn_row_splits(args.use_sel ? args.sel_stride : args.pos0 + tok + 1,
+                                           args.keys_per_split, args.n_splits);
+    if (split >= sp.x) return;
+    qwen4_attn_decode_tile<NPT>(args, split, kvh, tok, n, sp.x, sp.y, args.n_splits,
                                 args.use_sel != 0, q, gate, k_cache, v_cache,
                                 sel_tokens + (uint64_t)tok * args.sel_stride, out, part, sgitg, tiisg);
-}
-
-/* The split count and width the host picks for one row from its key count
- * (keys_per_split is the keys per split before the cap on splits). */
-static inline uint2 qwen4_attn_row_splits(uint n_keys, uint split_keys, uint max_splits) {
-    uint n_splits = (n_keys + split_keys - 1u) / split_keys;
-    n_splits = min(max(n_splits, 1u), max_splits);
-    return uint2(n_splits, (n_keys + n_splits - 1u) / n_splits);
 }
 
 /* Decode batch: one (key split, kv head, row).  A row attends its own caches
@@ -2265,15 +2271,18 @@ kernel void kernel_qwen4_attn_merge(
     constexpr uint D = NPT * 32;
     const uint group = H / Hkv;
     const uint kvh = h / group, g = h % group;
+    const uint n_splits = qwen4_attn_row_splits(args.use_sel ? args.sel_stride : args.pos0 + tok + 1,
+                                                args.keys_per_split, args.n_splits).x;
+    if (n_splits == 1u) return;   /* written directly */
     const uint64_t stride = (uint64_t)group * (2u + D);
     device const float *base = part + (((uint64_t)tok * Hkv + kvh) * args.n_splits * group + g) * (2u + D);
     float mm = -3.0e38f;
-    for (uint s = 0; s < args.n_splits; s++) mm = max(mm, base[s * stride]);
+    for (uint s = 0; s < n_splits; s++) mm = max(mm, base[s * stride]);
     float ll = 0.0f;
     float o[NPT];
 #pragma unroll
     for (uint i = 0; i < NPT; i++) o[i] = 0.0f;
-    for (uint s = 0; s < args.n_splits; s++) {
+    for (uint s = 0; s < n_splits; s++) {
         device const float *p = base + s * stride;
         const float c = p[1] > 0.0f ? exp(p[0] - mm) : 0.0f;
         ll += p[1] * c;
@@ -2337,7 +2346,10 @@ kernel void kernel_qwen4_attn_merge_wide(
     const uint h = tgpig.x;
     const uint tok = tgpig.y;
     if (h >= args.n_head || tok >= args.n_tokens || tid >= NPT * 32) return;
-    qwen4_attn_merge_wide_head<NPT>(args, h, tok, args.n_splits, args.n_splits, part, gate, out, tid);
+    const uint n_splits = qwen4_attn_row_splits(args.use_sel ? args.sel_stride : args.pos0 + tok + 1,
+                                                args.keys_per_split, args.n_splits).x;
+    if (n_splits == 1u) return;   /* written directly */
+    qwen4_attn_merge_wide_head<NPT>(args, h, tok, n_splits, args.n_splits, part, gate, out, tid);
 }
 
 /* Decode batch: the merge of each row's own split count (rows with one

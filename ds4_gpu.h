@@ -3551,6 +3551,11 @@ int ds4_gpu_qwen4_gdn_prep_tensor(
 /* snap_state/snap2_state (optional) receive the state right after tokens
  * snap_tok/snap2_tok; two points serve the 3-row MTP verifier */
 void ds4_gpu_qwen4_set_verify_rows_exact(bool on);
+void ds4_gpu_qwen4_set_rows_invariant(bool on);
+int ds4_gpu_qwen4_matmul_rows_invariant_tensor(
+        ds4_gpu_tensor *out, const void *model_map, uint64_t model_size,
+        uint64_t weight_offset, uint32_t type, uint64_t in_dim, uint64_t out_dim,
+        const ds4_gpu_tensor *x, uint64_t n_tok);
 int ds4_gpu_qwen4_gdn_scan_tensor(
         ds4_gpu_tensor *out, ds4_gpu_tensor *state, const ds4_gpu_tensor *qkv,
         const ds4_gpu_tensor *a, const ds4_gpu_tensor *b,

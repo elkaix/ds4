@@ -42393,6 +42393,7 @@ struct ds4_engine {
     bool vision_ready;
     bool vision_map_ready;
     bool share_session_prefill_workspace;
+    bool qwen4_rows_invariant;
 #ifndef DS4_NO_GPU
     bool shared_prefill_workspace_ready;
     ds4_gpu_graph shared_prefill_workspace;
@@ -59144,6 +59145,9 @@ static void qwen4_graph_reset(ds4_qwen4_gpu_graph *g) {
     g->snap_after_second = false;
 }
 
+/* engine option qwen4_rows_invariant (one engine per process) */
+static bool g_qwen4_rows_invariant;
+
 /* rows > 0 limits the product to a contiguous leading prefix of w. */
 static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_tensor *w,
                             const ds4_gpu_tensor *x, uint32_t n_tok, uint64_t rows) {
@@ -59158,6 +59162,24 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
                                            w->type, n_tok, (uint32_t)in_dim, (uint32_t)out_dim);
 #else
 
+    /* Row-invariant decode (engine option): up to 32 rows on the few-row
+     * matvec's fixed geometry, so each row's sum is the single-row sum; the
+     * other types run row by row. */
+    if (n_tok <= 32u && g_qwen4_rows_invariant) {
+        if ((w->type == DS4_TENSOR_Q8_0 || w->type == DS4_TENSOR_F16) && (in_dim % 128u) == 0)
+            rc = ds4_gpu_qwen4_matmul_rows_invariant_tensor(out, m->map, m->size, w->abs_offset, w->type,
+                                                           in_dim, out_dim, x, n_tok);
+        else if (n_tok >= 2u) {
+            rc = 1;
+            for (uint32_t r = 0; rc && r < n_tok; r++) {
+                ds4_gpu_tensor *xr = ds4_gpu_tensor_view(x, r * in_dim * sizeof(float), in_dim * sizeof(float));
+                ds4_gpu_tensor *orow = ds4_gpu_tensor_view(out, r * out_dim * sizeof(float), out_dim * sizeof(float));
+                rc = xr && orow && qwen4_gemv_rows(orow, m, w, xr, 1u, rows);
+                ds4_gpu_tensor_free(orow); ds4_gpu_tensor_free(xr);
+            }
+        }
+        if (rc) return true;
+    }
     /* Small F16 batches use float operands. Two/three-row verification and
      * large prefills retain their existing kernels. The legacy switch is an
      * arithmetic/performance control, not a user tuning option. */
@@ -71611,6 +71633,12 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->placement_ctx_hint = opt->placement_ctx_hint;
     e->placement_session_count_hint = opt->placement_session_count_hint;
     e->share_session_prefill_workspace = opt->share_session_prefill_workspace;
+    /* DS4_QWEN4_ROWS_INVARIANT=1 turns it on outside the server (tests, A/B) */
+    e->qwen4_rows_invariant = opt->qwen4_rows_invariant || getenv("DS4_QWEN4_ROWS_INVARIANT") != NULL;
+    g_qwen4_rows_invariant = e->qwen4_rows_invariant;
+#ifdef DS4_HAS_QWEN4_METAL
+    ds4_gpu_qwen4_set_rows_invariant(e->qwen4_rows_invariant);
+#endif
     ds4_acquire_instance_lock();
 
     if (opt->simulate_used_memory_bytes != 0 &&
@@ -75144,6 +75172,24 @@ static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, in
     return 0;
 }
 
+/* Draft acceptance.  Greedy decoding and opportunistic sampling keep a draft
+ * that is the target's argmax.  A row-invariant engine samples instead: the
+ * draft stands when it is the token the request's sampler draws from the
+ * row, and the draw is undone otherwise so the caller draws that same token.
+ * The committed tokens are then those of plain sampled decoding, whatever
+ * drafts the batch happened to carry. */
+static bool qwen4_draft_accepted(ds4_session *s, const float *row, int draft, float temperature,
+                                 int top_k, float top_p, float min_p, uint64_t *rng) {
+    if (!s->engine->qwen4_rows_invariant || !rng || temperature <= 0.0f)
+        return sample_argmax(row, DS4_N_VOCAB) == draft;
+    if (!s->sample_probs) s->sample_probs = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->sample_probs[0]));
+    const uint64_t saved = *rng;
+    if (sample_top_p_min_p(row, DS4_N_VOCAB, temperature, top_k, top_p, min_p, rng, s->sample_probs) == draft)
+        return true;
+    *rng = saved;
+    return false;
+}
+
 /* Draft depth policy for the Qwen3.8 cycle: DS4_QWEN4_MTP_DEPTH=2 or =3
  * forces a fixed depth (read per cycle so the A/B harnesses can switch it
  * per step); 0/auto, the default, drafts two tokens while the rolling
@@ -75195,13 +75241,18 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
     if (qwen4_session_replay_if_stale(s, err, errlen) != 0) return -1;
     const uint32_t pos = g->pos;
     const uint32_t V = DS4_N_VOCAB;
-    int depth = (exact_sampling && temperature > 0.0f) || getenv("DS4_QWEN4_NO_MTP_BATCH") != NULL
+    /* sampled acceptance draws one row at a time: exact and row-invariant
+     * sampling verify a single draft */
+    int depth = (temperature > 0.0f && (exact_sampling || e->qwen4_rows_invariant)) ||
+                getenv("DS4_QWEN4_NO_MTP_BATCH") != NULL
         ? 2 : qwen4_spec_depth(s);
     if (s->glm_mtp_have && first_token != s->glm_mtp_parent) s->glm_mtp_have = 0;
     /* a context copy overrides the MTP guesses (greedy only: sampled
      * decoding keeps the predictor's point-mass proposals) */
     bool copied = false;
-    const int copy_min = !(exact_sampling && temperature > 0.0f) ? qwen4_copy_min() : 0;
+    /* the batched cycle has no copies, so row-invariant serving drafts
+     * from the predictor alone */
+    const int copy_min = !(exact_sampling && temperature > 0.0f) && !e->qwen4_rows_invariant ? qwen4_copy_min() : 0;
     if (copy_min && s->glm_mtp_have) {
         int c[2];
         const int nc = qwen4_copy_propose(s, first_token, copy_min, c);
@@ -75291,7 +75342,8 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
     token_vec_push(&s->checkpoint, first_token);
     s->checkpoint_valid = true;
     s->mtp_draft_valid = false;
-    bool accept = sample_argmax(rows, V) == d || qwen4_spec_force_accept();
+    bool accept = qwen4_draft_accepted(s, rows, d, temperature, top_k, top_p, min_p,
+                                       exact_sampling ? NULL : rng) || qwen4_spec_force_accept();
     bool accept2 = false;
     if (deep) {
         accept2 = accept && (sample_argmax(rows + V, V) == d2 || qwen4_spec_force_accept());
@@ -80736,7 +80788,7 @@ static bool ds41_mixed_batch_supported(ds4_decode_item *items, int count,
         rows > DS4_TP_BATCH_MAX_ROWS - count || ds4_session_cancelled(prefill)) return false;
     ds4_decode_item combined[DS4_TP_BATCH_MAX_ROWS];
     for (int i = 0; i < rows; i++)
-        combined[i] = (ds4_decode_item){prefill, prompt->v[prefill->checkpoint.len + i]};
+        combined[i] = (ds4_decode_item){.session = prefill, .token = prompt->v[prefill->checkpoint.len + i]};
     for (int i = 0; i < count; i++) {
         if (ds4_session_cancelled(items[i].session)) return false;
         combined[rows + i] = items[i];
@@ -81109,7 +81161,9 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
             committed[i] = 1u;
             if (mem[i].n == 2u) {
                 s->qwen4_spec_cycles++;
-                const bool accept = sample_argmax(rows, V) == mem[i].tokens[1] || qwen4_spec_force_accept();
+                const bool accept = qwen4_draft_accepted(s, rows, mem[i].tokens[1], items[i].temperature,
+                                                         items[i].top_k, items[i].top_p, items[i].min_p,
+                                                         items[i].rng) || qwen4_spec_force_accept();
                 qwen4_spec_note_first_draft(s, accept);
                 n_draft++;
                 n_acc += accept;
@@ -81149,7 +81203,11 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
         }
         /* the next drafts, when the policy wants them: a session at its
          * context limit simply gets none */
-        bool room = qwen4_batch_spec_next(e) && getenv("DS4_QWEN4_NO_BATCH_DRAFT") == NULL;
+        /* row-invariant serving drafts every cycle: whether a row carried a
+         * draft must not depend on the timing of the batch (measured: the
+         * timed policy and context copies still let paired requests diverge) */
+        bool room = (e->qwen4_rows_invariant || qwen4_batch_spec_next(e)) &&
+                    getenv("DS4_QWEN4_NO_BATCH_DRAFT") == NULL;
         for (int i = 0; i < count; i++) {
             if (items[i].session->qwen4_graph.pos + 2u > items[i].session->qwen4_graph.ctx_cap) room = false;
         }
@@ -81186,8 +81244,12 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
     for (int i = 0; i < count; i++) {
         int toks[3];
         const int room = items[i].session->ctx_size - items[i].session->checkpoint.len;
-        const int n = ds4_session_eval_speculative_argmax(items[i].session, items[i].token, room < 2 ? room : 2, -1,
-                                                          toks, 2, err, errlen);
+        const int n = items[i].rng && items[i].temperature > 0.0f
+            ? ds4_session_eval_speculative(items[i].session, items[i].token, room < 2 ? room : 2, -1,
+                                           items[i].temperature, items[i].top_k, items[i].top_p,
+                                           items[i].min_p, items[i].rng, toks, 2, err, errlen)
+            : ds4_session_eval_speculative_argmax(items[i].session, items[i].token, room < 2 ? room : 2, -1,
+                                                  toks, 2, err, errlen);
         if (n <= 0) {
             for (int j = 0; j < count; j++) ds4_session_invalidate(items[j].session);
             return 1;

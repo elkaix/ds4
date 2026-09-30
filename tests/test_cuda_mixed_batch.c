@@ -248,8 +248,8 @@ int main(void) {
     const bool allow_fallback = getenv("DS4_TEST_ALLOW_FALLBACK") != NULL;
     bool all_native = true;
     for (int round = 0; round < rounds; round++) {
-        ds4_decode_item mixed_items[MAX_SESSION_COUNT];
-        ds4_decode_item control_items[MAX_SESSION_COUNT];
+        ds4_decode_item mixed_items[MAX_SESSION_COUNT] = {0};
+        ds4_decode_item control_items[MAX_SESSION_COUNT] = {0};
         for (int row = 0; row < session_count; row++) {
             const int i = (round & 1) != 0
                 ? session_count - 1 - row : row;
@@ -258,8 +258,8 @@ int main(void) {
             if (mixed_token != control_token) {
                 fail("pre-step argmax mismatch", NULL, i, round);
             }
-            mixed_items[row] = (ds4_decode_item){mixed[i], mixed_token};
-            control_items[row] = (ds4_decode_item){control[i], control_token};
+            mixed_items[row] = (ds4_decode_item){.session = mixed[i], .token = mixed_token};
+            control_items[row] = (ds4_decode_item){.session = control[i], .token = control_token};
         }
         ds4_tokens target = long_prompt;
         target.len = initial + (round + 1) * quantum;

@@ -2045,6 +2045,39 @@ static void test_mv_ext_groups(arena_t *a) {
     printf("few-row matvec simdgroup counts: Q8 and F16 verify-row shapes exact at 1/2/4/8 groups\n");
 }
 
+/* Row-invariant decode: each row of an n-row product is the product of that
+ * row alone, so speculative verify rows and batched sessions match
+ * single-token decode bit for bit. */
+static void test_rows_invariant(arena_t *a) {
+    const uint32_t T_list[] = {2u, 3u, 4u, 8u, 16u, 32u}, rows = 641u, in_dim = 2560u;
+    for (uint32_t wt = 0; wt < 2u; wt++) {
+        double *sh = NULL;
+        const uint32_t type = wt ? 1u : 8u;
+        const uint64_t off = wt ? arena_f16(a, (uint64_t)rows * in_dim, &sh, 0.05f)
+                                : arena_q8_0(a, rows, in_dim, &sh, 0.05f);
+        free(sh);
+        float *x = rand_vec((uint64_t)32u * in_dim, 1.0f);
+        float *one = malloc((uint64_t)32u * rows * sizeof(float)), *got = malloc((uint64_t)32u * rows * sizeof(float));
+        require_ok(one && got, "rows-invariant allocation");
+        ds4_gpu_tensor *gx = upload(x, (uint64_t)32u * in_dim), *go = upload(NULL, (uint64_t)32u * rows);
+        for (uint32_t r = 0; r < 32u; r++) {
+            ds4_gpu_tensor *xr = ds4_gpu_tensor_view(gx, (uint64_t)r * in_dim * sizeof(float), in_dim * sizeof(float));
+            require_ok(xr && ds4_gpu_qwen4_matmul_rows_invariant_tensor(go, a->base, a->size, off, type, in_dim, rows, xr, 1u) &&
+                       ds4_gpu_tensor_read(go, 0, one + (uint64_t)r * rows, rows * sizeof(float)), "rows-invariant single row");
+            ds4_gpu_tensor_free(xr);
+        }
+        for (uint32_t it = 0; it < sizeof(T_list) / sizeof(T_list[0]); it++) {
+            const uint32_t T = T_list[it];
+            require_ok(ds4_gpu_qwen4_matmul_rows_invariant_tensor(go, a->base, a->size, off, type, in_dim, rows, gx, T) &&
+                       ds4_gpu_tensor_read(go, 0, got, (uint64_t)T * rows * sizeof(float)), "rows-invariant batch");
+            check_exact_f32(wt ? "F16 rows-invariant rows" : "Q8 rows-invariant rows", got, one, (uint64_t)T * rows);
+        }
+        ds4_gpu_tensor_free(go); ds4_gpu_tensor_free(gx);
+        free(got); free(one); free(x);
+    }
+    printf("rows-invariant matvec: Q8 and F16 rows of 2..32-row products equal the single-row products\n");
+}
+
 #ifdef __APPLE__
 /* The grouped decode-batch kernels must reproduce the per-token kernels bit
  * for bit under heavy expert reuse (sixteen rows over eight experts). */
@@ -3600,6 +3633,7 @@ int main(void) {
     test_qwen4_argmax();
     test_hc_pair_groups(&arena);
     test_mv_ext_groups(&arena);
+    test_rows_invariant(&arena);
 #ifdef __APPLE__
     test_moe_grouped(&arena);
 #endif

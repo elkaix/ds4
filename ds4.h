@@ -168,6 +168,11 @@ typedef struct {
     int placement_session_count_hint;
     /* Server batch mode serializes execution and can share prefill scratch. */
     bool share_session_prefill_workspace;
+    /* Qwen3.8: decode rows use one arithmetic whatever the batch shape, and
+     * the speculative schedule follows only the tokens, so a request's output
+     * does not depend on the sessions batched with it (servers with more than
+     * one resident session). */
+    bool qwen4_rows_invariant;
     bool first_token_test;
     bool metal_graph_test;
     bool load_slice;
@@ -520,6 +525,13 @@ int ds4_session_eval(ds4_session *s, int token, char *err, size_t errlen);
 typedef struct {
     ds4_session *session;
     int token;
+    /* The request's sampler, for the speculative batch: on a row-invariant
+     * engine a sampled request (rng set, temperature > 0) keeps a draft only
+     * when it is the token this sampler draws. */
+    float temperature;
+    int top_k;
+    float top_p, min_p;
+    uint64_t *rng;
 } ds4_decode_item;
 
 /* Advance independent sessions by one token each. Batch size one is exactly

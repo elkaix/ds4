@@ -355,7 +355,7 @@ int main(void) {
                                           session_count / 4 > 1
                                               ? session_count / 4 : 2;
         for (int base = 0; base < session_count; base += group) {
-            ds4_decode_item items[MAX_SESSION_COUNT];
+            ds4_decode_item items[MAX_SESSION_COUNT] = {0};
             const int rows = group < session_count - base
                 ? group : session_count - base;
             for (int row = 0; row < rows; row++) {

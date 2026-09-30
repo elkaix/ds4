@@ -10223,6 +10223,11 @@ struct server_slot {
     bool decode_done;
     int decode_token;
     bool decode_speculative;
+    /* the request's sampler for the speculative batch (rng NULL: argmax) */
+    float decode_temperature;
+    int decode_top_k;
+    float decode_top_p, decode_min_p;
+    uint64_t *decode_rng;
     int decode_accepted[2];
     int decode_accepted_count;
     int decode_rc;
@@ -12676,6 +12681,10 @@ static void server_prefill_leave(server *s) {
 static int server_prefill_quantum_for(const server *s,
                                       bool generation_active) {
     int quantum = generation_active ? s->mixed_prefill_quantum : 2048;
+    /* Qwen row-invariant serving: the slices must not depend on whether
+     * another session happens to be generating, or the same prompt would be
+     * prefilled in differently shaped chunks and give different logits. */
+    if (s->engine && ds4_engine_is_qwen4(s->engine) && s->slot_count > 1) quantum = 2048;
     if (generation_active && quantum < 1024 && s->engine &&
         ds4_engine_is_glm53(s->engine)) {
         quantum = 1024;
@@ -13640,7 +13649,9 @@ static bool server_cancel_pending_decode_locked(server *s, server_slot *slot) {
 }
 
 static int server_eval_tokens(server *s, server_slot *slot, int token,
-                              bool speculative, int accepted[2], int *n_accepted,
+                              bool speculative, float temperature, int top_k,
+                              float top_p, float min_p, uint64_t *rng,
+                              int accepted[2], int *n_accepted,
                               char *err, size_t errlen) {
     *n_accepted = 0;
     if (!s || !slot) return 1;
@@ -13673,6 +13684,11 @@ static int server_eval_tokens(server *s, server_slot *slot, int token,
     }
     slot->decode_token = token;
     slot->decode_speculative = speculative;
+    slot->decode_temperature = temperature;
+    slot->decode_top_k = top_k;
+    slot->decode_top_p = top_p;
+    slot->decode_min_p = min_p;
+    slot->decode_rng = rng;
     slot->decode_accepted_count = 0;
     slot->decode_rc = 1;
     slot->decode_err[0] = '\0';
@@ -13714,7 +13730,7 @@ static int server_eval_tokens(server *s, server_slot *slot, int token,
 static int server_eval_token(server *s, server_slot *slot, int token,
                              char *err, size_t errlen) {
     int accepted[2], count;
-    return server_eval_tokens(s, slot, token, false, accepted, &count, err, errlen);
+    return server_eval_tokens(s, slot, token, false, 0.0f, 0, 0.0f, 0.0f, NULL, accepted, &count, err, errlen);
 }
 
 static long server_decode_coalesce_us(void) {
@@ -13783,6 +13799,11 @@ static void *decode_worker_main(void *arg) {
                 members[count] = slot;
                 items[count].session = slot->session;
                 items[count].token = slot->decode_token;
+                items[count].temperature = slot->decode_temperature;
+                items[count].top_k = slot->decode_top_k;
+                items[count].top_p = slot->decode_top_p;
+                items[count].min_p = slot->decode_min_p;
+                items[count].rng = slot->decode_rng;
                 count++;
             }
             if (!speculative) plain_count = count;
@@ -14531,7 +14552,8 @@ decode_again:
                    max_tokens - completion >= 2 && !j->req.ignore_eos &&
                    (!ds4_engine_mtp_exact_sampling(s->engine) || temperature == 0.0f) &&
                    getenv("DS4_MTP_SPEC_DISABLE") == NULL) {
-            if (server_eval_tokens(s, slot, token, true, toks, &ntok, err, sizeof(err)) != 0) {
+            if (server_eval_tokens(s, slot, token, true, temperature, top_k, top_p, min_p, &rng,
+                                   toks, &ntok, err, sizeof(err)) != 0) {
                 finish = "error";
                 break;
             }
@@ -16744,6 +16766,7 @@ int main(int argc, char **argv) {
     cfg.engine.placement_session_count_hint =
         cfg.batched_sessions > 0 ? cfg.batched_sessions : 1;
     cfg.engine.share_session_prefill_workspace = cfg.batched_sessions > 0;
+    cfg.engine.qwen4_rows_invariant = cfg.batched_sessions > 1;
     ds4_engine *engine = NULL;
     if (cfg.gpu_vram_arg || cfg.gpu_devices_arg) {
         ds4_gpu_config gpu_cfg = {0};
