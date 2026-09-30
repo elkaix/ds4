@@ -4032,6 +4032,9 @@ kernel void kernel_qwen4_moe_mm_mid_nax_t(
         device const char *grow = gbase + (uint64_t)(row0 + min(ar, args.out_rows - 1u)) * args.row_bytes;
         device const char *urow = ubase + (uint64_t)(row0 + min(ar, args.out_rows - 1u)) * args.row_bytes;
         qwen4_raw16 rg = qwen4_load_raw16(grow, 0, aq * 2, type), ru = qwen4_load_raw16(urow, 0, aq * 2, type);
+        uint4 bpre[NB];
+#pragma unroll
+        for (int b = 0; b < NB; b++) bpre[b] = is_same<XT, half>::value && xr[b] ? *(device const uint4 *)xr[b] : uint4(0u);
         for (uint kb = 0; kb < nk; kb++) {
             {
                 threadgroup half *dg = Ag + ar * NK + aq * 16;
@@ -4062,6 +4065,11 @@ kernel void kernel_qwen4_moe_mm_mid_nax_t(
                         *(threadgroup uint2 *)rdst[b] = uint2(0u);
                         *(threadgroup uint2 *)(rdst[b] + 4) = uint2(0u);
                     }
+                } else if constexpr (is_same<XT, half>::value) {
+                    /* the next K step's slice is loaded here and stays in
+                     * flight through the barrier and the matmul */
+                    *(threadgroup uint4 *)bdst[b] = bpre[b];
+                    if (kb + 1 < nk) bpre[b] = xr[b] ? *(device const uint4 *)(xr[b] + (kb + 1) * NK) : uint4(0u);
                 } else {
                     qwen4_nax_stage8(bdst[b], xr[b] ? xr[b] + kb * NK : (device const XT *)0);
                 }
@@ -4187,6 +4195,9 @@ kernel void kernel_qwen4_moe_mm_down_nax_t(
         const bool a_row = row0 + ar < args.out_rows;
         device const char *drow = dbase + (uint64_t)(row0 + min(ar, args.out_rows - 1u)) * args.row_bytes;
         qwen4_raw16 rd = qwen4_load_raw16(drow, 0, aq * 2, type);
+        uint4 bpre[NB];
+#pragma unroll
+        for (int b = 0; b < NB; b++) bpre[b] = is_same<XT, half>::value && mr[b] ? *(device const uint4 *)mr[b] : uint4(0u);
         for (uint kb = 0; kb < nk; kb++) {
             {
                 threadgroup half *dd = As + ar * NK + aq * 16;
@@ -4200,6 +4211,11 @@ kernel void kernel_qwen4_moe_mm_down_nax_t(
                     /* stage the half operand and its residual separately */
                     *(threadgroup uint4 *)bdst[b] = mr[b] ? *(device const uint4 *)(mr[b] + kb * NK) : uint4(0u);
                     *(threadgroup uint4 *)rdst[b] = rr[b] ? *(device const uint4 *)(rr[b] + kb * NK) : uint4(0u);
+                } else if constexpr (is_same<XT, half>::value) {
+                    /* the next K step's slice is loaded here and stays in
+                     * flight through the barrier and the matmul */
+                    *(threadgroup uint4 *)bdst[b] = bpre[b];
+                    if (kb + 1 < nk) bpre[b] = mr[b] ? *(device const uint4 *)(mr[b] + (kb + 1) * NK) : uint4(0u);
                 } else {
                     qwen4_nax_stage8(bdst[b], mr[b] ? mr[b] + kb * NK : (device const XT *)0);
                 }
