@@ -3496,11 +3496,12 @@ static void test_batch_mm_q8(arena_t *a, uint32_t in_dim, uint32_t rows, uint32_
 
 #endif
 
-/* dense tiled GEMM against a double reference for f32, f16 and q8_0 rows */
+/* dense tiled GEMM against a double reference for f32, f16, bf16 and q8_0 rows */
 static void test_dense_mm(arena_t *a, uint32_t in_dim, uint32_t rows, uint32_t T, uint32_t wtype) {
     double *sh;
     uint64_t off = wtype == 8u ? arena_q8_0(a, rows, in_dim, &sh, 0.05f)
                  : wtype == 1u ? arena_f16(a, (uint64_t)rows * in_dim, &sh, 0.05f)
+                 : wtype == 30u ? arena_bf16(a, (uint64_t)rows * in_dim, &sh, 0.05f)
                                : arena_f32(a, (uint64_t)rows * in_dim, &sh, -0.05f, 0.05f);
     float *x = rand_vec((uint64_t)T * in_dim, 1.0f);
     double *ref = malloc((uint64_t)T * rows * sizeof(double));
@@ -3713,6 +3714,8 @@ int main(void) {
     test_dense_mm(&arena, 10240, 320, 33, 1u);
     test_dense_mm(&arena, 320, 10240, 40, 1u);
     test_dense_mm(&arena, 2560, 100, 9, 8u);
+    test_dense_mm(&arena, 2560, 4096, 37, 30u);
+    test_dense_mm(&arena, 96, 129, 35, 30u);
 #ifndef __APPLE__
     test_half_expert_tiles(&arena,33,16,10,64);
     test_half_expert_tiles(&arena,2049,16,10,64);

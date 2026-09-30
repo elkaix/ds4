@@ -59244,6 +59244,16 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
     case DS4_TENSOR_F32:  rc = ds4_gpu_matmul_f32_tensor(out, m->map, m->size, w->abs_offset, in_dim, out_dim, x, n_tok); break;
     case DS4_TENSOR_Q4_0: rc = ds4_gpu_matmul_quant_tensor(out, m->map, m->size, w->abs_offset, w->type, in_dim, out_dim, x, n_tok); break;
     case DS4_TENSOR_BF16: {
+        /* prefill batches (the QSA indexer projections) take the float
+         * tiles, bf16 widened exactly; DS4_QWEN4_BF16_GEMV=1 keeps the
+         * per-row matvec */
+        static int bf16_gemv = -1;
+        if (bf16_gemv < 0) bf16_gemv = getenv("DS4_QWEN4_BF16_GEMV") != NULL;
+        if (n_tok > 8u && !bf16_gemv && (in_dim % 8u) == 0 && in_dim <= UINT32_MAX && out_dim <= UINT32_MAX) {
+            rc = ds4_gpu_qwen4_dense_mm_tensor(out, x, m->map, m->size, w->abs_offset, w->type, n_tok,
+                                               (uint32_t)in_dim, (uint32_t)out_dim);
+            if (rc) break;
+        }
         ds4_gpu_tensor *outs[1] = { out };
         const uint64_t offs[1] = { w->abs_offset };
         const uint32_t types[1] = { w->type };

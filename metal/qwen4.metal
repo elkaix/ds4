@@ -4279,6 +4279,10 @@ static inline void qwen4_dm_stage8(device const char *row, uint k0, uint k_end, 
     } else if (type == 1) {
         device const half *w = (device const half *)row + k0;
         for (uint i = 0; i < 8; i++) dst[i] = k0 + i < k_end ? (float)w[i] : 0.0f;
+    } else if (type == 30) {
+        /* bf16 widens to float exactly */
+        device const ushort *w = (device const ushort *)row + k0;
+        for (uint i = 0; i < 8; i++) dst[i] = k0 + i < k_end ? as_type<float>((uint)w[i] << 16) : 0.0f;
     } else {
         device const float *w = (device const float *)row + k0;
         for (uint i = 0; i < 8; i++) dst[i] = k0 + i < k_end ? w[i] : 0.0f;
