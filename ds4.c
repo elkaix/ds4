@@ -86658,8 +86658,9 @@ void ds4_session_invalidate(ds4_session *s) {
 #if !defined(DS4_NO_GPU) && defined(DS4_HAS_QWEN4_GPU)
 /* The verify snapshot that restores Qwen3.8 recurrent state at pos, as the
  * verify-logits row it pairs with: the verified block's row-0 state (0), its
- * row-1 state under depth 3 (1), or the pre-verify start kept for
- * exact-sampling resample rewinds (3); -1 when none matches. */
+ * row-1 state under depth 3 (1), its row-2 state under a 4-row copy verify
+ * (2), or the pre-verify start kept for exact-sampling resample rewinds
+ * (QWEN4_SNAP0_ROW); -1 when none matches. */
 static int qwen4_rewind_snapshot_row(const ds4_session *s, int pos) {
     const ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
     if (!s->qwen4_verify_logits) return -1;
