@@ -50208,8 +50208,11 @@ int ds4_gpu_qwen4_hc_norm_tensor(
         if (reuse_env != NULL && strcmp(reuse_env, "1") == 0) {
             reuse = true;
         } else if (reuse_env == NULL || strcmp(reuse_env, "0") != 0) {
-            reuse = n_tokens >= 8192u && n_embd == 2560u && n_hc == 4u && n_inject == 4u &&
-                    (ds4_gpu_device_name_contains("M3 Ultra") || ds4_gpu_device_is_m5_apple_silicon());
+            /* M5: from 4096-row chunks (byte-exact, HC norm 166 -> 108 ms per
+             * 4096-row chunk at 16K); chunk 2048 measured flat. */
+            reuse = n_embd == 2560u && n_hc == 4u && n_inject == 4u &&
+                    ((n_tokens >= 8192u && ds4_gpu_device_name_contains("M3 Ultra")) ||
+                     (n_tokens >= 4096u && ds4_gpu_device_is_m5_apple_silicon()));
         }
     }
     const int kernel = reuse
