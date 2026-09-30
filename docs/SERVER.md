@@ -49,6 +49,11 @@ requires `--ctx >= 393216`; smaller contexts fall back to normal thinking.
 V4.1 and the GLM/Qwen families honor the requested effort at any context.
 `xhigh` maps to normal thinking, not Think Max. Use `think:false`, a disabled
 thinking object, or a non-thinking model alias for direct answers.
+For GLM 5.3 (Flash and Full), `reasoning_effort=low` (or `minimal`) renders
+`Reasoning Effort: Low` as its chat template does; `max` renders Max, with the
+same context requirement, and every other level renders High. ds4 checks the
+GGUF's embedded chat template for low support when it loads the model, so GLM 5.2,
+whose template has no low, keeps rendering low as High.
 
 On `/v1/messages`, a reasoning request whose real decode budget, the smaller of
 `max_tokens` and the context room left after the prompt, is at most
