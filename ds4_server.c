@@ -50,6 +50,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
@@ -10332,6 +10333,38 @@ static void server_image_cache_put(server_image_cache *cache,
 static bool id_list_contains(const stop_list *ids, const char *id);
 static void id_list_push_unique(stop_list *ids, const char *id);
 
+/* Startup check of the KV disk cache, shown as /stats kv_disk.warnings and the
+ * dashboard banner.  Computed once after the store opens; immutable after. */
+#define KV_CHECK_MAX_WARN 8
+#define KV_CHECK_DEFAULT_MIN_FREE_GB 150.0
+#define KV_CHECK_REPORT_STALE_S (2.0 * 24.0 * 60.0 * 60.0)
+#define KV_CHECK_REPORT_MAX_BYTES (1u << 20)
+
+typedef struct {
+    const char *code;
+    const char *level; /* "warn" or "info" */
+    char message[240];
+} kv_check_warning;
+
+typedef struct {
+    bool done;
+    uint64_t used_bytes;
+    uint64_t budget_bytes;
+    uint64_t disk_free_bytes;
+    uint64_t other_dirs_bytes; /* other model dirs, from the cleaner report */
+    int files;
+    const char *report_path;   /* DS4_KV_CLEAN_REPORT; NULL when unset */
+    bool report_read;
+    bool report_dry_run;
+    double report_time;
+    double report_freed_bytes;
+    double report_min_free_gb;
+    int report_files_deleted;
+    int report_error_count;
+    kv_check_warning warn[KV_CHECK_MAX_WARN];
+    int n_warn;
+} kv_startup_check;
+
 struct server {
     ds4_engine *engine;
     ds4_tp *tp_leader;
@@ -10343,6 +10376,7 @@ struct server {
     pthread_t decode_thread;
     int default_tokens;
     kv_disk_cache kv;
+    kv_startup_check kv_check;
     tool_memory tool_mem;
     server_image_cache image_cache; /* Protected by inference_mu. */
     bool disable_exact_dsml_tool_replay;
@@ -11394,6 +11428,220 @@ static bool kv_cache_open(kv_disk_cache *kc, const char *dir, uint64_t budget_mb
 
 static void kv_cache_close(kv_disk_cache *kc) {
     ds4_kvstore_close(kc);
+}
+
+static void kv_check_add(kv_startup_check *c, const char *code, const char *level,
+                         const char *fmt, ...) {
+    if (c->n_warn >= KV_CHECK_MAX_WARN) return;
+    kv_check_warning *w = &c->warn[c->n_warn++];
+    w->code = code;
+    w->level = level;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(w->message, sizeof(w->message), fmt, ap);
+    va_end(ap);
+}
+
+/* Steps through one JSON object: consumes the opening '{' or a ',', then the
+ * next key and its ':'.  Returns false at the closing '}' or on bad input. */
+static bool kv_check_next_key(const char **p, char **key) {
+    json_ws(p);
+    if (**p == '{' || **p == ',') (*p)++;
+    json_ws(p);
+    if (**p == '}') {
+        (*p)++;
+        return false;
+    }
+    if (!json_string(p, key)) return false;
+    json_ws(p);
+    if (**p != ':') {
+        free(*key);
+        *key = NULL;
+        return false;
+    }
+    (*p)++;
+    return true;
+}
+
+/* Reads scripts/ds4-kv-clean's summary (kv-clean-last.json).  per_dir bytes of
+ * every dir except own_name add up to other_dirs_bytes. */
+static bool kv_check_parse_report(kv_startup_check *c, const char *json,
+                                  const char *own_name) {
+    const char *p = json;
+    json_ws(&p);
+    if (*p != '{') return false;
+    bool ok = true;
+    char *key = NULL;
+    while (ok && kv_check_next_key(&p, &key)) {
+        if (!strcmp(key, "time")) ok = json_number(&p, &c->report_time);
+        else if (!strcmp(key, "freed_bytes")) ok = json_number(&p, &c->report_freed_bytes);
+        else if (!strcmp(key, "min_free_gb")) ok = json_number(&p, &c->report_min_free_gb);
+        else if (!strcmp(key, "files_deleted")) ok = json_int(&p, &c->report_files_deleted);
+        else if (!strcmp(key, "error_count")) ok = json_int(&p, &c->report_error_count);
+        else if (!strcmp(key, "dry_run")) ok = json_bool(&p, &c->report_dry_run);
+        else if (!strcmp(key, "per_dir")) {
+            json_ws(&p);
+            char *name = NULL;
+            if (*p != '{') ok = json_skip_value(&p);
+            else while (ok && kv_check_next_key(&p, &name)) {
+                json_ws(&p);
+                char *field = NULL;
+                if (*p != '{') ok = json_skip_value(&p);
+                else while (ok && kv_check_next_key(&p, &field)) {
+                    double v = 0.0;
+                    if (!strcmp(field, "bytes")) {
+                        ok = json_number(&p, &v);
+                        if (ok && v > 0.0 && strcmp(name, own_name))
+                            c->other_dirs_bytes += (uint64_t)v;
+                    } else {
+                        ok = json_skip_value(&p);
+                    }
+                    free(field);
+                    field = NULL;
+                }
+                free(name);
+                name = NULL;
+            }
+        } else {
+            ok = json_skip_value(&p);
+        }
+        free(key);
+        key = NULL;
+    }
+    return ok && c->report_time > 0.0;
+}
+
+static void kv_check_evaluate(kv_startup_check *c, double now) {
+    const double gib = 1024.0 * 1024.0 * 1024.0;
+    const double used = (double)c->used_bytes / gib;
+    const double budget = (double)c->budget_bytes / gib;
+    const double free_gib = (double)c->disk_free_bytes / gib;
+    const uint64_t headroom =
+        c->budget_bytes > c->used_bytes ? c->budget_bytes - c->used_bytes : 0;
+    c->n_warn = 0;
+    if (c->budget_bytes && c->used_bytes > c->budget_bytes) {
+        kv_check_add(c, "kv-over-budget", "warn",
+                     "KV cache holds %.1f GiB in %d files, over its %.1f GiB budget",
+                     used, c->files, budget);
+    } else if (c->budget_bytes && c->used_bytes > c->budget_bytes / 10 * 9) {
+        kv_check_add(c, "kv-near-budget", "info",
+                     "KV cache is %.0f%% of its %.1f GiB budget (%d files); the server evicts the least useful checkpoints",
+                     100.0 * used / budget, budget, c->files);
+    }
+    if (c->disk_free_bytes < headroom ||
+        free_gib < c->report_min_free_gb) {
+        kv_check_add(c, "disk-low", "warn",
+                     "%.0f GiB free on the KV volume (cache may still grow %.1f GiB; cleaner target %.0f GiB free)",
+                     free_gib, (double)headroom / gib, c->report_min_free_gb);
+    }
+    if (c->budget_bytes && c->other_dirs_bytes > c->budget_bytes) {
+        kv_check_add(c, "kv-other-dirs-large", "warn",
+                     "other model KV dirs hold %.1f GiB, more than this server's %.1f GiB budget; run scripts/ds4-kv-clean",
+                     (double)c->other_dirs_bytes / gib, budget);
+    }
+    if (!c->report_path) return;
+    if (!c->report_read) {
+        kv_check_add(c, "kv-clean-missing", "info",
+                     "KV cleaner report %s is missing or unreadable", c->report_path);
+        return;
+    }
+    if (c->report_error_count > 0) {
+        kv_check_add(c, "kv-clean-failed", "warn",
+                     "last KV clean reported %d error(s); see ~/.ds4/kv-clean.log",
+                     c->report_error_count);
+    }
+    if (now - c->report_time > KV_CHECK_REPORT_STALE_S) {
+        kv_check_add(c, "kv-clean-stale", "info", "last KV clean ran %.1f days ago",
+                     (now - c->report_time) / 86400.0);
+    } else if (c->report_freed_bytes > 0.0) {
+        kv_check_add(c, "kv-clean-freed", "info", "KV clean %s %.2f GiB (%d files)",
+                     c->report_dry_run ? "would free" : "freed",
+                     c->report_freed_bytes / gib, c->report_files_deleted);
+    }
+}
+
+static void kv_check_append_json(buf *out, const kv_startup_check *c) {
+    buf_puts(out, ",\"warnings\":[");
+    for (int i = 0; i < c->n_warn; i++) {
+        buf_puts(out, i ? ",{\"code\":" : "{\"code\":");
+        json_escape(out, c->warn[i].code);
+        buf_puts(out, ",\"level\":");
+        json_escape(out, c->warn[i].level);
+        buf_puts(out, ",\"message\":");
+        json_escape(out, c->warn[i].message);
+        buf_puts(out, "}");
+    }
+    buf_puts(out, "]");
+    if (!c->done) return;
+    buf_printf(out,
+               ",\"startup_check\":{\"used_bytes\":%llu,\"budget_bytes\":%llu,\"files\":%d,"
+               "\"disk_free_bytes\":%llu,\"other_dirs_bytes\":%llu,\"clean_report\":",
+               (unsigned long long)c->used_bytes, (unsigned long long)c->budget_bytes,
+               c->files, (unsigned long long)c->disk_free_bytes,
+               (unsigned long long)c->other_dirs_bytes);
+    if (!c->report_read) {
+        buf_puts(out, "null}");
+        return;
+    }
+    buf_printf(out,
+               "{\"time\":%.0f,\"dry_run\":%s,\"freed_bytes\":%.0f,"
+               "\"files_deleted\":%d,\"error_count\":%d}}",
+               c->report_time, c->report_dry_run ? "true" : "false",
+               c->report_freed_bytes, c->report_files_deleted, c->report_error_count);
+}
+
+static char *kv_check_read_file(const char *path, size_t max_bytes) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    char *data = xmalloc(max_bytes + 1);
+    size_t n = fread(data, 1, max_bytes, fp);
+    fclose(fp);
+    data[n] = '\0';
+    return data;
+}
+
+/* One dir scan's worth of work: the store already listed its own dir when it
+ * opened (ds4_kvstore_open evicts to budget, which rescans). */
+static void kv_check_run(server *s, const char *report_path) {
+    kv_startup_check *c = &s->kv_check;
+    memset(c, 0, sizeof(*c));
+    c->report_min_free_gb = KV_CHECK_DEFAULT_MIN_FREE_GB;
+    c->report_path = report_path && report_path[0] ? report_path : NULL;
+    pthread_mutex_lock(&s->kv_mu);
+    if (!s->kv.enabled || !s->kv.dir) {
+        pthread_mutex_unlock(&s->kv_mu);
+        return;
+    }
+    c->budget_bytes = s->kv.budget_bytes;
+    c->files = s->kv.len;
+    for (int i = 0; i < s->kv.len; i++) c->used_bytes += s->kv.entry[i].file_size;
+    char *dir = xstrdup(s->kv.dir);
+    pthread_mutex_unlock(&s->kv_mu);
+
+    struct statvfs vfs;
+    if (statvfs(dir, &vfs) == 0)
+        c->disk_free_bytes = (uint64_t)vfs.f_bavail * (uint64_t)vfs.f_frsize;
+    if (c->report_path) {
+        char *json = kv_check_read_file(c->report_path, KV_CHECK_REPORT_MAX_BYTES);
+        if (json) {
+            size_t n = strlen(dir);
+            while (n > 1 && dir[n - 1] == '/') dir[--n] = '\0';
+            const char *slash = strrchr(dir, '/');
+            c->report_read = kv_check_parse_report(c, json, slash ? slash + 1 : dir);
+            free(json);
+        }
+    }
+    kv_check_evaluate(c, (double)time(NULL));
+    c->done = true;
+    for (int i = 0; i < c->n_warn; i++) {
+        server_log(strcmp(c->warn[i].level, "warn") ? DS4_LOG_DEFAULT : DS4_LOG_WARNING,
+                   "ds4-server: kv check [%s] %s", c->warn[i].code, c->warn[i].message);
+    }
+    if (c->n_warn == 0)
+        server_log(DS4_LOG_DEFAULT, "ds4-server: kv check ok (%.1f / %.1f GiB, %d files)",
+                   (double)c->used_bytes / (1024.0 * 1024.0 * 1024.0),
+                   (double)c->budget_bytes / (1024.0 * 1024.0 * 1024.0), c->files);
+    free(dir);
 }
 
 static char *render_tokens_text(ds4_engine *engine, const ds4_tokens *tokens, size_t *out_len) {
@@ -15734,9 +15982,11 @@ static void format_stats_json(server *s, buf *out) {
     buf_puts(out, kv_enabled ? "true" : "false");
     buf_puts(out, ",\"dir\":");
     json_escape(out, kv_dir ? kv_dir : "");
-    buf_printf(out, ",\"used_mb\":%.1f,\"budget_mb\":%.1f,\"files\":%d}",
+    buf_printf(out, ",\"used_mb\":%.1f,\"budget_mb\":%.1f,\"files\":%d",
                (double)kv_used / (1024.0 * 1024.0),
                (double)kv_budget / (1024.0 * 1024.0), kv_files);
+    kv_check_append_json(out, &s->kv_check); /* immutable after startup */
+    buf_puts(out, "}");
     free(kv_dir);
     buf_printf(out,
         ",\"uptime_s\":%.0f,"
@@ -16970,6 +17220,7 @@ int main(int argc, char **argv) {
     if (cfg.kv_disk_dir) {
         kv_cache_open(&s.kv, cfg.kv_disk_dir, cfg.kv_disk_space_mb,
                       cfg.kv_cache_reject_different_quant, cfg.kv_cache);
+        kv_check_run(&s, getenv("DS4_KV_CLEAN_REPORT"));
     }
     if (s.disable_exact_dsml_tool_replay) {
         server_log(DS4_LOG_DEFAULT,
@@ -24639,6 +24890,7 @@ static void test_stats_json_recent_and_totals(void) {
     TEST_ASSERT(strstr(json, "\"last_decode_tps\"") != NULL);
     TEST_ASSERT(strstr(json, "\"cache\":{\"hits\":1,\"cold\":1}") != NULL);
     TEST_ASSERT(strstr(json, "\"kv_disk\"") != NULL);
+    TEST_ASSERT(strstr(json, "\"files\":0,\"warnings\":[]}") != NULL);
     TEST_ASSERT(strstr(json, "\"queue_depth\"") != NULL);
     TEST_ASSERT(strstr(json, "\"clients\"") != NULL);
     TEST_ASSERT(strstr(json, "\"live_tokens\"") != NULL);
@@ -24649,7 +24901,76 @@ static void test_stats_json_recent_and_totals(void) {
     pthread_mutex_destroy(&s.inference_mu);
 }
 
+static void test_kv_startup_check(void) {
+    const uint64_t gib = 1024ull * 1024ull * 1024ull;
+    const double now = 2000000000.0;
+    kv_startup_check c;
+    memset(&c, 0, sizeof(c));
+    c.report_min_free_gb = KV_CHECK_DEFAULT_MIN_FREE_GB;
+    c.report_path = "kv-clean-last.json";
+    c.budget_bytes = 100 * gib;
+    c.used_bytes = 120 * gib;
+    c.files = 3;
+    c.disk_free_bytes = 500 * gib;
+    const char *report =
+        "{\"time\": 1999999000, \"dry_run\": false, \"root\": \"/x\","
+        " \"freed_bytes\": 1073741824, \"files_deleted\": 2, \"min_free_gb\": 150,"
+        " \"per_dir\": {\"own\": {\"bytes\": 5, \"files\": 1, \"live\": false},"
+        " \"other\": {\"bytes\": 214748364800, \"files\": 9, \"referenced\": true}, \"empty\": {}},"
+        " \"warnings\": [{\"code\": \"orphan-dir\", \"message\": \"m\"}],"
+        " \"error_count\": 1, \"errors\": [\"e\"]}";
+    TEST_ASSERT(kv_check_parse_report(&c, report, "own"));
+    c.report_read = true;
+    TEST_ASSERT(c.other_dirs_bytes == 200 * gib);
+    TEST_ASSERT(c.report_files_deleted == 2 && c.report_error_count == 1);
+    kv_check_evaluate(&c, now);
+    c.done = true;
+    buf out = {0};
+    kv_check_append_json(&out, &c);
+    TEST_ASSERT(out.ptr != NULL);
+    TEST_ASSERT(strstr(out.ptr, ",\"warnings\":[{") == out.ptr);
+    TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-over-budget\",\"level\":\"warn\",\"message\":") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"kv-other-dirs-large\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"kv-clean-failed\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-clean-freed\",\"level\":\"info\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"kv-near-budget\"") == NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"disk-low\"") == NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"startup_check\":{\"used_bytes\":128849018880,") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"clean_report\":{\"time\":1999999000,") != NULL);
+    buf_free(&out);
+
+    /* Healthy cache, no report configured: empty warnings. */
+    memset(&c, 0, sizeof(c));
+    c.report_min_free_gb = KV_CHECK_DEFAULT_MIN_FREE_GB;
+    c.budget_bytes = 100 * gib;
+    c.used_bytes = 10 * gib;
+    c.disk_free_bytes = 500 * gib;
+    kv_check_evaluate(&c, now);
+    c.done = true;
+    kv_check_append_json(&out, &c);
+    TEST_ASSERT(strstr(out.ptr, ",\"warnings\":[],\"startup_check\":{") == out.ptr);
+    TEST_ASSERT(strstr(out.ptr, "\"clean_report\":null}") != NULL);
+    buf_free(&out);
+
+    /* Full cache on a tight disk; malformed report. */
+    memset(&c, 0, sizeof(c));
+    c.report_min_free_gb = KV_CHECK_DEFAULT_MIN_FREE_GB;
+    c.report_path = "kv-clean-last.json";
+    c.budget_bytes = 100 * gib;
+    c.used_bytes = 95 * gib;
+    c.disk_free_bytes = 2 * gib;
+    TEST_ASSERT(!kv_check_parse_report(&c, "{\"time\": [", "own"));
+    kv_check_evaluate(&c, now);
+    kv_check_append_json(&out, &c);
+    TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-near-budget\",\"level\":\"info\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "{\"code\":\"disk-low\",\"level\":\"warn\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"kv-clean-missing\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "startup_check") == NULL);
+    buf_free(&out);
+}
+
 static void ds4_server_unit_tests_run(void) {
+    test_kv_startup_check();
     test_deepseek41_server_stream();
     test_deepseek41_server_tools();
     test_deepseek41_anthropic_results();
