@@ -594,7 +594,7 @@ void ds4_kvstore_evict(ds4_kvstore *kc, const ds4_tokens *live,
         ds4_kvstore_entry e = kc->entry[victim];
         if (unlink(e.path) == 0) {
             kv_logf(kc, DS4_KVSTORE_LOG_KVCACHE,
-                    "%s: kv cache evicted reason=disk-cache-full tokens=%u hits=%u size=%.2f MiB file=%s",
+                    "%s: kv cache evicted reason=budget-full tokens=%u hits=%u size=%.2f MiB file=%s",
                     kv_log_name(kc),
                     e.tokens,
                     e.hits,

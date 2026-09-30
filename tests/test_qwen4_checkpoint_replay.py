@@ -189,7 +189,7 @@ def main():
     assert "KV payload staging failed" not in logtext, logpath
     assert "session has no valid checkpoint to stage" not in logtext, logpath
     assert logtext.count("reason=continued") >= 9, logpath
-    assert "kv cache evicted reason=disk-cache-full" in logtext, logpath
+    assert "kv cache evicted reason=budget-full" in logtext, logpath
     assert "reason=evict" in logtext, logpath
     print("Artifacts:", out, "cache:", cache, flush=True)
 

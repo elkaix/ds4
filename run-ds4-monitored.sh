@@ -647,8 +647,10 @@ while server_alive():
     cache_percent = used_bytes * 100 / budget_bytes
     free_gib = disk_free() / (1024 ** 3)
     warnings = []
-    if cache_percent >= 90:
-        warnings.append("kv-cache-near-full")
+    # Eviction keeps the cache at its budget by design; only a disk that
+    # cannot hold the rest of the budget is worth a warning.
+    if free_gib < budget_gib - used_gib:
+        warnings.append("disk-below-kv-budget")
     warning = "".join(f" warning={value}" for value in warnings)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
