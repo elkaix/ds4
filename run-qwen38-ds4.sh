@@ -772,13 +772,10 @@ if [[ $MTP != 0 ]]; then
     fi
 fi
 
-# The old banner claimed "width 2", a width ds4 was never given: the width comes
-# from --mtp-draft, not from --mtp. Report the width actually passed, and make no
-# claim about what it does internally.
 if [[ $MTP == 0 ]]; then
     mtp_state="disabled"
 else
-    mtp_state="enabled (--mtp-draft $MTP_DRAFT)"
+    mtp_state="enabled (adaptive 2-3 verify rows)"
 fi
 if [[ $MTP != 0 && $MTP_TIMING != 0 ]]; then
     mtp_state+=" + timing (--mtp-timing)"

@@ -59759,8 +59759,11 @@ static void *qwen4_ple_prefetch_run(void *context) {
 }
 
 /* host side: embedding rows tiled into R and the PLE n-gram gather */
+/* defer_ids (T <= 256): leave the n-gram row ids there instead of reading
+ * them; the caller reads them once the first trunk layer is on the GPU. */
 static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
-                                     const int *tokens, uint32_t T, const float *prefetched_ple) {
+                                     const int *tokens, uint32_t T, const float *prefetched_ple,
+                                     uint32_t *defer_ids) {
     const uint32_t E = DS4_N_EMBD, hc = DS4_N_HC, hc_dim = E * hc;
     float *row = g->host_row;
     const ds4_vision_span *spans = g->vis_spans;
@@ -59780,7 +59783,8 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
     if (!ds4_gpu_tensor_write(g->R, 0, row, (uint64_t)T * hc_dim * sizeof(float)) ||
         !ds4_gpu_tensor_write(g->pos3, (uint64_t)g->pos * 16u, g->host_pos3, (uint64_t)T * 16u))
         return false;
-    uint32_t ids[256 * DS4_MAX_PLE_HEADS];
+    uint32_t ids_local[256 * DS4_MAX_PLE_HEADS];
+    uint32_t *ids = defer_ids ? defer_ids : ids_local;
     for (uint32_t t = 0; t < T; t++) {
         qwen4_ple_step(tokens[t], g->ple_prev, ids + (t % 256u) * DS4_N_PLE_HEADS);
         if (t == 0 && g->snap_after_first) {
@@ -59791,7 +59795,7 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
             memcpy(g->snap2_ple_prev, g->ple_prev, sizeof(g->snap2_ple_prev));
             g->snap2_pos = g->pos + 2u;
         }
-        if (!prefetched_ple && (t % 256u == 255u || t + 1 == T)) {
+        if (!prefetched_ple && !defer_ids && (t % 256u == 255u || t + 1 == T)) {
             const uint32_t start = t / 256u * 256u;
             if (!qwen4_ngram_read(m, ids, (t-start+1u) * DS4_N_PLE_HEADS,
                                   row + (uint64_t)start * E)) {
@@ -59800,6 +59804,7 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
             }
         }
     }
+    if (defer_ids) return true;
     return ds4_gpu_tensor_write(g->ple_emb, 0, prefetched_ple ? prefetched_ple : row,
                                 (uint64_t)T * E * sizeof(float)) != 0;
 }
@@ -59840,7 +59845,15 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
         }
     }
     const double t0 = timing ? (inputs_staged ? stage_start : now_sec()) : 0.0;
-    if (!inputs_staged && !qwen4_graph_stage_inputs(g, m, w, tokens, T, NULL)) return false;
+    /* Decode-sized batches read their n-gram rows after trunk layer 0 has
+     * been submitted (PLE enters at layer DS4_N_PLE_LAYER), so the disk wait
+     * overlaps GPU work; DS4_QWEN4_NO_PLE_OVERLAP=1 reads them up front. */
+    static int no_overlap = -1;
+    if (no_overlap < 0) no_overlap = getenv("DS4_QWEN4_NO_PLE_OVERLAP") != NULL;
+    uint32_t defer_ids[8u * DS4_MAX_PLE_HEADS];
+    bool deferred = !inputs_staged && !no_overlap && T <= 8u && DS4_N_PLE_LAYER > 0u;
+    if (!inputs_staged && !qwen4_graph_stage_inputs(g, m, w, tokens, T, NULL, deferred ? defer_ids : NULL))
+        return false;
     const double t1 = timing ? now_sec() : 0.0;
     if (!glm_graph_begin_commands_if_needed()) return false;
     bool ok = true;
@@ -59860,6 +59873,16 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
     } while (0)
     for (uint32_t il = 0; il < n_trunk && ok; il++) {
         const ds4_layer_weights *l = &w->layer[il];
+        if (deferred && il == DS4_N_PLE_LAYER) {
+            deferred = false;
+            ok = ds4_gpu_flush_commands() != 0 &&
+                 qwen4_ngram_read(m, defer_ids, (size_t)T * DS4_N_PLE_HEADS, g->host_row) &&
+                 ds4_gpu_tensor_write(g->ple_emb, 0, g->host_row, (uint64_t)T * DS4_N_EMBD * sizeof(float)) != 0;
+            if (!ok) {
+                fprintf(stderr, "ds4: n-gram read failed: %s\n", strerror(errno));
+                break;
+            }
+        }
         if (ds4_qwen4_layer_is_ple(il)) {
             ok = qwen4_gemv(g->ple_key, m, l->ple_key, g->ple_emb, T) &&
                  qwen4_gemv(g->ple_val, m, l->ple_value, g->ple_emb, T) &&
@@ -61346,6 +61369,7 @@ struct ds4_session {
     uint64_t qwen4_spec_accepted;
     uint64_t qwen4_copy_cycles;
     uint64_t qwen4_copy_accepted;
+    double qwen4_verify_sec, qwen4_cycle_sec; /* --mtp-timing, verify cycles only */
 #endif
     uint32_t glm_dense_cache_len;
     /* GLM MTP speculative state.  parent is the token that conditioned the
@@ -74437,6 +74461,10 @@ void ds4_session_free(ds4_session *s) {
                 fprintf(stderr, "ds4: Qwen3.8 mtp: %" PRIu64 " verify cycles, %" PRIu64 " drafts accepted (%.1f%%)\n",
                         s->qwen4_spec_cycles, s->qwen4_spec_accepted,
                         100.0 * (double)s->qwen4_spec_accepted / (double)s->qwen4_spec_cycles);
+                fprintf(stderr, "ds4: Qwen3.8 mtp cycle: %.2f ms = verify %.2f + draft/host %.2f\n",
+                        1e3 * s->qwen4_cycle_sec / (double)s->qwen4_spec_cycles,
+                        1e3 * s->qwen4_verify_sec / (double)s->qwen4_spec_cycles,
+                        1e3 * (s->qwen4_cycle_sec - s->qwen4_verify_sec) / (double)s->qwen4_spec_cycles);
                 if (s->qwen4_copy_cycles) {
                     fprintf(stderr, "ds4: Qwen3.8 copy drafts: %" PRIu64 " cycles, %" PRIu64 " tokens accepted\n",
                             s->qwen4_copy_cycles, s->qwen4_copy_accepted);
@@ -75273,7 +75301,7 @@ static void qwen4_spec_note_first_draft(ds4_session *s, bool accepted_first) {
  * it is the target argmax; exact sampling treats it as a point-mass proposal
  * (accept with p(draft), else replay a residual sample) and always runs at
  * depth 2. */
-static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float temperature, int top_k,
+static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, float temperature, int top_k,
                                         float top_p, float min_p, uint64_t *rng, bool exact_sampling,
                                         int *accepted, int accepted_cap,
                                         char *err, size_t errlen) {
@@ -75370,7 +75398,9 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
     g->snap2_valid = false;
     g->verify_rows_exact = deep;
     ds4_gpu_qwen4_set_verify_rows_exact(deep);
+    const double verify_t0 = e->glm_mtp_timing ? now_sec() : 0.0;
     const bool ok = qwen4_graph_forward_tokens(g, m, w, toks, T, rows, true);
+    if (e->glm_mtp_timing) s->qwen4_verify_sec += now_sec() - verify_t0;
     ds4_gpu_qwen4_set_verify_rows_exact(false);
     g->verify_rows_exact = false;
     g->snap_after_second = false;
@@ -75528,6 +75558,21 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
     }
     accepted[0] = first_token;
     return 1;
+}
+
+static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float temperature, int top_k,
+                                        float top_p, float min_p, uint64_t *rng, bool exact_sampling,
+                                        int *accepted, int accepted_cap,
+                                        char *err, size_t errlen) {
+    if (!s->engine->glm_mtp_timing)
+        return ds4_session_qwen4_spec_cycle_inner(s, first_token, temperature, top_k, top_p, min_p, rng,
+                                                  exact_sampling, accepted, accepted_cap, err, errlen);
+    const uint64_t cycles = s->qwen4_spec_cycles;
+    const double t0 = now_sec();
+    const int n = ds4_session_qwen4_spec_cycle_inner(s, first_token, temperature, top_k, top_p, min_p, rng,
+                                                     exact_sampling, accepted, accepted_cap, err, errlen);
+    if (s->qwen4_spec_cycles != cycles) s->qwen4_cycle_sec += now_sec() - t0;
+    return n;
 }
 #endif
 #endif
@@ -76541,7 +76586,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
                 const double stage_start = now_sec();
                 ok = qwen4_graph_stage_inputs(&s->qwen4_graph, &e->model, &e->weights,
                                               prompt->v + i, chunk,
-                                              prefetch_ready ? prefetch.rows : NULL);
+                                              prefetch_ready ? prefetch.rows : NULL, NULL);
                 prefetch_ready = false;
                 bool reading = false;
                 if (ok && i + (int)chunk < prompt->len) {
