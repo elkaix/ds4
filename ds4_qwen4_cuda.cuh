@@ -1793,7 +1793,7 @@ extern "C" int ds4_gpu_qwen4_gdn_prep_tensor(ds4_gpu_tensor *qkv, ds4_gpu_tensor
     return launched();
 }
 
-extern "C" void ds4_gpu_qwen4_set_verify_rows_exact(bool on) { (void)on; }
+extern "C" void ds4_gpu_qwen4_set_verify_rows_exact(uint32_t rows) { (void)rows; }
 
 extern "C" int ds4_gpu_qwen4_gdn_scan_tensor(ds4_gpu_tensor *out, ds4_gpu_tensor *state,
         const ds4_gpu_tensor *qkv, const ds4_gpu_tensor *a, const ds4_gpu_tensor *b,

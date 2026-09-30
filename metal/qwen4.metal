@@ -697,8 +697,11 @@ struct ds4_metal_args_qwen4_gdn_scan {
     uint32_t head_dim;
     uint32_t snap_tok;     /* copy the state after this token into snap_state (UINT32_MAX: never) */
     uint32_t snap2_tok;    /* second snapshot point for 3-row MTP verifies (UINT32_MAX: never) */
-    uint32_t snap3_tok;    /* third point for 4-row copy verifies (UINT32_MAX: never) */
-    uint32_t pad2;
+    uint32_t snap3_tok;    /* extra points for wide copy verifies (UINT32_MAX: never) */
+    uint32_t snap4_tok;
+    uint32_t snap5_tok;
+    uint32_t snap6_tok;
+    uint32_t snap7_tok;
 };
 
 /* Sequential gated delta scan.  One simdgroup per (v-head, dv) state row;
@@ -715,6 +718,10 @@ kernel void kernel_qwen4_gdn_scan(
         device float       *snap_state,
         device float       *snap2_state,
         device float       *snap3_state,
+        device float       *snap4_state,
+        device float       *snap5_state,
+        device float       *snap6_state,
+        device float       *snap7_state,
         uint3 tgpig [[threadgroup_position_in_grid]],
         ushort tiisg [[thread_index_in_simdgroup]]) {
     const uint dv = tgpig.x;
@@ -730,7 +737,14 @@ kernel void kernel_qwen4_gdn_scan(
     device float *srow = state + ((uint64_t)h * D + dv) * D + dk0;
     device float *snaprow = snap_state + ((uint64_t)h * D + dv) * D + dk0;
     device float *snap2row = snap2_state + ((uint64_t)h * D + dv) * D + dk0;
-    device float *snap3row = snap3_state + ((uint64_t)h * D + dv) * D + dk0;
+    device float *snapxrow[5] = {
+        snap3_state + ((uint64_t)h * D + dv) * D + dk0,
+        snap4_state + ((uint64_t)h * D + dv) * D + dk0,
+        snap5_state + ((uint64_t)h * D + dv) * D + dk0,
+        snap6_state + ((uint64_t)h * D + dv) * D + dk0,
+        snap7_state + ((uint64_t)h * D + dv) * D + dk0,
+    };
+    const uint snapx_tok[5] = { args.snap3_tok, args.snap4_tok, args.snap5_tok, args.snap6_tok, args.snap7_tok };
     for (uint i = 0; i < npt; i++) s[i] = srow[i];
 
     for (uint tok = 0; tok < args.n_tokens; tok++) {
@@ -760,8 +774,10 @@ kernel void kernel_qwen4_gdn_scan(
         if (tok == args.snap2_tok) {
             for (uint i = 0; i < npt; i++) snap2row[i] = s[i];
         }
-        if (tok == args.snap3_tok) {
-            for (uint i = 0; i < npt; i++) snap3row[i] = s[i];
+        for (uint x = 0; x < 5; x++) {
+            if (tok == snapx_tok[x]) {
+                for (uint i = 0; i < npt; i++) snapxrow[x][i] = s[i];
+            }
         }
     }
     for (uint i = 0; i < npt; i++) srow[i] = s[i];
@@ -889,6 +905,10 @@ kernel void kernel_qwen4_gdn_scan_r4(
         device float       *snap_state,
         device float       *snap2_state,
         device float       *snap3_state,
+        device float       *snap4_state,
+        device float       *snap5_state,
+        device float       *snap6_state,
+        device float       *snap7_state,
         uint3 tgpig [[threadgroup_position_in_grid]],
         ushort3 ntg [[threads_per_threadgroup]],
         ushort sgitg [[simdgroup_index_in_threadgroup]],
@@ -904,7 +924,14 @@ kernel void kernel_qwen4_gdn_scan_r4(
     device float *srow = state + ((uint64_t)h * D + dv0) * D + dk0;
     device float *snaprow = snap_state + ((uint64_t)h * D + dv0) * D + dk0;
     device float *snap2row = snap2_state + ((uint64_t)h * D + dv0) * D + dk0;
-    device float *snap3row = snap3_state + ((uint64_t)h * D + dv0) * D + dk0;
+    device float *snapxrow[5] = {
+        snap3_state + ((uint64_t)h * D + dv0) * D + dk0,
+        snap4_state + ((uint64_t)h * D + dv0) * D + dk0,
+        snap5_state + ((uint64_t)h * D + dv0) * D + dk0,
+        snap6_state + ((uint64_t)h * D + dv0) * D + dk0,
+        snap7_state + ((uint64_t)h * D + dv0) * D + dk0,
+    };
+    const uint snapx_tok[5] = { args.snap3_tok, args.snap4_tok, args.snap5_tok, args.snap6_tok, args.snap7_tok };
     for (uint r = 0; r < 4; r++) s[r] = *(device const float4 *)(srow + r * D);
 
     for (uint tok = 0; tok < args.n_tokens; tok++) {
@@ -928,8 +955,10 @@ kernel void kernel_qwen4_gdn_scan_r4(
         if (tok == args.snap2_tok) {
             for (uint r = 0; r < 4; r++) *(device float4 *)(snap2row + r * D) = s[r];
         }
-        if (tok == args.snap3_tok) {
-            for (uint r = 0; r < 4; r++) *(device float4 *)(snap3row + r * D) = s[r];
+        for (uint x = 0; x < 5; x++) {
+            if (tok == snapx_tok[x]) {
+                for (uint r = 0; r < 4; r++) *(device float4 *)(snapxrow[x] + r * D) = s[r];
+            }
         }
     }
     for (uint r = 0; r < 4; r++) *(device float4 *)(srow + r * D) = s[r];
@@ -1060,7 +1089,11 @@ struct ds4_metal_args_qwen4_ple_conv {
     uint32_t weight_f16;   /* taps stored as half */
     uint32_t snap_tok;     /* copy the history after this token into snap_history */
     uint32_t snap2_tok;    /* second snapshot point for 3-row MTP verifies */
-    uint32_t snap3_tok;    /* third point for 4-row copy verifies */
+    uint32_t snap3_tok;    /* extra points for wide copy verifies */
+    uint32_t snap4_tok;
+    uint32_t snap5_tok;
+    uint32_t snap6_tok;
+    uint32_t snap7_tok;
 };
 
 /* R += gated + silu(dilated depthwise conv of normed).  history holds the
@@ -1076,6 +1109,10 @@ kernel void kernel_qwen4_ple_conv(
         device float       *snap_history,
         device float       *snap2_history,
         device float       *snap3_history,
+        device float       *snap4_history,
+        device float       *snap5_history,
+        device float       *snap6_history,
+        device float       *snap7_history,
         uint3 tgpig [[threadgroup_position_in_grid]],
         ushort tid [[thread_index_in_threadgroup]],
         ushort3 ntg [[threads_per_threadgroup]]) {
@@ -1090,6 +1127,8 @@ kernel void kernel_qwen4_ple_conv(
     for (uint t = 0; t < H; t++) hist[t] = history[t * C + c];
     float taps[4];
     for (uint t = 0; t < K; t++) taps[t] = (args.weight_f16 ? (float)((device const half *)weight)[c * K + t] : ((device const float *)weight)[c * K + t]);
+    device float *snapx_history[5] = { snap3_history, snap4_history, snap5_history, snap6_history, snap7_history };
+    const uint snapx_tok[5] = { args.snap3_tok, args.snap4_tok, args.snap5_tok, args.snap6_tok, args.snap7_tok };
 
     for (uint tok = 0; tok < args.n_tokens; tok++) {
         const float cur = normed[tok * C + c];
@@ -1104,8 +1143,10 @@ kernel void kernel_qwen4_ple_conv(
         if (tok == args.snap2_tok) {
             for (uint t = 0; t < H; t++) snap2_history[t * C + c] = hist[t];
         }
-        if (tok == args.snap3_tok) {
-            for (uint t = 0; t < H; t++) snap3_history[t * C + c] = hist[t];
+        for (uint x = 0; x < 5; x++) {
+            if (tok == snapx_tok[x]) {
+                for (uint t = 0; t < H; t++) snapx_history[x][t * C + c] = hist[t];
+            }
         }
     }
     for (uint t = 0; t < H; t++) history[t * C + c] = hist[t];
@@ -4737,8 +4778,11 @@ struct ds4_metal_args_qwen4_gdn_front {
     uint32_t row_bytes;
     uint32_t snap_tok;     /* copy the conv history after this token into snap_state */
     uint32_t snap2_tok;    /* second snapshot point for 3-row MTP verifies */
-    uint32_t snap3_tok;    /* third point for 4-row copy verifies */
-    uint32_t pad2;
+    uint32_t snap3_tok;    /* extra points for wide copy verifies */
+    uint32_t snap4_tok;
+    uint32_t snap5_tok;
+    uint32_t snap6_tok;
+    uint32_t snap7_tok;
 };
 
 /* conv_stream + alpha/beta projections + gdn_prep for a few tokens.  One
@@ -4761,6 +4805,10 @@ kernel void kernel_qwen4_gdn_front(
         device float       *snap_state,
         device float       *snap2_state,
         device float       *snap3_state,
+        device float       *snap4_state,
+        device float       *snap5_state,
+        device float       *snap6_state,
+        device float       *snap7_state,
         uint3 tgpig [[threadgroup_position_in_grid]],
         ushort tid [[thread_index_in_threadgroup]],
         ushort3 ntg [[threads_per_threadgroup]],
@@ -4775,6 +4823,8 @@ kernel void kernel_qwen4_gdn_front(
     const uint nth = ntg.x;
     const uint nsg = nth / 32;
     const uint npt = D / 32;
+    device float *snapx_state[5] = { snap3_state, snap4_state, snap5_state, snap6_state, snap7_state };
+    const uint snapx_tok[5] = { args.snap3_tok, args.snap4_tok, args.snap5_tok, args.snap6_tok, args.snap7_tok };
     for (uint tok = 0; tok < args.n_tokens; tok++) {
         device float *row = qkv + (uint64_t)tok * C;
         for (uint cl = tid; cl < n_ch; cl += nth) {
@@ -4792,8 +4842,10 @@ kernel void kernel_qwen4_gdn_front(
             if (tok == args.snap2_tok) {
                 for (uint t = 0; t + 1 < K; t++) snap2_state[t * C + c] = state[t * C + c];
             }
-            if (tok == args.snap3_tok) {
-                for (uint t = 0; t + 1 < K; t++) snap3_state[t * C + c] = state[t * C + c];
+            for (uint x = 0; x < 5; x++) {
+                if (tok == snapx_tok[x]) {
+                    for (uint t = 0; t + 1 < K; t++) snapx_state[x][t * C + c] = state[t * C + c];
+                }
             }
         }
         threadgroup_barrier(mem_flags::mem_device);

@@ -58592,9 +58592,45 @@ static const ds4_vision_span *qwen4_fake_spans(size_t *count) {
     X(moe_lists) X(moe_counts) X(sh_gate) X(sh_up) X(sh_mid) X(sh_out) \
     X(hc_u) X(hc_lo_act)
 
-/* verify-logits rows: 0..3 for a verify of up to four tokens, then the
+/* verify-logits rows: 0..7 for a verify of up to eight tokens, then the
  * pre-verify logits kept with the snap0 set */
-#define QWEN4_SNAP0_ROW 4u
+#define QWEN4_VERIFY_ROWS_MAX 8u
+#define QWEN4_SNAP0_ROW QWEN4_VERIFY_ROWS_MAX
+/* widest copy verify: DS4_QWEN4_COPY_MAX copied tokens + the first token */
+#define QWEN4_COPY_MAX_LIMIT 7u
+/* extra snapshot sets beyond snap/snap2: snapx[i] holds the state after
+ * verify row 2+i, so a width-W verify needs W-3 of them */
+#define QWEN4_SNAPX_MAX (QWEN4_VERIFY_ROWS_MAX - 3u)
+
+/* Context-copy width knobs (see ds4_session_qwen4_spec_cycle_inner for the
+ * copy proposer itself).  DS4_QWEN4_COPY_MAX caps the copied tokens the
+ * proposer offers at 3..7 (default 3, values outside clamp to 3);
+ * DS4_QWEN4_COPY_T4=0 keeps copies at two tokens. */
+static uint32_t qwen4_copy_max(void) {
+    const char *env = getenv("DS4_QWEN4_COPY_MAX");
+    const long v = env && env[0] ? strtol(env, NULL, 10) : 3;
+    return v >= 3 && v <= (long)QWEN4_COPY_MAX_LIMIT ? (uint32_t)v : 3u;
+}
+
+/* Rows a speculative verify may carry (first token plus copies): 4 unless
+ * DS4_QWEN4_COPY_MAX > 3 widens it, and the predictor catch-up buffers and
+ * logit rows are sized to match. */
+static uint32_t qwen4_verify_row_cap(void) {
+#ifdef __APPLE__
+    const uint32_t copies = qwen4_copy_max();
+    return copies > 3u ? copies + 1u : 4u;
+#else
+    return 4u;
+#endif
+}
+
+/* DS4_QWEN4_COPY_STATS=1: per-width verify accounting printed at clean
+ * shutdown, the instrument for deciding whether wide copy verifies pay. */
+static bool qwen4_copy_stats(void) {
+    static int v = -1;
+    if (v < 0) v = getenv("DS4_QWEN4_COPY_STATS") != NULL;
+    return v != 0;
+}
 
 typedef struct ds4_qwen4_gpu_graph {
     uint32_t ctx_cap;
@@ -58650,14 +58686,15 @@ typedef struct ds4_qwen4_gpu_graph {
     uint32_t snap2_pos;
     int32_t snap2_mrope_delta;
     bool snap2_valid;
-    /* Third set (after row 2) for 4-row copy verifies. */
-    ds4_gpu_tensor *snap3_lin_state[DS4_MAX_LAYER];
-    ds4_gpu_tensor *snap3_lin_hist[DS4_MAX_LAYER];
-    ds4_gpu_tensor *snap3_ple_hist;
-    int snap3_ple_prev[DS4_MAX_PLE_NGRAM];
-    uint32_t snap3_pos;
-    int32_t snap3_mrope_delta;
-    bool snap3_valid;
+    /* Extra snapshot sets (after verify rows 2..6) for wide copy verifies:
+     * a partial accept restores the set for its last accepted row. */
+    ds4_gpu_tensor *snapx_lin_state[QWEN4_SNAPX_MAX][DS4_MAX_LAYER];
+    ds4_gpu_tensor *snapx_lin_hist[QWEN4_SNAPX_MAX][DS4_MAX_LAYER];
+    ds4_gpu_tensor *snapx_ple_hist[QWEN4_SNAPX_MAX];
+    int snapx_ple_prev[QWEN4_SNAPX_MAX][DS4_MAX_PLE_NGRAM];
+    uint32_t snapx_pos[QWEN4_SNAPX_MAX];
+    int32_t snapx_mrope_delta[QWEN4_SNAPX_MAX];
+    bool snapx_valid[QWEN4_SNAPX_MAX];
     /* Pre-verify snapshot set (state at the block start).  Exact sampling
      * rewinds to the block start to resample the boundary token when a
      * verified block crosses a sampling-mode boundary; without this set
@@ -58674,8 +58711,8 @@ typedef struct ds4_qwen4_gpu_graph {
     uint32_t n_logit_rows;
     bool snap_after_first;   /* set by the caller for a 2-token verify: snapshot the state after row 0 */
     bool snap_after_second;  /* 3-token verify: also snapshot the state after row 1 */
-    bool snap_after_third;   /* 4-token copy verify: also snapshot the state after row 2 */
-    bool verify_rows_exact;  /* 3/4-token verify: split attention into 2/1-row sub-batches */
+    uint32_t snapx_armed;    /* wide copy verify: also snapshot the state after rows 2..2+n-1 */
+    bool verify_rows_exact;  /* 3..8-token verify: split attention into 2/1-row sub-batches */
     bool snap_valid;
     /* multimodal: per-position (t, h, w) rope positions, the text counter
      * offset, and the image spans of the prompt being prefilled */
@@ -58781,7 +58818,7 @@ static void qwen4_graph_free(ds4_qwen4_gpu_graph *g) {
     ds4_gpu_tensor **all[] = {
         &g->ple_hist, &g->logits,
         &g->mtp_e, &g->mtp_cat, &g->mtp_proj, &g->mtp_R, &g->mtp_argmax, &g->mtp_argmax_tmp,
-        &g->snap_ple_hist, &g->snap2_ple_hist, &g->snap3_ple_hist, &g->snap0_ple_hist, &g->pos3,
+        &g->snap_ple_hist, &g->snap2_ple_hist, &g->snap0_ple_hist, &g->pos3,
         &g->draft_head, &g->steer_dirs,
     };
     if (g->owns_scratch) {
@@ -58823,10 +58860,18 @@ static void qwen4_graph_free(ds4_qwen4_gpu_graph *g) {
         ds4_gpu_tensor_free(g->snap_lin_hist[il]);
         ds4_gpu_tensor_free(g->snap2_lin_state[il]);
         ds4_gpu_tensor_free(g->snap2_lin_hist[il]);
-        ds4_gpu_tensor_free(g->snap3_lin_state[il]);
-        ds4_gpu_tensor_free(g->snap3_lin_hist[il]);
         ds4_gpu_tensor_free(g->snap0_lin_state[il]);
         ds4_gpu_tensor_free(g->snap0_lin_hist[il]);
+    }
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) {
+        ds4_gpu_tensor_free(g->snapx_ple_hist[x]);
+        g->snapx_ple_hist[x] = NULL;
+        for (uint32_t il = 0; il < DS4_MAX_LAYER; il++) {
+            ds4_gpu_tensor_free(g->snapx_lin_state[x][il]);
+            ds4_gpu_tensor_free(g->snapx_lin_hist[x][il]);
+            g->snapx_lin_state[x][il] = NULL;
+            g->snapx_lin_hist[x][il] = NULL;
+        }
     }
     free(g->host_logits);
     memset(g, 0, sizeof(*g));
@@ -58936,7 +58981,7 @@ static bool qwen4_graph_alloc(ds4_qwen4_gpu_graph *g, const ds4_weights *w, uint
     g->ctx_cap = ctx_cap;
     g->cap_tokens = cap_tokens;
     g->k_blocks = DS4_N_INDEXER_TOP_K / 4u;
-    g->n_logit_rows = mtp ? 4u : 1u;
+    g->n_logit_rows = mtp ? qwen4_verify_row_cap() : 1u;
     g->n_block_cap = ctx_cap / 4u + 1u;
     static bool warned_ctx = false;
     if (!warned_ctx && g_qwen4_native_ctx && ctx_cap > g_qwen4_native_ctx && !g_qwen4_rope_yarn) {
@@ -59011,10 +59056,11 @@ private_state:
     QWEN4_ALLOC(ple_hist, (uint64_t)(DS4_N_PLE_CONV - 1u) * DS4_N_PLE_NGRAM * hc_dim);
     QWEN4_ALLOC(logits, (uint64_t)g->n_logit_rows * DS4_N_VOCAB);
     if (mtp) {
-        QWEN4_ALLOC(mtp_e, 4u * E);
-        QWEN4_ALLOC(mtp_cat, 4u * (hc + 1u) * 2u * E);
-        QWEN4_ALLOC(mtp_proj, 4u * (hc + 1u) * E);
-        QWEN4_ALLOC(mtp_R, 4u * hc_dim);
+        const uint64_t mtp_rows = qwen4_verify_row_cap();
+        QWEN4_ALLOC(mtp_e, mtp_rows * E);
+        QWEN4_ALLOC(mtp_cat, mtp_rows * (hc + 1u) * 2u * E);
+        QWEN4_ALLOC(mtp_proj, mtp_rows * (hc + 1u) * E);
+        QWEN4_ALLOC(mtp_R, mtp_rows * hc_dim);
         QWEN4_ALLOC(mtp_argmax, 1u);
         QWEN4_ALLOC(mtp_argmax_tmp, ((DS4_N_VOCAB + 4095u) / 4096u) * 2u);
         QWEN4_ALLOC(snap_ple_hist, (uint64_t)(DS4_N_PLE_CONV - 1u) * DS4_N_PLE_NGRAM * hc_dim);
@@ -59163,17 +59209,18 @@ static void qwen4_graph_reset(ds4_qwen4_gpu_graph *g) {
     g->mrope_delta = 0;
     g->snap_valid = false;
     g->snap2_valid = false;
-    g->snap3_valid = false;
     g->snap0_valid = false;
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
     g->snap_after_first = false;
     g->snap_after_second = false;
-    g->snap_after_third = false;
+    g->snapx_armed = 0u;
 }
 
 /* engine option qwen4_rows_invariant (one engine per process) */
 static bool g_qwen4_rows_invariant;
-/* set for the duration of a 4-row copy verify: its dense rows keep the T <= 3 kernels */
-static bool g_qwen4_verify_exact4;
+/* set for the duration of a wide copy verify: its dense rows keep the
+ * T <= 3 kernels; the value is the verify width (0 = off) */
+static uint32_t g_qwen4_verify_exact_rows;
 
 /* rows > 0 limits the product to a contiguous leading prefix of w. */
 static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_tensor *w,
@@ -59211,7 +59258,8 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
      * large prefills retain their existing kernels. The legacy switch is an
      * arithmetic/performance control, not a user tuning option. */
     const bool legacy = getenv("DS4_QWEN4_DENSE_MM_LEGACY") != NULL;
-    const bool f16_batch = !legacy && n_tok > 3u && !(n_tok <= 4u && g_qwen4_verify_exact4) &&
+    const bool f16_batch = !legacy && n_tok > 3u &&
+        !(g_qwen4_verify_exact_rows && n_tok <= g_qwen4_verify_exact_rows) &&
         w->type == DS4_TENSOR_F16 &&
         n_tok <= 64u && (out_dim <= 512u || n_tok > 8u);
     if (((n_tok > 8u && w->type == DS4_TENSOR_F32) || f16_batch) &&
@@ -59223,8 +59271,11 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
     /* Q8 decode batches of 8 or 16 rows on fp32 simdgroup matrices: the
      * per-token kernel reads the matrix once per four rows and streams x
      * once per four weight rows; this reads the weights once and x once per
-     * 32 rows.  DS4_QWEN4_NO_BATCH_MM=1 keeps the per-token kernel for A/B. */
+     * 32 rows.  DS4_QWEN4_NO_BATCH_MM=1 keeps the per-token kernel for A/B.
+     * A row-exact verify keeps the per-token kernel: the batched tiles do
+     * not preserve each row's T <= 2 summation order. */
     if (!legacy && w->type == DS4_TENSOR_Q8_0 && n_tok >= 5u && n_tok <= 32u &&
+        !(g_qwen4_verify_exact_rows && n_tok <= g_qwen4_verify_exact_rows) &&
         (in_dim % 32) == 0 && (out_dim % 32) == 0 && getenv("DS4_QWEN4_NO_BATCH_MM") == NULL &&
         ds4_gpu_tensor_bytes(x) >= 32u * in_dim * sizeof(float) &&
         ds4_gpu_tensor_bytes(out) >= 32u * out_dim * sizeof(float)) {
@@ -59349,9 +59400,9 @@ static bool qwen4_graph_fused(const ds4_qwen4_gpu_graph *g, uint32_t T) {
     static int no_fuse = -1;
     if (no_fuse < 0) no_fuse = getenv("DS4_QWEN4_NO_FUSE") != NULL;
     if (no_fuse || T <= 2u) return T <= 2u && !no_fuse;
-    /* T = 3 takes the fused kernels for the speculative verify only; prefill
-     * tails of three tokens keep their historical kernel selection. */
-    return (T == 3u || T == 4u) && g->verify_rows_exact;
+    /* T = 3..8 takes the fused kernels for the speculative verify only;
+     * prefill tails keep their historical kernel selection. */
+    return T <= QWEN4_VERIFY_ROWS_MAX && g->verify_rows_exact;
 }
 
 static uint32_t qwen4_mtp_draft_rows(void) {
@@ -59370,13 +59421,36 @@ static int qwen4_idx_select(ds4_gpu_tensor *sel, const ds4_gpu_tensor *score, co
 }
 
 /* grouped norm -> low-rank gate -> mixed; inject may be NULL (final mixer) */
-/* Third verify snapshot (after row 2): armed right before each recurrent
- * dispatch of a 4-row copy verify, which consumes it. */
-static void qwen4_graph_arm_snap3(const ds4_qwen4_gpu_graph *g, ds4_gpu_tensor *snap) {
+/* Extra verify snapshots (state after rows 3.. of a wide copy verify):
+ * armed right before each recurrent dispatch, which consumes them. */
+static void qwen4_graph_arm_snapx_layer(const ds4_qwen4_gpu_graph *g,
+                                        ds4_gpu_tensor *const (*sets)[DS4_MAX_LAYER], uint32_t il) {
 #ifdef __APPLE__
-    if (g->snap_after_third) ds4_gpu_qwen4_set_snapshot3(snap, 2u);
+    if (!g->snapx_armed) return;
+    ds4_gpu_tensor *snaps[QWEN4_SNAPX_MAX];
+    uint32_t toks[QWEN4_SNAPX_MAX];
+    for (uint32_t i = 0; i < g->snapx_armed && i < QWEN4_SNAPX_MAX; i++) {
+        snaps[i] = sets[i][il];
+        toks[i] = 2u + i;
+    }
+    ds4_gpu_qwen4_arm_snapshots(snaps, toks, g->snapx_armed);
 #else
-    (void)g; (void)snap;
+    (void)g; (void)sets; (void)il;
+#endif
+}
+
+static void qwen4_graph_arm_snapx_ple(const ds4_qwen4_gpu_graph *g) {
+#ifdef __APPLE__
+    if (!g->snapx_armed) return;
+    ds4_gpu_tensor *snaps[QWEN4_SNAPX_MAX];
+    uint32_t toks[QWEN4_SNAPX_MAX];
+    for (uint32_t i = 0; i < g->snapx_armed && i < QWEN4_SNAPX_MAX; i++) {
+        snaps[i] = g->snapx_ple_hist[i];
+        toks[i] = 2u + i;
+    }
+    ds4_gpu_qwen4_arm_snapshots(snaps, toks, g->snapx_armed);
+#else
+    (void)g;
 #endif
 }
 
@@ -59394,51 +59468,27 @@ static bool qwen4_graph_hc_mix(ds4_qwen4_gpu_graph *g, const ds4_model *m,
                qwen4_gemv(g->hc_u, m, up, g->hc_lo_act, T) &&
                ds4_gpu_qwen4_hc_mix_rows_tensor(g->mixed, g->hc_u, g->xn, T, DS4_N_EMBD, DS4_N_HC);
     }
-    if (T == 4u && g->verify_rows_exact) {
-        /* 4-row copy verify: two exact 2-row pair kernels */
+    if (T > 2u && T <= QWEN4_VERIFY_ROWS_MAX && g->verify_rows_exact) {
+        /* 3..8-row speculative verify: run the gate/mix as exact 2-row pair
+         * kernels (a trailing 1-row kernel for odd widths), so every row
+         * keeps its T <= 2 rounding */
         const uint64_t dim = (uint64_t)DS4_N_EMBD * DS4_N_HC;
-        for (uint32_t r0 = 0; r0 < 4u; r0 += 2u) {
-            ds4_gpu_tensor *xn2 = ds4_gpu_tensor_view(g->xn, r0 * dim * sizeof(float), 2u * dim * sizeof(float));
+        for (uint32_t r0 = 0; r0 < T; r0 += 2u) {
+            const uint32_t subT = T - r0 > 2u ? 2u : T - r0;
+            ds4_gpu_tensor *xn2 = ds4_gpu_tensor_view(g->xn, r0 * dim * sizeof(float), (uint64_t)subT * dim * sizeof(float));
             ds4_gpu_tensor *lo2 = ds4_gpu_tensor_view(g->lo, (uint64_t)r0 * DS4_N_HC_LOWRANK * sizeof(float),
-                                                      2u * DS4_N_HC_LOWRANK * sizeof(float));
+                                                      (uint64_t)subT * DS4_N_HC_LOWRANK * sizeof(float));
             ds4_gpu_tensor *mixed2 = ds4_gpu_tensor_view(g->mixed, (uint64_t)r0 * DS4_N_EMBD * sizeof(float),
-                                                         2u * DS4_N_EMBD * sizeof(float));
+                                                         (uint64_t)subT * DS4_N_EMBD * sizeof(float));
             const bool ok2 = ok && xn2 && lo2 && mixed2 &&
                 ds4_gpu_qwen4_hc_gate_mix_tensor(mixed2, xn2, lo2, m->map, m->size, up->abs_offset,
-                                                 up->type, 2u, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
+                                                 up->type, subT, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
             ds4_gpu_tensor_free(mixed2);
             ds4_gpu_tensor_free(lo2);
             ds4_gpu_tensor_free(xn2);
             if (!ok2) return false;
         }
         return true;
-    }
-    if (T == 3u && g->verify_rows_exact) {
-        /* Split the 3-row gate/mix into the exact 2-row pair kernel plus the
-         * 1-row generic kernel, so every row matches its T <= 2 rounding. */
-        const uint64_t dim = (uint64_t)DS4_N_EMBD * DS4_N_HC;
-        ds4_gpu_tensor *xn2 = ds4_gpu_tensor_view(g->xn, 0, 2u * dim * sizeof(float));
-        ds4_gpu_tensor *lo2 = ds4_gpu_tensor_view(g->lo, 0, 2u * DS4_N_HC_LOWRANK * sizeof(float));
-        ds4_gpu_tensor *mixed2 = ds4_gpu_tensor_view(g->mixed, 0, 2u * DS4_N_EMBD * sizeof(float));
-        const bool ok2 = xn2 && lo2 && mixed2 &&
-            ds4_gpu_qwen4_hc_gate_mix_tensor(mixed2, xn2, lo2, m->map, m->size, up->abs_offset,
-                                             up->type, 2u, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
-        ds4_gpu_tensor_free(mixed2);
-        ds4_gpu_tensor_free(lo2);
-        ds4_gpu_tensor_free(xn2);
-        if (!ok2) return false;
-        ds4_gpu_tensor *xn1 = ds4_gpu_tensor_view(g->xn, 2u * dim * sizeof(float), dim * sizeof(float));
-        ds4_gpu_tensor *lo1 = ds4_gpu_tensor_view(g->lo, 2u * DS4_N_HC_LOWRANK * sizeof(float),
-                                                  DS4_N_HC_LOWRANK * sizeof(float));
-        ds4_gpu_tensor *mixed1 = ds4_gpu_tensor_view(g->mixed, 2u * DS4_N_EMBD * sizeof(float),
-                                                     DS4_N_EMBD * sizeof(float));
-        const bool ok1 = xn1 && lo1 && mixed1 &&
-            ds4_gpu_qwen4_hc_gate_mix_tensor(mixed1, xn1, lo1, m->map, m->size, up->abs_offset,
-                                             up->type, 1u, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
-        ds4_gpu_tensor_free(mixed1);
-        ds4_gpu_tensor_free(lo1);
-        ds4_gpu_tensor_free(xn1);
-        return ok1;
     }
     return ok && ds4_gpu_qwen4_hc_gate_mix_tensor(g->mixed, g->xn, g->lo, m->map, m->size, up->abs_offset,
                                                   up->type, T, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
@@ -59460,7 +59510,7 @@ static bool qwen4_graph_linear(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
     }
     bool ok;
     if (qwen4_graph_fused(g, T)) {
-        qwen4_graph_arm_snap3(g, g->snap3_lin_hist[il]);
+        qwen4_graph_arm_snapx_layer(g, g->snapx_lin_hist, il);
         ok = ds4_gpu_qwen4_gdn_front_tensor(g->qkv, g->layer_lin_hist[il], g->mixed, g->ga, g->gb, m->map, m->size,
                                             l->lin_conv->abs_offset, l->lin_alpha->abs_offset, l->lin_beta->abs_offset,
                                             l->lin_a->abs_offset, l->lin_dt_bias->abs_offset, l->lin_alpha->type, T,
@@ -59477,7 +59527,7 @@ static bool qwen4_graph_linear(ds4_qwen4_gpu_graph *g, const ds4_model *m, const
                                            DS4_N_LIN_HEAD_DIM);
     }
     if (ok) {
-        qwen4_graph_arm_snap3(g, g->snap3_lin_state[il]);
+        qwen4_graph_arm_snapx_layer(g, g->snapx_lin_state, il);
         ok = ds4_gpu_qwen4_gdn_scan_tensor(g->lin_o, g->layer_lin_state[il], g->qkv, g->ga, g->gb, T,
                                            DS4_N_LIN_K_HEAD, DS4_N_LIN_V_HEAD, DS4_N_LIN_HEAD_DIM,
                                            g->snap_after_first ? g->snap_lin_state[il] : NULL, 0u,
@@ -59623,10 +59673,10 @@ static bool qwen4_graph_attention_tail(ds4_qwen4_gpu_graph *g, const ds4_model *
                                             DS4_N_ROT, DS4_ROPE_FREQ_BASE, DS4_RMS_EPS)) {
         return false;
     }
-    if ((T == 3u || T == 4u) && g->verify_rows_exact) {
-        /* 3/4-row speculative verify: run the attention core as 2/1-row
+    if ((T > 2u) && g->verify_rows_exact) {
+        /* 3..8-row speculative verify: run the attention core as 2/1-row
          * sub-batches so every dispatch keeps the exact T <= 2 kernel paths
-         * (prefill T = 3 tails keep their own kernel selection). */
+         * (prefill tails keep their own kernel selection). */
         for (uint32_t sub0 = 0; sub0 < T; sub0 += 2u) {
             const uint32_t subT = T - sub0 > 2u ? 2u : T - sub0;
             ds4_gpu_tensor *q = sub0 ? ds4_gpu_tensor_view(g->q, (uint64_t)sub0 * q_dim * sizeof(float),
@@ -59875,7 +59925,9 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
         g->host_pos3[(uint64_t)t * 4u + 3u] = 0;
         if (t == 0 && g->snap_after_first) g->snap_mrope_delta = g->mrope_delta;
         if (t == 1u && g->snap_after_second) g->snap2_mrope_delta = g->mrope_delta;
-        if (t == 2u && g->snap_after_third) g->snap3_mrope_delta = g->mrope_delta;
+        for (uint32_t x = 0; x < g->snapx_armed && x < QWEN4_SNAPX_MAX; x++) {
+            if (t == 2u + x) g->snapx_mrope_delta[x] = g->mrope_delta;
+        }
     }
     if (!ds4_gpu_tensor_write(g->R, 0, row, (uint64_t)T * hc_dim * sizeof(float)) ||
         !ds4_gpu_tensor_write(g->pos3, (uint64_t)g->pos * 16u, g->host_pos3, (uint64_t)T * 16u))
@@ -59892,9 +59944,11 @@ static bool qwen4_graph_stage_inputs(ds4_qwen4_gpu_graph *g, const ds4_model *m,
             memcpy(g->snap2_ple_prev, g->ple_prev, sizeof(g->snap2_ple_prev));
             g->snap2_pos = g->pos + 2u;
         }
-        if (t == 2u && g->snap_after_third) {
-            memcpy(g->snap3_ple_prev, g->ple_prev, sizeof(g->snap3_ple_prev));
-            g->snap3_pos = g->pos + 3u;
+        for (uint32_t x = 0; x < g->snapx_armed && x < QWEN4_SNAPX_MAX; x++) {
+            if (t == 2u + x) {
+                memcpy(g->snapx_ple_prev[x], g->ple_prev, sizeof(g->snapx_ple_prev[x]));
+                g->snapx_pos[x] = g->pos + 3u + x;
+            }
         }
         if (!prefetched_ple && !defer_ids && (t % 256u == 255u || t + 1 == T)) {
             const uint32_t start = t / 256u * 256u;
@@ -59985,7 +60039,7 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
             }
         }
         if (ds4_qwen4_layer_is_ple(il)) {
-            qwen4_graph_arm_snap3(g, g->snap3_ple_hist);
+            qwen4_graph_arm_snapx_ple(g);
             ok = qwen4_gemv(g->ple_key, m, l->ple_key, g->ple_emb, T) &&
                  qwen4_gemv(g->ple_val, m, l->ple_value, g->ple_emb, T) &&
                  ds4_gpu_qwen4_ple_gate_tensor(g->ple_gated, g->ple_normed, g->R, g->ple_key, g->ple_val,
@@ -60092,10 +60146,10 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
         g->snap2_valid = ok;
         g->snap_after_second = false;
     }
-    if (g->snap_after_third) {
-        g->snap3_valid = ok;
-        g->snap_after_third = false;
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) {
+        if (x < g->snapx_armed) g->snapx_valid[x] = ok;
     }
+    g->snapx_armed = 0u;
     return ok;
 }
 
@@ -60160,12 +60214,14 @@ static bool qwen4_graph_state_copy2(ds4_qwen4_gpu_graph *g, bool save) {
                                       &g->snap2_pos, &g->snap2_mrope_delta);
 }
 
-static bool qwen4_graph_state_copy3(ds4_qwen4_gpu_graph *g, bool save) {
-    return qwen4_graph_state_copy_set(g, save, g->snap3_lin_state, g->snap3_lin_hist,
-                                      &g->snap3_ple_hist, g->snap3_ple_prev,
-                                      &g->snap3_pos, &g->snap3_mrope_delta);
+/* Copy-restore against snapx set x (state after verify row 2+x) for the
+ * server rewind path, which must not disturb the live buffers. */
+static bool qwen4_graph_state_copyx(ds4_qwen4_gpu_graph *g, uint32_t x, bool save) {
+    if (x >= QWEN4_SNAPX_MAX || !g->snapx_ple_hist[x]) return false;
+    return qwen4_graph_state_copy_set(g, save, g->snapx_lin_state[x], g->snapx_lin_hist[x],
+                                      &g->snapx_ple_hist[x], g->snapx_ple_prev[x],
+                                      &g->snapx_pos[x], &g->snapx_mrope_delta[x]);
 }
-
 static bool qwen4_graph_state_copy0(ds4_qwen4_gpu_graph *g, bool save) {
     return qwen4_graph_state_copy_set(g, save, g->snap0_lin_state, g->snap0_lin_hist,
                                       &g->snap0_ple_hist, g->snap0_ple_prev,
@@ -60238,8 +60294,16 @@ static bool qwen4_graph_ensure_snap2(ds4_qwen4_gpu_graph *g) {
     return qwen4_graph_ensure_snapshot(g, g->snap2_lin_state, g->snap2_lin_hist, &g->snap2_ple_hist);
 }
 
-static bool qwen4_graph_ensure_snap3(ds4_qwen4_gpu_graph *g) {
-    return qwen4_graph_ensure_snapshot(g, g->snap3_lin_state, g->snap3_lin_hist, &g->snap3_ple_hist);
+/* Extra copy-verify snapshots (state after rows 2..count+1), lazy like the
+ * others: sessions without wide copies never allocate them, and a failed
+ * allocation only narrows the verify width. */
+static bool qwen4_graph_ensure_snapx(ds4_qwen4_gpu_graph *g, uint32_t count) {
+    if (count > QWEN4_SNAPX_MAX) count = QWEN4_SNAPX_MAX;
+    for (uint32_t x = 0; x < count; x++) {
+        if (!qwen4_graph_ensure_snapshot(g, g->snapx_lin_state[x], g->snapx_lin_hist[x],
+                                         &g->snapx_ple_hist[x])) return false;
+    }
+    return true;
 }
 
 /* Allocate the pre-verify snapshot set on the first exact-sampling cycle.
@@ -60273,26 +60337,26 @@ static bool qwen4_graph_state_swap2(ds4_qwen4_gpu_graph *g) {
     return true;
 }
 
-/* Swap-restore against the third snapshot (state after row 2) for a 4-row
- * copy verify that accepted its first two drafts but rejected the third. */
-static bool qwen4_graph_state_swap3(ds4_qwen4_gpu_graph *g) {
-    if (!g->snap3_ple_hist) return false;
+/* Swap-restore against snapx set x (state after verify row 2+x) for a wide
+ * copy verify that accepted rows 0..2+x and rejected the next one. */
+static bool qwen4_graph_state_swapx(ds4_qwen4_gpu_graph *g, uint32_t x) {
+    if (x >= QWEN4_SNAPX_MAX || !g->snapx_ple_hist[x]) return false;
     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
-        if (!g->snap3_lin_state[il]) continue;
+        if (!g->snapx_lin_state[x][il]) continue;
         ds4_gpu_tensor *t = g->layer_lin_state[il];
-        g->layer_lin_state[il] = g->snap3_lin_state[il];
-        g->snap3_lin_state[il] = t;
+        g->layer_lin_state[il] = g->snapx_lin_state[x][il];
+        g->snapx_lin_state[x][il] = t;
         t = g->layer_lin_hist[il];
-        g->layer_lin_hist[il] = g->snap3_lin_hist[il];
-        g->snap3_lin_hist[il] = t;
+        g->layer_lin_hist[il] = g->snapx_lin_hist[x][il];
+        g->snapx_lin_hist[x][il] = t;
     }
     ds4_gpu_tensor *t = g->ple_hist;
-    g->ple_hist = g->snap3_ple_hist;
-    g->snap3_ple_hist = t;
-    memcpy(g->ple_prev, g->snap3_ple_prev, sizeof(g->ple_prev));
-    g->pos = g->snap3_pos;
-    g->mrope_delta = g->snap3_mrope_delta;
-    g->snap3_valid = false;
+    g->ple_hist = g->snapx_ple_hist[x];
+    g->snapx_ple_hist[x] = t;
+    memcpy(g->ple_prev, g->snapx_ple_prev[x], sizeof(g->ple_prev));
+    g->pos = g->snapx_pos[x];
+    g->mrope_delta = g->snapx_mrope_delta[x];
+    g->snapx_valid[x] = false;
     return true;
 }
 
@@ -60306,7 +60370,7 @@ static bool qwen4_graph_state_swap3(ds4_qwen4_gpu_graph *g) {
 static bool qwen4_graph_mtp_steps(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
                                  uint32_t row, const int *next_tokens, uint32_t T, uint32_t idx, bool want_logits,
                                  float *logits_out, int *draft_out) {
-    if (!g->mtp_R || T == 0u || T > 4u || idx > g->ctx_cap || T > g->ctx_cap - idx ||
+    if (!g->mtp_R || T == 0u || T > qwen4_verify_row_cap() || idx > g->ctx_cap || T > g->ctx_cap - idx ||
         row > g->cap_tokens || T > g->cap_tokens - row) return false;
     const uint32_t E = DS4_N_EMBD, hc = DS4_N_HC;
     const uint32_t il = DS4_N_LAYER - 1u;
@@ -60399,7 +60463,7 @@ static bool qwen4_graph_mtp_steps(ds4_qwen4_gpu_graph *g, const ds4_model *m, co
  * state: the verify gates everything the target commits. */
 static bool qwen4_graph_mtp_chain_step(ds4_qwen4_gpu_graph *g, const ds4_model *m, const ds4_weights *w,
                                        int next_token, uint32_t idx, int *draft_out) {
-    if (!g->mtp_R || g->mtp_last_rows == 0u || g->mtp_last_rows > 3u || !draft_out ||
+    if (!g->mtp_R || g->mtp_last_rows == 0u || g->mtp_last_rows >= qwen4_verify_row_cap() || !draft_out ||
         idx >= g->ctx_cap || next_token < 0 || next_token >= (int)DS4_N_VOCAB) return false;
     const uint32_t E = DS4_N_EMBD, hc = DS4_N_HC;
     const uint32_t il = DS4_N_LAYER - 1u;
@@ -61508,7 +61572,11 @@ struct ds4_session {
     uint64_t qwen4_spec_accepted;
     uint64_t qwen4_copy_cycles;
     uint64_t qwen4_copy_accepted;
+    uint64_t qwen4_copy_offered;
     uint64_t qwen4_copy4_cycles;
+    /* DS4_QWEN4_COPY_STATS accounting, indexed by verify width (2..8) */
+    uint64_t qwen4_verify_w_cycles[QWEN4_VERIFY_ROWS_MAX + 1u];
+    double qwen4_verify_w_sec[QWEN4_VERIFY_ROWS_MAX + 1u];
     double qwen4_verify_sec, qwen4_cycle_sec; /* --mtp-timing, verify cycles only */
 #endif
     uint32_t glm_dense_cache_len;
@@ -64070,7 +64138,8 @@ static int qwen4_session_load_payload(ds4_session *s, FILE *fp, const uint32_t *
     s->mtp_draft_valid = false;
     s->glm_mtp_have = 0;
     s->glm_mtp_have2 = false;
-    g->snap_valid = g->snap2_valid = g->snap3_valid = g->snap0_valid = false;
+    g->snap_valid = g->snap2_valid = g->snap0_valid = false;
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
     if (payload_read_bytes(fp, s->logits, (uint64_t)DS4_N_VOCAB * sizeof(float), remaining, err, errlen) != 0) {
         token_vec_free(&new_checkpoint);
         return 1;
@@ -74610,6 +74679,25 @@ void ds4_session_free(ds4_session *s) {
                             s->qwen4_copy_cycles, s->qwen4_copy4_cycles, s->qwen4_copy_accepted);
                 }
             }
+            if (qwen4_copy_stats()) {
+                /* per-width verify accounting: cycle counts and mean verify
+                 * ms, the instrument for wide copy verifies */
+                uint64_t width_cycles = 0;
+                for (uint32_t t = 2u; t <= QWEN4_VERIFY_ROWS_MAX; t++) width_cycles += s->qwen4_verify_w_cycles[t];
+                if (width_cycles) {
+                    fprintf(stderr, "ds4: Qwen3.8 copy stats: verify cycles by width (cycles, mean ms):\n");
+                    for (uint32_t t = 2u; t <= QWEN4_VERIFY_ROWS_MAX; t++) {
+                        if (!s->qwen4_verify_w_cycles[t]) continue;
+                        fprintf(stderr, "ds4:   %u-row: %" PRIu64 " x %.3f ms\n", t,
+                                s->qwen4_verify_w_cycles[t],
+                                1e3 * s->qwen4_verify_w_sec[t] / (double)s->qwen4_verify_w_cycles[t]);
+                    }
+                    fprintf(stderr, "ds4:   copy tokens: %" PRIu64 " offered, %" PRIu64 " accepted (%.1f%% of offered)\n",
+                            s->qwen4_copy_offered, s->qwen4_copy_accepted,
+                            s->qwen4_copy_offered ?
+                                100.0 * (double)s->qwen4_copy_accepted / (double)s->qwen4_copy_offered : 0.0);
+                }
+            }
             free(s->qwen4_verify_logits);
             if (s->qwen4_slot >= 0 && s->engine) {
                 s->engine->qwen4_pool_used &= ~(UINT64_C(1) << s->qwen4_slot);
@@ -75362,7 +75450,8 @@ static int qwen4_copy_min(void) {
 }
 
 /* A third copied token takes a 4-row verify (Metal only); on by default,
- * DS4_QWEN4_COPY_T4=0 keeps copies at two tokens. */
+ * DS4_QWEN4_COPY_T4=0 keeps copies at two tokens.  DS4_QWEN4_COPY_MAX
+ * (3..7) widens the verify further when the knob is on. */
 static bool qwen4_copy_t4(void) {
 #ifdef __APPLE__
     const char *env = getenv("DS4_QWEN4_COPY_T4");
@@ -75372,7 +75461,12 @@ static bool qwen4_copy_t4(void) {
 #endif
 }
 
-static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, int out[3], int max) {
+/* Copied tokens the proposer may offer this cycle (2, or 3..7 on Metal). */
+static uint32_t qwen4_copy_cap(void) {
+    return qwen4_copy_t4() ? qwen4_verify_row_cap() - 1u : 2u;
+}
+
+static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, int out[QWEN4_COPY_MAX_LIMIT], int max) {
     const int *h = s->checkpoint.v;
     const int n = s->checkpoint.len;   /* first_token follows h[n-1] */
     if (n < min_match + 2) return 0;
@@ -75475,18 +75569,20 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     /* the batched cycle has no copies, so row-invariant serving drafts
      * from the predictor alone */
     const int copy_min = !(exact_sampling && temperature > 0.0f) && !e->qwen4_rows_invariant ? qwen4_copy_min() : 0;
-    int copy3 = -1;   /* third copied token: a 4-row verify (Metal) */
+    int copies[QWEN4_COPY_MAX_LIMIT];   /* copied tokens: d, d2, then extras */
+    int nc = 0;                        /* copies proposed (verified count may be narrower) */
     if (copy_min && s->glm_mtp_have) {
-        int c[3];
-        const int nc = qwen4_copy_propose(s, first_token, copy_min, c, qwen4_copy_t4() ? 3 : 2);
+        nc = qwen4_copy_propose(s, first_token, copy_min, copies, (int)qwen4_copy_cap());
         if (nc >= 2 && depth == 2 && getenv("DS4_QWEN4_NO_MTP_BATCH") == NULL) depth = 3;
-        if (nc >= 1 && (c[0] != s->glm_mtp_draft || (nc >= 2 && depth == 3))) {
+        if (nc >= 1 && (copies[0] != s->glm_mtp_draft || (nc >= 2 && depth == 3))) {
             copied = true;
-            s->glm_mtp_draft = c[0];
+            s->glm_mtp_draft = copies[0];
             s->glm_mtp_have2 = nc >= 2;
-            if (nc >= 2) s->glm_mtp_draft2 = c[1];
-            if (nc == 3 && depth == 3) copy3 = c[2];
+            if (nc >= 2) s->glm_mtp_draft2 = copies[1];
             s->qwen4_copy_cycles++;
+            s->qwen4_copy_offered += (uint64_t)nc;
+        } else {
+            nc = 0;
         }
     }
     if (depth == 3 && s->glm_mtp_have && s->glm_mtp_have2 && !g->snap2_ple_hist &&
@@ -75496,8 +75592,21 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     const bool deep = depth == 3 && s->glm_mtp_have && s->glm_mtp_have2 &&
         accepted_cap >= 3 && pos + 3u <= g->ctx_cap && g->cap_tokens >= 3u &&
         g->mtp_R && g->snap2_ple_hist != NULL;
-    const bool deep4 = deep && copy3 >= 0 && accepted_cap >= 4 && pos + 4u <= g->ctx_cap &&
-        g->cap_tokens >= 4u && g->n_logit_rows >= 4u && qwen4_graph_ensure_snap3(g);
+    /* copies verified in one wide pass: capped by the proposer, the accepted
+     * buffer, the context and logit rows, and the snapshot sets (state after
+     * rows 2..ncopy_v-1); a failed snapshot allocation narrows the width */
+    uint32_t ncopy_v = 0;
+    if (copied && deep) {
+        uint32_t cap = (uint32_t)nc;
+        if (cap > qwen4_copy_cap()) cap = qwen4_copy_cap();
+        if (cap > (uint32_t)accepted_cap - 1u) cap = (uint32_t)accepted_cap - 1u;
+        if (cap > g->ctx_cap - pos - 1u) cap = g->ctx_cap - pos - 1u;
+        if (cap > g->cap_tokens - 1u) cap = g->cap_tokens - 1u;
+        if (cap > g->n_logit_rows - 1u) cap = g->n_logit_rows - 1u;
+        while (cap >= 3u && !qwen4_graph_ensure_snapx(g, cap - 2u)) cap--;
+        ncopy_v = cap;
+    }
+    const bool deepW = ncopy_v >= 3u;
     if (!s->glm_mtp_have || accepted_cap < 2 || pos + 2u > g->ctx_cap ||
         g->cap_tokens < 2u || !g->mtp_R || !qwen4_graph_fused(g, 2u)) {
         s->glm_spec_inside = 1;
@@ -75529,9 +75638,13 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     s->glm_mtp_have2 = false;
     const int d = s->glm_mtp_draft;
     const int d2 = deep ? s->glm_mtp_draft2 : -1;
-    const int d3 = deep4 ? copy3 : -1;
-    const int toks[4] = { first_token, d, d2, d3 };
-    const uint32_t T = deep4 ? 4u : deep ? 3u : 2u;
+    int toks[1u + QWEN4_COPY_MAX_LIMIT];
+    for (uint32_t i = 0; i < 1u + QWEN4_COPY_MAX_LIMIT; i++) toks[i] = -1;
+    toks[0] = first_token;
+    toks[1] = d;
+    if (deep) toks[2] = d2;
+    for (uint32_t i = 2; i < ncopy_v; i++) toks[1u + i] = copies[i];
+    const uint32_t T = 1u + (deepW ? ncopy_v : deep ? 2u : 1u);
     /* Three verifier rows plus the logits before the block, for exact rewinds. */
     if (!s->qwen4_verify_logits) s->qwen4_verify_logits = xmalloc((QWEN4_SNAP0_ROW + 1u) * (size_t)V * sizeof(float));
     float *rows = s->qwen4_verify_logits;
@@ -75545,26 +75658,32 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         qwen4_graph_ensure_snap0(g) &&
         qwen4_graph_state_copy0(g, true);
     if (g->snap0_valid) memcpy(rows + (size_t)QWEN4_SNAP0_ROW * V, s->logits, (size_t)V * sizeof(float));
-    /* the recurrent kernels snapshot their state after row 0 (and row 1 for
-     * the 3-row verify), so a rejected draft only needs the snapshot
-     * restored, not a replay of the accepted prefix */
+    /* the recurrent kernels snapshot their state after row 0 (row 1 for the
+     * 3-row verify, rows 2.. for a wide copy verify), so a rejected draft
+     * only needs the snapshot restored, not a replay of the accepted prefix */
     g->snap_after_first = g->snap_ple_hist != NULL;
     g->snap_valid = false;
     g->snap_after_second = deep && g->snap2_ple_hist != NULL;
     g->snap2_valid = false;
-    g->snap_after_third = deep4;
-    g->snap3_valid = false;
+    g->snapx_armed = deepW ? ncopy_v - 2u : 0u;
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
     g->verify_rows_exact = deep;
-    ds4_gpu_qwen4_set_verify_rows_exact(deep);
-    g_qwen4_verify_exact4 = deep4;
-    const double verify_t0 = e->glm_mtp_timing ? now_sec() : 0.0;
+    ds4_gpu_qwen4_set_verify_rows_exact(deep ? T : 0u);
+    g_qwen4_verify_exact_rows = deepW ? T : 0u;
+    const bool wstats = qwen4_copy_stats();
+    const double verify_t0 = (e->glm_mtp_timing || wstats) ? now_sec() : 0.0;
     const bool ok = qwen4_graph_forward_tokens(g, m, w, toks, T, rows, true);
-    if (e->glm_mtp_timing) s->qwen4_verify_sec += now_sec() - verify_t0;
-    g_qwen4_verify_exact4 = false;
-    ds4_gpu_qwen4_set_verify_rows_exact(false);
+    const double verify_dt = (e->glm_mtp_timing || wstats) ? now_sec() - verify_t0 : 0.0;
+    if (e->glm_mtp_timing) s->qwen4_verify_sec += verify_dt;
+    if (wstats && T >= 2u && T <= QWEN4_VERIFY_ROWS_MAX) {
+        s->qwen4_verify_w_cycles[T]++;
+        s->qwen4_verify_w_sec[T] += verify_dt;
+    }
+    g_qwen4_verify_exact_rows = 0u;
+    ds4_gpu_qwen4_set_verify_rows_exact(0u);
     g->verify_rows_exact = false;
     g->snap_after_second = false;
-    g->snap_after_third = false;
+    g->snapx_armed = 0u;
     if (!ok) {
         g->snap_after_first = false;
         if (errlen) snprintf(err, errlen, "Qwen3.8 mtp: verify failed");
@@ -75600,32 +75719,35 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             }
         }
     }
-    if (deep4) {
-        /* 4-row copy verify: keep the longest accepted prefix of the three
-         * copies and restore the snapshot after its last row */
-        const bool accept3 = accept2 && (sample_argmax(rows + 2u * V, V) == d3 || qwen4_spec_force_accept());
-        const uint32_t n_acc = accept3 ? 3u : accept2 ? 2u : accept ? 1u : 0u;
-        s->qwen4_copy_accepted += n_acc;
-        s->qwen4_copy4_cycles++;
-        if (qwen4_spec_trace()) {
-            fprintf(stderr, "ds4: spec pos %u token %d copy4 %d %d %d accepted %u\n",
-                    pos, first_token, d, d2, d3, n_acc);
+    if (deepW) {
+        /* wide copy verify: keep the longest accepted prefix of the copies
+         * and restore the snapshot after its last row */
+        uint32_t n_acc = accept ? 1u : 0u;
+        while (n_acc < ncopy_v &&
+               (sample_argmax(rows + (size_t)n_acc * V, V) == copies[n_acc] || qwen4_spec_force_accept())) {
+            n_acc++;
         }
-        const bool restored = n_acc == 3u ? true :
-            n_acc == 2u ? g->snap3_valid && qwen4_graph_state_swap3(g) :
+        s->qwen4_copy_accepted += n_acc;
+        if (T == 4u) s->qwen4_copy4_cycles++;
+        if (qwen4_spec_trace()) {
+            fprintf(stderr, "ds4: spec pos %u token %d copy%u accepted %u/%u:", pos, first_token, T, n_acc, ncopy_v);
+            for (uint32_t i = 0; i < ncopy_v; i++) fprintf(stderr, " %d", copies[i]);
+            fputc('\n', stderr);
+        }
+        const bool restored = n_acc == ncopy_v ? true :
+            n_acc == 0u ? g->snap_valid && qwen4_graph_state_swap(g) :
             n_acc == 1u ? g->snap2_valid && qwen4_graph_state_swap2(g) :
-                          g->snap_valid && qwen4_graph_state_swap(g);
+            g->snapx_valid[n_acc - 2u] && qwen4_graph_state_swapx(g, n_acc - 2u);
         if (!restored) {
             if (errlen) snprintf(err, errlen, "Qwen3.8 mtp: rejection restore failed");
             s->checkpoint_valid = false;
             return -1;
         }
-        const int drafts[3] = { d, d2, d3 };
-        for (uint32_t i = 0; i < n_acc; i++) token_vec_push(&s->checkpoint, drafts[i]);
+        for (uint32_t i = 0; i < n_acc; i++) token_vec_push(&s->checkpoint, copies[i]);
         memcpy(s->logits, rows + (size_t)n_acc * V, (size_t)V * sizeof(float));
         const int parent = sample_argmax(s->logits, V);
-        int next_tokens[4];
-        for (uint32_t i = 0; i < n_acc; i++) next_tokens[i] = drafts[i];
+        int next_tokens[1u + QWEN4_COPY_MAX_LIMIT];
+        for (uint32_t i = 0; i < n_acc; i++) next_tokens[i] = copies[i];
         next_tokens[n_acc] = parent;
         int draft = -1;
         if (qwen4_graph_mtp_steps(g, m, w, 0, next_tokens, n_acc + 1u, pos, true, NULL, &draft)) {
@@ -75642,7 +75764,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         }
         if (accept) s->qwen4_spec_accepted++;
         accepted[0] = first_token;
-        for (uint32_t i = 0; i < n_acc; i++) accepted[1u + i] = drafts[i];
+        for (uint32_t i = 0; i < n_acc; i++) accepted[1u + i] = copies[i];
         return (int)n_acc + 1;
     }
     if (copied) {
@@ -80507,7 +80629,7 @@ static bool qwen4_graph_native_session_batch_check(ds4_decode_item *items, int c
             g->n_block_cap > arena->n_block_cap ||
             g->pos != (uint32_t)s->checkpoint.len ||
             g->vis_span_count != 0 || (speculative && !g->mtp_R) ||
-            g->snap_after_first || g->snap_after_second || g->snap_after_third ||
+            g->snap_after_first || g->snap_after_second || g->snapx_armed != 0u ||
             g->steer_attn_scale != 0.0f || g->steer_ffn_scale != 0.0f ||
             g->dump_prompt_rows) {
             return false;
@@ -81465,7 +81587,8 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
             mem[i].row0 = N;
             pos0[i] = g->pos;
             /* The logit rows below replace those paired with older snapshots. */
-            g->snap_valid = g->snap2_valid = g->snap3_valid = g->snap0_valid = false;
+            g->snap_valid = g->snap2_valid = g->snap0_valid = false;
+            for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
             if (s->glm_mtp_have && s->glm_mtp_parent == items[i].token &&
                 s->ctx_size - s->checkpoint.len >= 2 && g->pos + 2u <= g->ctx_cap &&
                 g->snap_ple_hist && g->mtp_R) {
@@ -86700,16 +86823,18 @@ void ds4_session_invalidate(ds4_session *s) {
 
 #if !defined(DS4_NO_GPU) && defined(DS4_HAS_QWEN4_GPU)
 /* The verify snapshot that restores Qwen3.8 recurrent state at pos, as the
- * verify-logits row it pairs with: the verified block's row-0 state (0), its
- * row-1 state under depth 3 (1), its row-2 state under a 4-row copy verify
- * (2), or the pre-verify start kept for exact-sampling resample rewinds
- * (QWEN4_SNAP0_ROW); -1 when none matches. */
+ * verify-logits row it pairs with: the verified block's row-0 state (0),
+ * its row-1 state under depth 3 (1), its row-2..6 states under a wide copy
+ * verify (2..6), or the pre-verify start kept for exact-sampling resample
+ * rewinds (QWEN4_SNAP0_ROW); -1 when none matches. */
 static int qwen4_rewind_snapshot_row(const ds4_session *s, int pos) {
     const ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
     if (!s->qwen4_verify_logits) return -1;
     if (g->snap_valid && g->snap_pos == (uint32_t)pos) return 0;
     if (g->snap2_valid && g->snap2_pos == (uint32_t)pos) return 1;
-    if (g->snap3_valid && g->snap3_pos == (uint32_t)pos) return 2;
+    for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) {
+        if (g->snapx_valid[x] && g->snapx_pos[x] == (uint32_t)pos) return 2 + (int)x;
+    }
     if (g->snap0_valid && g->snap0_pos == (uint32_t)pos) return QWEN4_SNAP0_ROW;
     return -1;
 }
@@ -86756,7 +86881,8 @@ void ds4_session_rewind(ds4_session *s, int pos) {
         int logit_row = qwen4_rewind_snapshot_row(s, pos);
         if ((logit_row == 0 && !qwen4_graph_state_copy(g, false)) ||
             (logit_row == 1 && !qwen4_graph_state_copy2(g, false)) ||
-            (logit_row == 2 && !qwen4_graph_state_copy3(g, false)) ||
+            (logit_row >= 2 && logit_row < 2 + (int)QWEN4_SNAPX_MAX &&
+             !qwen4_graph_state_copyx(g, (uint32_t)logit_row - 2u, false)) ||
             (logit_row == QWEN4_SNAP0_ROW && !qwen4_graph_state_copy0(g, false)))
             logit_row = -1;
         if (logit_row >= 0) {
@@ -86764,7 +86890,7 @@ void ds4_session_rewind(ds4_session *s, int pos) {
                    (size_t)DS4_N_VOCAB * sizeof(float));
             g->snap_valid = false;
             g->snap2_valid = false;
-            g->snap3_valid = false;
+            for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
             g->snap0_valid = false;
             if (g->mtp_pos > (uint32_t)pos) g->mtp_pos = (uint32_t)pos;
         } else {

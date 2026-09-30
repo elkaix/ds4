@@ -5664,12 +5664,13 @@ static ds4_gpu_mul_mv_ext_args ds4_gpu_make_mv_ext_args(
  * that carry the MTP verify rows.  Rows per threadgroup only: each row keeps
  * its lane walk and shuffle tree, so outputs are byte-identical at any
  * value (tests/test_qwen4_kernels.c pins 1/2/4/8). */
-/* Row-exact geometry for the 3-row speculative verify: the few-row matvec
- * and routed-expert dispatches keep the lane maps and kernel choices of the
- * T <= 2 decode paths, so every committed row stays byte-identical. */
-static bool g_qwen4_verify_rows_exact;
-void ds4_gpu_qwen4_set_verify_rows_exact(bool on) {
-    g_qwen4_verify_rows_exact = on;
+/* Row-exact geometry for the 3..8-row speculative verify: the few-row
+ * matvec and routed-expert dispatches keep the lane maps and kernel choices
+ * of the T <= 2 decode paths, so every committed row stays byte-identical.
+ * The value is the verify width while one runs, 0 otherwise. */
+static uint32_t g_qwen4_verify_rows_exact;
+void ds4_gpu_qwen4_set_verify_rows_exact(uint32_t rows) {
+    g_qwen4_verify_rows_exact = rows;
 }
 /* Qwen decode on one arithmetic for 1..8 rows (see
  * ds4_gpu_qwen4_matmul_rows_invariant_tensor): kernels with a separate
@@ -5684,7 +5685,7 @@ static int16_t ds4_gpu_mv_ext_nsg(void) {
 }
 
 static int16_t ds4_gpu_mv_ext_nxpsg(uint64_t in_dim, uint64_t n_tok) {
-    if ((in_dim % 256u) == 0 && (n_tok < 3 || (n_tok <= 4 && g_qwen4_verify_rows_exact))) return 16;
+    if ((in_dim % 256u) == 0 && (n_tok < 3 || (n_tok <= 8u && n_tok <= (uint64_t)g_qwen4_verify_rows_exact))) return 16;
     if ((in_dim % 128u) == 0) return 8;
     return 4;
 }
@@ -50350,25 +50351,33 @@ int ds4_gpu_qwen4_gdn_prep_tensor(
                           MTLSizeMake(n_k_head, n_tokens, 1), MTLSizeMake(32, 1, 1), 0);
 }
 
-/* Third snapshot point for the 4-row copy verify: set right before one
- * gdn_front / gdn_scan / ple_conv call, which consumes (and clears) it. */
-static ds4_gpu_tensor *g_qwen4_snap3;
-static uint32_t g_qwen4_snap3_tok = UINT32_MAX;
-void ds4_gpu_qwen4_set_snapshot3(ds4_gpu_tensor *snap, uint32_t tok) {
-    g_qwen4_snap3 = snap;
-    g_qwen4_snap3_tok = snap ? tok : UINT32_MAX;
+/* Extra snapshot points for the wide copy verify (state after rows 3..7,
+ * following the snap/snap2 kernel arguments): set right before one
+ * gdn_front / gdn_scan / ple_conv call, which consumes (and clears) them. */
+#define QWEN4_SNAPX_MAX 5u
+static ds4_gpu_tensor *g_qwen4_snapx[QWEN4_SNAPX_MAX];
+static uint32_t g_qwen4_snapx_tok[QWEN4_SNAPX_MAX];
+void ds4_gpu_qwen4_arm_snapshots(ds4_gpu_tensor *const *snaps, const uint32_t *toks, uint32_t count) {
+    if (count > QWEN4_SNAPX_MAX) count = QWEN4_SNAPX_MAX;
+    for (uint32_t i = 0; i < QWEN4_SNAPX_MAX; i++) {
+        g_qwen4_snapx[i] = i < count ? snaps[i] : NULL;
+        g_qwen4_snapx_tok[i] = i < count ? toks[i] : UINT32_MAX;
+    }
 }
 
-static bool qwen4_bind_snap3(qwen4_bind *b, const qwen4_bind *fallback, uint64_t bytes, uint32_t *tok) {
-    ds4_gpu_tensor *snap = g_qwen4_snap3;
-    *tok = snap ? g_qwen4_snap3_tok : UINT32_MAX;
-    g_qwen4_snap3 = NULL;
-    g_qwen4_snap3_tok = UINT32_MAX;
-    if (!snap) {
-        *b = *fallback;
-        return true;
+/* Bind the armed extra snapshots in b[0..4], writing their token indices
+ * into five consecutive args fields; un-armed slots fall back to the live
+ * buffer (their UINT32_MAX index never matches). */
+static bool qwen4_bind_snapx(qwen4_bind *b, const qwen4_bind *fallback, uint64_t bytes, uint32_t *toks) {
+    for (uint32_t i = 0; i < QWEN4_SNAPX_MAX; i++) {
+        ds4_gpu_tensor *snap = g_qwen4_snapx[i];
+        toks[i] = snap ? g_qwen4_snapx_tok[i] : UINT32_MAX;
+        g_qwen4_snapx[i] = NULL;
+        g_qwen4_snapx_tok[i] = UINT32_MAX;
+        b[i] = *fallback;
+        if (snap && !qwen4_bind_tensor(&b[i], snap, bytes, "qwen snapshot x")) return false;
     }
-    return qwen4_bind_tensor(b, snap, bytes, "qwen snapshot 3");
+    return true;
 }
 
 int ds4_gpu_qwen4_gdn_scan_tensor(
@@ -50378,11 +50387,13 @@ int ds4_gpu_qwen4_gdn_scan_tensor(
         ds4_gpu_tensor *snap_state, uint32_t snap_tok,
         ds4_gpu_tensor *snap2_state, uint32_t snap2_tok) {
     const uint64_t conv_dim = (uint64_t)(2u * n_k_head + n_v_head) * head_dim;
-    struct { uint32_t n_tokens, n_k_head, n_v_head, head_dim, snap_tok, snap2_tok, pad1, pad2; } args =
+    struct { uint32_t n_tokens, n_k_head, n_v_head, head_dim, snap_tok, snap2_tok,
+                      snap3_tok, snap4_tok, snap5_tok, snap6_tok, snap7_tok; } args =
         { n_tokens, n_k_head, n_v_head, head_dim,
-          snap_state ? snap_tok : UINT32_MAX, snap2_state ? snap2_tok : UINT32_MAX, 0, 0 };
+          snap_state ? snap_tok : UINT32_MAX, snap2_state ? snap2_tok : UINT32_MAX,
+          UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
     const uint64_t state_bytes = (uint64_t)n_v_head * head_dim * head_dim * sizeof(float);
-    qwen4_bind bd[8];
+    qwen4_bind bd[12];
     if (n_tokens == 0 || head_dim < 32 || head_dim > 128 || (head_dim % 32) != 0 || n_k_head == 0 ||
         !qwen4_bind_tensor(&bd[0], qkv, n_tokens * conv_dim * sizeof(float), "gdn scan qkv") ||
         !qwen4_bind_tensor(&bd[1], a, (uint64_t)n_tokens * n_v_head * sizeof(float), "gdn scan g") ||
@@ -50401,8 +50412,8 @@ int ds4_gpu_qwen4_gdn_scan_tensor(
     } else {
         bd[6] = bd[3];
     }
-    if (!qwen4_bind_snap3(&bd[7], &bd[3], state_bytes, &args.pad1)) return 0;
-    const bool decode_r4 = (n_tokens <= 2u || (n_tokens <= 4u && g_qwen4_verify_rows_exact) ||
+    if (!qwen4_bind_snapx(&bd[7], &bd[3], state_bytes, &args.snap3_tok)) return 0;
+    const bool decode_r4 = (n_tokens <= 2u || (n_tokens <= g_qwen4_verify_rows_exact) ||
                             g_qwen4_rows_invariant) &&
         getenv("DS4_QWEN4_NO_GDN_R4") == NULL;
     if (head_dim == 128u && (n_tokens > 8u || decode_r4)) {
@@ -50416,11 +50427,11 @@ int ds4_gpu_qwen4_gdn_scan_tensor(
         const uint32_t nsg = n_tokens <= 2u ?
             (uint32_t)ds4_gpu_env_u64("DS4_QWEN4_GDN_NSG", default_nsg, 1u, 8u) :
             (uint32_t)ds4_gpu_env_u64("DS4_QWEN4_GDN_PREFILL_NSG", prefill_default_nsg, 1u, 8u);
-        return qwen4_dispatch(QWEN4_K_GDN_SCAN_R4, &args, sizeof(args), bd, 8,
+        return qwen4_dispatch(QWEN4_K_GDN_SCAN_R4, &args, sizeof(args), bd, 12,
                               MTLSizeMake((head_dim + 4u * nsg - 1u) / (4u * nsg), n_v_head, 1),
                               MTLSizeMake(32u * nsg, 1, 1), 0);
     }
-    return qwen4_dispatch(QWEN4_K_GDN_SCAN, &args, sizeof(args), bd, 8,
+    return qwen4_dispatch(QWEN4_K_GDN_SCAN, &args, sizeof(args), bd, 12,
                           MTLSizeMake(head_dim, n_v_head, 1), MTLSizeMake(32, 1, 1), 0);
 }
 
@@ -50646,13 +50657,15 @@ int ds4_gpu_qwen4_ple_conv_tensor(
         ds4_gpu_tensor *snap_history, uint32_t snap_tok,
         ds4_gpu_tensor *snap2_history, uint32_t snap2_tok) {
     const uint32_t wsize = weight_type == 1u ? 2u : weight_type == 0u ? 4u : 0u;
-    struct { uint32_t n_tokens, n_channels, conv_kernel, dilation, weight_f16, snap_tok, snap2_tok, pad2; } args =
+    struct { uint32_t n_tokens, n_channels, conv_kernel, dilation, weight_f16, snap_tok, snap2_tok,
+                      snap3_tok, snap4_tok, snap5_tok, snap6_tok, snap7_tok; } args =
         { n_tokens, n_channels, conv_kernel, dilation, weight_type == 1u ? 1u : 0u,
-          snap_history ? snap_tok : UINT32_MAX, snap2_history ? snap2_tok : UINT32_MAX, 0 };
+          snap_history ? snap_tok : UINT32_MAX, snap2_history ? snap2_tok : UINT32_MAX,
+          UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
     if (wsize == 0) return 0;
     const uint64_t rows = (uint64_t)n_tokens * n_channels * sizeof(float);
     const uint32_t hist = (conv_kernel - 1u) * dilation;
-    qwen4_bind b[8];
+    qwen4_bind b[12];
     if (n_tokens == 0 || conv_kernel < 2 || conv_kernel > 4 || dilation == 0 || hist > 9 ||
         !qwen4_bind_tensor(&b[0], R, rows, "ple residual") ||
         !qwen4_bind_tensor(&b[1], gated, rows, "ple gated") ||
@@ -50678,9 +50691,9 @@ int ds4_gpu_qwen4_ple_conv_tensor(
     } else {
         b[6] = b[3];
     }
-    if (!qwen4_bind_snap3(&b[7], &b[3], (uint64_t)(conv_kernel - 1) * dilation * n_channels * sizeof(float),
-                          &args.pad2)) return 0;
-    return qwen4_dispatch(QWEN4_K_PLE_CONV, &args, sizeof(args), b, 8,
+    if (!qwen4_bind_snapx(&b[7], &b[3], (uint64_t)(conv_kernel - 1) * dilation * n_channels * sizeof(float),
+                          &args.snap3_tok)) return 0;
+    return qwen4_dispatch(QWEN4_K_PLE_CONV, &args, sizeof(args), b, 12,
                           MTLSizeMake((n_channels + 255) / 256, 1, 1), MTLSizeMake(256, 1, 1), 0);
 }
 
@@ -51244,7 +51257,7 @@ int ds4_gpu_qwen4_moe_mid_tensor(
      * two-token MTP verifier on M3 Ultra without changing dot-product order.
      * M5 measured the single-token case with four groups per threadgroup and
      * the two-row MTP passes with four. */
-    const bool m5_single = q4k && (n_tokens <= 2u || (n_tokens <= 4u && g_qwen4_verify_rows_exact) ||
+    const bool m5_single = q4k && (n_tokens <= 2u || (n_tokens <= g_qwen4_verify_rows_exact) ||
                                    (n_tokens <= 32u && g_qwen4_rows_invariant)) &&
         ds4_gpu_device_is_m5_apple_silicon();
     const uint32_t default_nr = (m3_ultra && n_tokens <= 2u) || m5_single ? 1u : 2u;
@@ -51820,14 +51833,15 @@ int ds4_gpu_qwen4_gdn_front_tensor(
         ds4_gpu_tensor *snap2_state, uint32_t snap2_tok) {
     const uint32_t row_bytes = qwen4_expert_row_bytes(weight_type, in_dim);
     struct { uint32_t n_tokens, n_k_head, n_v_head, head_dim, conv_kernel, weight_type, in_dim, row_bytes,
-                      snap_tok, snap2_tok, pad1, pad2; } args =
+                      snap_tok, snap2_tok, snap3_tok, snap4_tok, snap5_tok, snap6_tok, snap7_tok; } args =
         { n_tokens, n_k_head, n_v_head, head_dim, conv_kernel, weight_type, in_dim, row_bytes,
-          snap_state ? snap_tok : UINT32_MAX, snap2_state ? snap2_tok : UINT32_MAX, 0, 0 };
+          snap_state ? snap_tok : UINT32_MAX, snap2_state ? snap2_tok : UINT32_MAX,
+          UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX };
     const uint64_t conv_dim = 2ull * n_k_head * head_dim + (uint64_t)n_v_head * head_dim;
     const uint64_t state_bytes = (uint64_t)(conv_kernel - 1) * conv_dim * sizeof(float);
     const uint64_t proj_bytes = (uint64_t)n_v_head * row_bytes;
     const uint64_t vhead_bytes = (uint64_t)n_v_head * sizeof(float);
-    qwen4_bind b[13];
+    qwen4_bind b[17];
     if (n_tokens == 0 || n_k_head == 0 || head_dim % 32 != 0 || n_v_head % n_k_head != 0 ||
         conv_kernel < 2 || conv_kernel > 4 || row_bytes == 0 ||
         !qwen4_bind_tensor(&b[0], qkv, (uint64_t)n_tokens * conv_dim * sizeof(float), "gdn front qkv") ||
@@ -51853,13 +51867,13 @@ int ds4_gpu_qwen4_gdn_front_tensor(
     } else {
         b[11] = b[1];
     }
-    if (!qwen4_bind_snap3(&b[12], &b[1], state_bytes, &args.pad1)) return 0;
+    if (!qwen4_bind_snapx(&b[12], &b[1], state_bytes, &args.snap3_tok)) return 0;
     /* One threadgroup per key head: simdgroups 0/1 normalize, the rest take
      * the alpha/beta rows, and every channel's conv stays on one thread, so
      * the thread count only spreads the conv wider.  M5 measured 1024. */
     const uint64_t nth = ds4_gpu_env_u64("DS4_QWEN4_GDN_FRONT_THREADS",
                                          ds4_gpu_device_is_m5_apple_silicon() ? 1024u : 256u, 96u, 1024u);
-    return qwen4_dispatch(QWEN4_K_GDN_FRONT, &args, sizeof(args), b, 13,
+    return qwen4_dispatch(QWEN4_K_GDN_FRONT, &args, sizeof(args), b, 17,
                           MTLSizeMake(n_k_head, 1, 1), MTLSizeMake((NSUInteger)(nth / 32u * 32u), 1, 1), 0);
 }
 

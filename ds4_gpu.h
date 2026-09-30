@@ -3549,11 +3549,14 @@ int ds4_gpu_qwen4_gdn_prep_tensor(
         const void *model_map, uint64_t model_size, uint64_t ssm_a_offset, uint64_t dt_bias_offset,
         uint32_t n_tokens, uint32_t n_k_head, uint32_t n_v_head, uint32_t head_dim);
 /* snap_state/snap2_state (optional) receive the state right after tokens
- * snap_tok/snap2_tok; two points serve the 3-row MTP verifier */
-void ds4_gpu_qwen4_set_verify_rows_exact(bool on);
-/* Metal: third snapshot (state after token tok) for the next gdn_front,
- * gdn_scan or ple_conv dispatch only; the 4-row copy verify arms it. */
-void ds4_gpu_qwen4_set_snapshot3(ds4_gpu_tensor *snap, uint32_t tok);
+ * snap_tok/snap2_tok; two points serve the 3-row MTP verifier.  The extra
+ * copy-verify points (state after rows 3..7) are staged per dispatch
+ * through ds4_gpu_qwen4_arm_snapshots instead of kernel arguments. */
+void ds4_gpu_qwen4_set_verify_rows_exact(uint32_t rows);
+/* Metal: arm up to five extra recurrent-state snapshots (state after token
+ * toks[i]) for the next gdn_front, gdn_scan or ple_conv dispatch only; the
+ * wide copy verify arms them.  Consumed by that dispatch. */
+void ds4_gpu_qwen4_arm_snapshots(ds4_gpu_tensor *const *snaps, const uint32_t *toks, uint32_t count);
 void ds4_gpu_qwen4_set_rows_invariant(bool on);
 int ds4_gpu_qwen4_matmul_rows_invariant_tensor(
         ds4_gpu_tensor *out, const void *model_map, uint64_t model_size,
