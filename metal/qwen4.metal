@@ -4251,6 +4251,151 @@ template [[host_name("kernel_qwen4_moe_mm_down_naxc64")]] kernel void kernel_qwe
 #undef QWEN4_NAX_MID_SIG_FLOAT
 #undef QWEN4_NAX_DOWN_SIG_HALF
 #undef QWEN4_NAX_DOWN_SIG_FLOAT
+
+/* Rows kpos[] of one kv head's cache (-1: zeros) into a [32][256] half tile,
+ * 16 bytes per item, every load of the thread issued before its stores. */
+template <uint NI>
+static inline void qwen4_attn_nax_gather(threadgroup half *dst, device const half *cache,
+                                         threadgroup const int *kpos, uint Hkv, uint kvh, ushort tid) {
+    uint4 r[NI];
+#pragma unroll
+    for (uint j = 0; j < NI; j++) {
+        const uint i = tid + 128u * j, key = i >> 5, seg = i & 31u;
+        const int p = kpos[key];
+        r[j] = p >= 0 ? ((device const uint4 *)(cache + ((uint64_t)p * Hkv + kvh) * 256u))[seg] : uint4(0u);
+    }
+#pragma unroll
+    for (uint j = 0; j < NI; j++) ((threadgroup uint4 *)dst)[tid + 128u * j] = r[j];
+}
+
+/* Prefill sparse attention on the tensor ops: kernel_qwen4_attn_mm's
+ * threadgroup (one kv head x one token, the query heads padded to 16 rows)
+ * with the score product Q K^T (16 x 32 keys x 256) and the value product
+ * P V (16 x 256 x 32 keys) on cooperative matmuls.  One 16 KiB buffer holds
+ * the key tile, then the value tile; each is gathered with all of a thread's
+ * loads issued before its stores, which is what keeps the loads in flight.
+ * The online softmax runs on the staged scores, eight lanes per row; the
+ * output accumulator stays in the value product's cooperative tensor and is
+ * rescaled there.  Same half queries and probabilities as kernel_qwen4_attn_mm,
+ * other accumulation order. */
+kernel void kernel_qwen4_attn_nax(
+        constant ds4_metal_args_qwen4_attn_decode & args,
+        device const float   *q,
+        device const float   *gate,
+        device const half    *k_cache,
+        device const half    *v_cache,
+        device const int32_t *sel_tokens,
+        device const uint32_t *n_sel,
+        device float         *out,
+        uint3 tgpig [[threadgroup_position_in_grid]],
+        ushort tid [[thread_index_in_threadgroup]]) {
+    const uint kvh = tgpig.x, tok = tgpig.y;
+    if (kvh >= args.n_head_kv || tok >= args.n_tokens) return;
+    constexpr uint D = 256, KT = 32, NI = KT * (D / 8) / 128;   /* 16-byte items per thread per tile */
+    const uint H = args.n_head, Hkv = args.n_head_kv, group = H / Hkv;
+    const uint qpos = args.pos0 + tok;
+    const uint n = args.use_sel ? n_sel[tok] : qpos + 1;
+    device const int32_t *sel = sel_tokens + (uint64_t)tok * args.sel_stride;
+
+    threadgroup half KV[KT * D];          /* key tile, then value tile; the epilogue's [16][D] floats */
+    threadgroup half Qs[16 * D];          /* scaled queries as half */
+    threadgroup float Ss[16 * KT];
+    threadgroup half Ps[16 * KT];
+    threadgroup float Cr[16], Ms[16], Ls[16];
+    threadgroup int kpos[KT];
+
+    for (uint i = tid; i < 16 * D; i += 128) {
+        const uint r = i / D, d = i % D;
+        Qs[i] = r < group ? (half)(q[((uint64_t)tok * H + kvh * group + r) * D + d] * args.scale) : (half)0.0h;
+    }
+    if (tid < 16) { Ms[tid] = -3.0e38f; Ls[tid] = 0.0f; }
+
+    auto tQ = tensor(Qs, dextents<int32_t, 2>(D, 16));
+    auto tK = tensor(KV, dextents<int32_t, 2>(D, KT));
+    auto tV = tensor(KV, dextents<int32_t, 2>(D, KT));
+    auto tS = tensor(Ss, dextents<int32_t, 2>(KT, 16));
+    auto tP = tensor(Ps, dextents<int32_t, 2>(KT, 16));
+    matmul2d<matmul2d_descriptor(16, KT, D, false, true, false, matmul2d_descriptor::mode::multiply_accumulate),
+             execution_simdgroups<4>> mmS;
+    matmul2d<matmul2d_descriptor(16, D, KT, false, false, false, matmul2d_descriptor::mode::multiply_accumulate),
+             execution_simdgroups<4>> mmO;
+    auto O = mmO.template get_destination_cooperative_tensor<decltype(tP), decltype(tV), float>();
+#pragma unroll
+    for (uint16_t i = 0; i < O.get_capacity(); i++) if (O.is_valid_element(i)) O[i] = 0.0f;
+
+    const uint sr = tid >> 3, sl = tid & 7u;       /* softmax: row, lane of eight */
+    for (uint t0 = 0; t0 < n; t0 += KT) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < KT) {
+            const uint idx = t0 + tid;
+            const int p = idx < n ? (args.use_sel ? sel[idx] : (int)idx) : -1;
+            kpos[tid] = p > (int)qpos ? -1 : p;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        qwen4_attn_nax_gather<NI>(KV, k_cache, kpos, Hkv, kvh, tid);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        {
+            auto S = mmS.template get_destination_cooperative_tensor<decltype(tQ), decltype(tK), float>();
+#pragma unroll
+            for (uint16_t i = 0; i < S.get_capacity(); i++) if (S.is_valid_element(i)) S[i] = 0.0f;
+            mmS.run(tQ, tK, S);
+            S.store(tS);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        {
+            float sv[KT / 8];
+            float mx = -3.0e38f;
+#pragma unroll
+            for (uint j = 0; j < KT / 8; j++) {
+                const uint key = sl + 8 * j;
+                sv[j] = kpos[key] >= 0 ? Ss[sr * KT + key] : -3.0e38f;
+                mx = max(mx, sv[j]);
+            }
+            mx = max(mx, simd_shuffle_xor(mx, 1));
+            mx = max(mx, simd_shuffle_xor(mx, 2));
+            mx = max(mx, simd_shuffle_xor(mx, 4));
+            const float m_old = Ms[sr];
+            const float m_new = max(m_old, mx);
+            float rs = 0.0f;
+#pragma unroll
+            for (uint j = 0; j < KT / 8; j++) {
+                const uint key = sl + 8 * j;
+                const float p = kpos[key] >= 0 ? exp(sv[j] - m_new) : 0.0f;
+                rs += p;
+                Ps[sr * KT + key] = (half)p;
+            }
+            rs += simd_shuffle_xor(rs, 1);
+            rs += simd_shuffle_xor(rs, 2);
+            rs += simd_shuffle_xor(rs, 4);
+            if (sl == 0) {
+                const float corr = exp(m_old - m_new);
+                Cr[sr] = corr;
+                Ls[sr] = Ls[sr] * corr + rs;
+                Ms[sr] = m_new;
+            }
+        }
+        /* the score product is done with the key tile */
+        qwen4_attn_nax_gather<NI>(KV, v_cache, kpos, Hkv, kvh, tid);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+#pragma unroll
+        for (uint16_t i = 0; i < O.get_capacity(); i++) {
+            if (O.is_valid_element(i)) O[i] *= Cr[O.get_multidimensional_index(i)[1]];
+        }
+        mmO.run(tP, tV, O);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    threadgroup float *Of = (threadgroup float *)KV;      /* [16][D] */
+    O.store(tensor(Of, dextents<int32_t, 2>(D, 16)));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint i = tid; i < 16 * D; i += 128) {
+        const uint r = i / D, d = i % D;
+        if (r >= group) continue;
+        const uint64_t o = ((uint64_t)tok * H + kvh * group + r) * D + d;
+        const float inv = Ls[r] > 0.0f ? 1.0f / Ls[r] : 0.0f;
+        out[o] = Of[i] * inv * qwen4_sigmoid(gate[o]);
+    }
+}
+
 #endif /* DS4_METAL_HAS_TENSOR */
 /* --- prefill: dense tiled GEMM for f32/f16/q8_0 weights ----------------- */
 

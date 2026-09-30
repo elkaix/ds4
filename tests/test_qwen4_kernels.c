@@ -926,7 +926,8 @@ static void test_attn_mm_keys(uint32_t T, uint32_t pos0, bool sparse, uint32_t k
         if (fabs(ref[i]) > scale) scale = fabs(ref[i]);
     }
     char name[96];
-    snprintf(name, sizeof(name), "attn mm T=%u H=%u pos0=%u %s%s", T, H, pos0, sparse ? "sparse" : "dense", split ? " split" : "");
+    snprintf(name, sizeof(name), "attn %s T=%u H=%u pos0=%u %s%s", getenv("DS4_QWEN4_NO_ATTN_NAX") ? "mm" : "nax",
+             T, H, pos0, sparse ? "sparse" : "dense", split ? " split" : "");
 #ifdef __APPLE__
     require_ok(worst <= 4e-3 * scale, name);
 #else
@@ -978,7 +979,11 @@ static void test_attn_mm_keys(uint32_t T, uint32_t pos0, bool sparse, uint32_t k
 }
 
 static void test_attn_mm(uint32_t T, uint32_t pos0, bool sparse) {
+    /* the tensor-op tiles (default where available), then the simdgroup tiles */
     test_attn_mm_keys(T, pos0, sparse, 6, 24, false);
+    setenv("DS4_QWEN4_NO_ATTN_NAX", "1", 1);
+    test_attn_mm_keys(T, pos0, sparse, 6, 24, false);
+    unsetenv("DS4_QWEN4_NO_ATTN_NAX");
 }
 
 #ifndef __APPLE__

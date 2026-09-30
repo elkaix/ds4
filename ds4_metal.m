@@ -49775,6 +49775,7 @@ enum {
     QWEN4_K_ATTN_MERGE_WIDE_NPT8,
     QWEN4_K_ATTN_MERGE_WIDE_NPT4,
     QWEN4_K_ATTN_MM,
+    QWEN4_K_ATTN_NAX,
     QWEN4_K_MOE_MID,
     QWEN4_K_MOE_MID_Q4K,
     QWEN4_K_MOE_MID_Q4K_NR1,
@@ -49880,6 +49881,7 @@ static const char *const qwen4_kernel_names[QWEN4_K_COUNT] = {
     "kernel_qwen4_attn_merge_wide_npt8",
     "kernel_qwen4_attn_merge_wide_npt4",
     "kernel_qwen4_attn_mm",
+    "kernel_qwen4_attn_nax",
     "kernel_qwen4_moe_mid",
     "kernel_qwen4_moe_mid_q4k",
     "kernel_qwen4_moe_mid_q4k_nr1",
@@ -50948,6 +50950,11 @@ int ds4_gpu_qwen4_attn_decode_tensor(
      * relative to one-token continuation; large prefills retain matrix tiles. */
     if (n_splits == 1 && n_tokens > 8u && head_dim == 256u && n_head / n_head_kv <= 16u &&
         getenv("DS4_QWEN4_NO_ATTN_MM") == NULL) {
+        /* M5 tensor ops; DS4_QWEN4_NO_ATTN_NAX=1 keeps the simdgroup tiles */
+        if (ds4_gpu_mpp_available() && getenv("DS4_QWEN4_NO_ATTN_NAX") == NULL) {
+            return qwen4_dispatch(QWEN4_K_ATTN_NAX, &args, sizeof(args), b, 7,
+                                  MTLSizeMake(n_head_kv, n_tokens, 1), MTLSizeMake(128, 1, 1), 0);
+        }
         return qwen4_dispatch(QWEN4_K_ATTN_MM, &args, sizeof(args), b, 7,
                               MTLSizeMake(n_head_kv, n_tokens, 1), MTLSizeMake(128, 1, 1), 0);
     }
