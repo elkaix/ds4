@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   DASH, compact, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
@@ -17,6 +17,8 @@ import { HealthRow, InfoCard, MetricCard, ProgressCard, StatRow } from "./compon
 import { Pill } from "./components/Icon";
 
 type Period = "Session" | "All-Time";
+
+const KV_BANNER_MS = 20_000;
 type BottomTab = "cache" | "requests";
 
 const navItems: {
@@ -139,7 +141,16 @@ export function App() {
   const remaining = stats ? Math.max(0, stats.ctx_size - stats.live_tokens) : undefined;
   const turnNs = last ? last.prompt_ns + last.first_token_ns + last.decode_ns : undefined;
   const storeAlarm = !!last && last.store_ns > 1e9;
-  const kvWarn = !!kv?.warnings?.some((w) => w.level === "warn");
+  const kvWarnings = kv?.warnings ?? [];
+  const kvWarn = kvWarnings.some((w) => w.level === "warn");
+  // KV startup findings flash as banners for 20 s, then live only under Health & Anomalies.
+  const [kvBannerHidden, setKvBannerHidden] = useState(false);
+  const kvBannerShown = kvWarnings.length > 0 && !kvBannerHidden;
+  useEffect(() => {
+    if (!kvBannerShown) return;
+    const t = setTimeout(() => { setKvBannerHidden(true); }, KV_BANNER_MS);
+    return () => { clearTimeout(t); };
+  }, [kvBannerShown]);
 
   const isHealthy = !error && failures === 0;
   const statusText = error ? "Unreachable" : !stats ? "Connecting" : livePrefill ? "Prefilling" : stats.busy ? "Generating" : "Healthy";
@@ -273,7 +284,7 @@ export function App() {
             </section>
 
             {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
-            {kv?.warnings?.map((w) => (
+            {kvBannerShown && kvWarnings.map((w) => (
               <div key={w.code} className={`banner ${w.level === "warn" ? "warn" : "info"}`} role={w.level === "warn" ? "alert" : "status"}>
                 <strong>KV cache</strong> · {w.message} <code>{w.code}</code>
               </div>
@@ -356,8 +367,16 @@ export function App() {
                 <HealthRow label="Prefill cancelled" value={num(counters?.cancelled)} warn={(counters?.cancelled ?? 0) > 0} />
                 <HealthRow label="Swap growth" value={gibDelta(swapDelta)} warn={swapDelta != null && swapDelta > 50} />
                 <HealthRow label="Checkpoint stalls" value={storeAlarm ? "1" : "0"} warn={storeAlarm} />
+                <HealthRow label="KV disk cache" value={kvWarn ? `${kvWarnings.filter((w) => w.level === "warn").length} warning(s)` : "ok"} warn={kvWarn} />
+                {kvWarnings.length > 0 && (
+                  <ul className="kvNotes">
+                    {kvWarnings.map((w) => (
+                      <li key={w.code} className={w.level === "warn" ? "warn" : ""}>{w.message} <code>{w.code}</code></li>
+                    ))}
+                  </ul>
+                )}
                 <div className="cardFooterNote">
-                  {(counters?.cancelled ?? 0) === 0 && !storeAlarm ? "No anomalies since start" : "Anomalies reported"}
+                  {(counters?.cancelled ?? 0) === 0 && !storeAlarm && !kvWarn ? "No anomalies since start" : "Anomalies reported"}
                 </div>
               </InfoCard>
             </section>

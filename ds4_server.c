@@ -11528,16 +11528,17 @@ static void kv_check_evaluate(kv_startup_check *c, double now) {
                      "KV cache is %.0f%% of its %.1f GiB budget (%d files); the server evicts the least useful checkpoints",
                      100.0 * used / budget, budget, c->files);
     }
+    /* Other models' dirs have their own budgets; they only matter when they
+     * crowd this volume, so name them only alongside disk-low. */
     if (c->disk_free_bytes < headroom ||
         free_gib < c->report_min_free_gb) {
         kv_check_add(c, "disk-low", "warn",
                      "%.0f GiB free on the KV volume (cache may still grow %.1f GiB; cleaner target %.0f GiB free)",
                      free_gib, (double)headroom / gib, c->report_min_free_gb);
-    }
-    if (c->budget_bytes && c->other_dirs_bytes > c->budget_bytes) {
-        kv_check_add(c, "kv-other-dirs-large", "warn",
-                     "other model KV dirs hold %.1f GiB, more than this server's %.1f GiB budget; run scripts/ds4-kv-clean",
-                     (double)c->other_dirs_bytes / gib, budget);
+        if (c->other_dirs_bytes > c->budget_bytes / 10)
+            kv_check_add(c, "kv-other-dirs-large", "warn",
+                         "other model KV dirs hold %.1f GiB; run scripts/ds4-kv-clean to reclaim it",
+                         (double)c->other_dirs_bytes / gib);
     }
     if (!c->report_path) return;
     if (!c->report_read) {
@@ -24930,7 +24931,8 @@ static void test_kv_startup_check(void) {
     TEST_ASSERT(out.ptr != NULL);
     TEST_ASSERT(strstr(out.ptr, ",\"warnings\":[{") == out.ptr);
     TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-over-budget\",\"level\":\"warn\",\"message\":") != NULL);
-    TEST_ASSERT(strstr(out.ptr, "\"kv-other-dirs-large\"") != NULL);
+    /* 200 GiB of other dirs with 500 GiB free is not actionable. */
+    TEST_ASSERT(strstr(out.ptr, "\"kv-other-dirs-large\"") == NULL);
     TEST_ASSERT(strstr(out.ptr, "\"kv-clean-failed\"") != NULL);
     TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-clean-freed\",\"level\":\"info\"") != NULL);
     TEST_ASSERT(strstr(out.ptr, "\"kv-near-budget\"") == NULL);
@@ -24959,11 +24961,13 @@ static void test_kv_startup_check(void) {
     c.budget_bytes = 100 * gib;
     c.used_bytes = 95 * gib;
     c.disk_free_bytes = 2 * gib;
+    c.other_dirs_bytes = 40 * gib;
     TEST_ASSERT(!kv_check_parse_report(&c, "{\"time\": [", "own"));
     kv_check_evaluate(&c, now);
     kv_check_append_json(&out, &c);
     TEST_ASSERT(strstr(out.ptr, "{\"code\":\"kv-near-budget\",\"level\":\"info\"") != NULL);
     TEST_ASSERT(strstr(out.ptr, "{\"code\":\"disk-low\",\"level\":\"warn\"") != NULL);
+    TEST_ASSERT(strstr(out.ptr, "\"kv-other-dirs-large\"") != NULL);
     TEST_ASSERT(strstr(out.ptr, "\"kv-clean-missing\"") != NULL);
     TEST_ASSERT(strstr(out.ptr, "startup_check") == NULL);
     buf_free(&out);
