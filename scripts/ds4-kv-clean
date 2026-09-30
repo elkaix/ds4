@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""Clean ds4-server disk KV checkpoints across every model dir under one root.
+
+Rules, in order (a directory used by a running ds4-server is never touched):
+  a. <name>-scratch dirs (benchmark leftovers) are removed whole; crash-orphan
+     <sha>.kv.tmp.<pid> files whose writer is gone are removed.
+  b. <sha>.kv files idle longer than --max-age-days are removed. Idle time is
+     the newest of mtime and the header's created_at/last_used; a cache hit
+     rewrites the header (ds4_kvstore_touch_file), which refreshes both.
+  c. Dirs no launcher (run*.sh next to this repo) references are orphans: removed
+     once nothing in them is newer than --max-age-days, otherwise reported.
+  d. While the volume has less than --min-free-gb free, the least recently used
+     checkpoints across all non-live dirs are removed.
+
+Log: <state>/kv-clean.log. Lock: <state>/kv-clean.lock (skips if held).
+Summary: <state>/kv-clean-last.json, read by ds4-server via DS4_KV_CLEAN_REPORT.
+"""
+
+import argparse
+import fcntl
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+GIB = 1024 ** 3
+
+_spec = importlib.util.spec_from_file_location(
+    "kv_cache_prune", os.path.join(REPO, "kv-cache-prune.py"))
+_prune = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_prune)
+CHECKPOINT, ORPHAN_TMP = _prune.CHECKPOINT, _prune.ORPHAN_TMP
+last_activity, pid_alive = _prune.last_activity, _prune.pid_alive
+
+LAUNCHER_REF = re.compile(r"(?:server-kv/|KV_DEFAULT=)([A-Za-z0-9._-]+)")
+
+
+def live_kv_dirs():
+    """--kv-disk-dir of every running ds4-server (any port: benchmarks use others)."""
+    out = subprocess.run(["ps", "-axo", "args="], capture_output=True, text=True,
+                         timeout=10, check=True).stdout
+    dirs = set()
+    for line in out.splitlines():
+        toks = line.split()
+        if not any(os.path.basename(t) == "ds4-server" for t in toks):
+            continue
+        for i, t in enumerate(toks):
+            if t == "--kv-disk-dir" and i + 1 < len(toks):
+                dirs.add(toks[i + 1])
+            elif t.startswith("--kv-disk-dir="):
+                dirs.add(t.split("=", 1)[1])
+    return dirs
+
+
+def launcher_refs(launcher_dir):
+    names = set()
+    try:
+        entries = sorted(os.listdir(launcher_dir))
+    except OSError:
+        return None
+    for name in entries:
+        if name.startswith("run") and name.endswith(".sh"):
+            with open(os.path.join(launcher_dir, name), errors="replace") as fp:
+                names.update(LAUNCHER_REF.findall(fp.read()))
+    return names or None
+
+
+class Cleaner:
+    def __init__(self, args, now):
+        self.args, self.now, self.dry = args, now, args.dry_run
+        self.max_age = args.max_age_days * 86400
+        self.freed = self.files_deleted = self.dirs_deleted = self.skipped = 0
+        self.warnings, self.errors, self.per_dir, self.log_lines = [], [], {}, []
+        self.kept = []  # (activity, size, path, dir name) for the free-space pass
+        self.tag = "DRY-RUN " if self.dry else "CLEAN "
+
+    def warn(self, code, message):
+        self.warnings.append({"code": code, "message": message})
+
+    def log(self, msg):
+        line = time.strftime("[%Y-%m-%d %H:%M:%S] ", time.localtime(self.now)) + msg
+        self.log_lines.append(line)
+
+    def remove(self, path, size, dname):
+        try:
+            if not self.dry:
+                os.unlink(path)
+        except FileNotFoundError:
+            return 0  # the server evicted it first
+        except OSError as exc:
+            self.errors.append(f"{path}: {exc.strerror}")
+            return 0
+        self.freed += size
+        self.files_deleted += 1
+        self.per_dir[dname]["bytes"] -= size
+        self.per_dir[dname]["files"] -= 1
+        return size
+
+    def scan(self, path):
+        """[(name, path, size, activity-or-None)] of server-owned files."""
+        items = []
+        with os.scandir(path) as it:
+            for e in it:
+                try:
+                    if not e.is_file(follow_symlinks=False):
+                        continue
+                    st = e.stat(follow_symlinks=False)
+                    if CHECKPOINT.match(e.name):
+                        items.append((e.name, e.path, st.st_size, last_activity(e.path, st)))
+                    elif ORPHAN_TMP.match(e.name):
+                        items.append((e.name, e.path, st.st_size, None))
+                except FileNotFoundError:
+                    continue
+        return items
+
+    def clean_dir(self, d, live, refs):
+        items = self.scan(d.path)
+        self.per_dir[d.name] = {
+            "bytes": sum(i[2] for i in items),
+            "files": sum(1 for i in items if i[3] is not None),
+            "live": live, "referenced": refs is None or d.name in refs,
+        }
+        if live:
+            self.skipped += 1
+            return
+        if d.name.endswith("-scratch"):
+            size = sum(i[2] for i in items)
+            try:
+                if not self.dry:
+                    shutil.rmtree(d.path)
+                self.freed += size
+                self.files_deleted += len(items)
+                self.dirs_deleted += 1
+                self.per_dir[d.name].update(bytes=0, files=0)
+                self.log(f"{self.tag}{d.name}: scratch dir, {len(items)} files, {size / GIB:.2f} GiB")
+            except OSError as exc:
+                self.errors.append(f"{d.path}: {exc.strerror}")
+            return
+        dir_newest = d.stat(follow_symlinks=False).st_mtime
+        n0, freed0 = self.files_deleted, self.freed
+        for name, path, size, act in items:
+            m = ORPHAN_TMP.match(name)
+            if act is None:
+                if not pid_alive(int(m.group(1))):
+                    self.remove(path, size, d.name)
+            elif self.now - act > self.max_age:
+                self.remove(path, size, d.name)
+            else:
+                dir_newest = max(dir_newest, act)
+                self.kept.append((act, size, path, d.name))
+        self.log(f"{self.tag}{d.name}: {self.files_deleted - n0} files, "
+                 f"{(self.freed - freed0) / GIB:.2f} GiB")
+        if refs is None or d.name in refs:
+            return
+        if self.now - dir_newest <= self.max_age:
+            self.warn("orphan-dir", f"{d.name} is not used by any launcher "
+                      f"({self.per_dir[d.name]['bytes'] / GIB:.1f} GiB); kept until idle "
+                      f"{self.args.max_age_days:g} days")
+            return
+        try:
+            if not self.dry:
+                os.rmdir(d.path)
+            self.dirs_deleted += 1
+            self.log(f"{self.tag}{d.name}: removed orphan dir")
+        except OSError as exc:
+            self.warn("orphan-dir", f"{d.name}: orphan dir not removed: {exc.strerror}")
+
+    def free_space(self, root):
+        free = shutil.disk_usage(root).free + (self.freed if self.dry else 0)
+        want = self.args.min_free_gb * GIB
+        if free >= want:
+            return free
+        n0, freed0 = self.files_deleted, self.freed
+        for act, size, path, dname in sorted(self.kept):
+            if free >= want:
+                break
+            free += self.remove(path, size, dname)
+        self.log(f"{self.tag}min-free {self.args.min_free_gb:g} GiB: "
+                 f"{self.files_deleted - n0} files, {(self.freed - freed0) / GIB:.2f} GiB")
+        if free < want:
+            self.warn("disk-low", f"only {free / GIB:.0f} GiB free after cleaning "
+                      f"(want {self.args.min_free_gb:g} GiB); live KV dirs were not touched")
+        return free
+
+    def run(self):
+        a = self.args
+        live = {os.path.realpath(p) for p in a.live_dir}
+        live_names = {os.path.basename(p.rstrip("/")) for p in a.live_dir if not os.path.isabs(p)}
+        try:
+            detected = live_kv_dirs()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"cannot list running ds4-server processes: {exc}") from exc
+        live |= {os.path.realpath(p) for p in detected if os.path.isabs(p)}
+        live_names |= {os.path.basename(p.rstrip("/")) for p in detected if not os.path.isabs(p)}
+        refs = launcher_refs(a.launcher_dir)
+        if refs is None:
+            self.warn("no-launchers", f"no run*.sh KV dir references in {a.launcher_dir}; "
+                      "orphan-dir rule disabled")
+        if not os.path.isdir(a.kv_root):
+            self.disk_free = shutil.disk_usage(os.path.dirname(a.kv_root) or ".").free
+            return
+        with os.scandir(a.kv_root) as it:
+            dirs = sorted((d for d in it if d.is_dir(follow_symlinks=False)), key=lambda d: d.name)
+        for d in dirs:
+            is_live = os.path.realpath(d.path) in live or d.name in live_names
+            try:
+                self.clean_dir(d, is_live, refs)
+            except OSError as exc:
+                self.errors.append(f"{d.path}: {exc.strerror}")
+        self.disk_free = self.free_space(a.kv_root)
+
+    def report(self):
+        return {
+            "time": int(self.now), "dry_run": self.dry, "root": self.args.kv_root,
+            "max_age_days": self.args.max_age_days, "min_free_gb": self.args.min_free_gb,
+            "freed_bytes": self.freed, "files_deleted": self.files_deleted,
+            "dirs_deleted": self.dirs_deleted, "skipped": self.skipped,
+            "disk_free": getattr(self, "disk_free", 0), "per_dir": self.per_dir,
+            "warnings": self.warnings, "error_count": len(self.errors), "errors": self.errors,
+        }
+
+
+def parse_args(argv):
+    home = os.path.expanduser("~")
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--kv-root", default=os.environ.get("DS4_KV_ROOT", f"{home}/.ds4/server-kv"))
+    p.add_argument("--state-dir", default=os.environ.get("DS4_KV_CLEAN_STATE", f"{home}/.ds4"),
+                   help="where kv-clean.log/.lock/-last.json live")
+    p.add_argument("--dry-run", action="store_true", help="report only; delete nothing")
+    p.add_argument("--max-age-days", type=float, default=14)
+    p.add_argument("--min-free-gb", type=float, default=150)
+    p.add_argument("--json", action="store_true", help="print the summary JSON")
+    p.add_argument("--live-dir", action="append", default=[],
+                   help="treat this KV dir as live (repeatable; running servers are auto-detected)")
+    p.add_argument("--launcher-dir", default=REPO, help="dir whose run*.sh define referenced KV dirs")
+    args = p.parse_args(argv)
+    if args.max_age_days <= 0 or args.min_free_gb < 0:
+        p.error("--max-age-days must be > 0 and --min-free-gb >= 0")
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    os.makedirs(args.state_dir, exist_ok=True)
+    with open(os.path.join(args.state_dir, "kv-clean.lock"), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("ds4-kv-clean: another cleaner holds the lock; skipping", file=sys.stderr)
+            return 0
+        return clean_locked(args)
+
+
+def clean_locked(args):
+    c = Cleaner(args, time.time())
+    try:
+        c.run()
+    except Exception as exc:  # recorded in the report so the server can warn
+        c.errors.append(f"{type(exc).__name__}: {exc}")
+    finally:
+        verb = "would free" if c.dry else "freed"
+        c.log(f"{c.tag.strip()} done: {verb} {c.freed / GIB:.2f} GiB, "
+              f"skipped={c.skipped}, errors={len(c.errors)}")
+        rep = c.report()
+        with open(os.path.join(args.state_dir, "kv-clean.log"), "a") as fp:
+            fp.write("\n".join(c.log_lines) + "\n")
+        tmp = os.path.join(args.state_dir, f"kv-clean-last.json.tmp.{os.getpid()}")
+        with open(tmp, "w") as fp:
+            json.dump(rep, fp, indent=1)
+        os.replace(tmp, os.path.join(args.state_dir, "kv-clean-last.json"))
+    if args.json:
+        print(json.dumps(rep, indent=1))
+    else:
+        print("\n".join(c.log_lines))
+        for w in c.warnings:
+            print(f"warning [{w['code']}] {w['message']}")
+        for e in c.errors:
+            print(f"error {e}", file=sys.stderr)
+    return 1 if c.errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
