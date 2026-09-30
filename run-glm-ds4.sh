@@ -105,6 +105,7 @@ Environment:
   GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf)
                               (pair it with GLM_DS4_KV_DIR -- the KV cache is per-quant)
   GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
+  DS4_KV_CLEAN=0              Skip scripts/ds4-kv-clean at startup
   GLM_DS4_KV_CONTINUED_INTERVAL=N
                               Continued KV snapshot interval in tokens (default:
                               20480; rounded up to a multiple of 2048; 0 disables)
@@ -342,6 +343,16 @@ EOF
 fi
 
 mkdir -p "$KV_DIR"
+
+# Cross-dir KV cleaner: scratch dirs, checkpoints idle > 14 days, orphan dirs,
+# low disk. It runs before this server starts, so KV_DIR is not live yet; dirs of
+# other running ds4-servers are never touched. DS4_KV_CLEAN=0 skips it. The
+# server reads the report for its startup check (dashboard warnings).
+export DS4_KV_CLEAN_REPORT="$HOME/.ds4/kv-clean-last.json"
+if [[ ${DS4_KV_CLEAN:-1} != 0 ]]; then
+    python3 "$ROOT_DIR/scripts/ds4-kv-clean" >&2 ||
+        echo "Warning: KV cleaner reported errors (see ~/.ds4/kv-clean.log); continuing." >&2
+fi
 
 # Best effort: a prune failure is reported but never blocks start or shutdown.
 prune_kv_cache() {

@@ -69,6 +69,7 @@ server runs and return to Apple auto when it stops.
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
   FAN_PROFILE=name            thermalforge watch profile (default: balanced)
+  DS4_KV_CLEAN=0              Skip scripts/ds4-kv-clean at startup
 EOF
 }
 
@@ -321,6 +322,16 @@ EOF
 fi
 
 mkdir -p "$KV_DIR"
+
+# Cross-dir KV cleaner: scratch dirs, checkpoints idle > 14 days, orphan dirs,
+# low disk. It runs before this server starts, so KV_DIR is not live yet; dirs of
+# other running ds4-servers are never touched. DS4_KV_CLEAN=0 skips it. The
+# server reads the report for its startup check (dashboard warnings).
+export DS4_KV_CLEAN_REPORT="$HOME/.ds4/kv-clean-last.json"
+if [[ ${DS4_KV_CLEAN:-1} != 0 ]]; then
+    python3 "$ROOT_DIR/scripts/ds4-kv-clean" >&2 ||
+        echo "Warning: KV cleaner reported errors (see ~/.ds4/kv-clean.log); continuing." >&2
+fi
 set +e
 listener=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>&1)
 listener_status=$?

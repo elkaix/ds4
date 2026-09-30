@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Writes a per-user launchd agent that runs scripts/ds4-kv-clean daily at 04:00.
+# It only writes the plist and prints the command that loads it; nothing is loaded.
+# Usage: scripts/ds4-kv-clean-install-launchd [extra ds4-kv-clean flags...]
+set -euo pipefail
+
+LABEL="com.ds4.kv-clean"
+CLEANER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/ds4-kv-clean"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOG="$HOME/.ds4/kv-clean.launchd.log"
+
+args="    <string>/usr/bin/python3</string>
+    <string>$CLEANER</string>"
+for a in "$@"; do
+    args+=$'\n'"    <string>$a</string>"
+done
+
+mkdir -p "$(dirname "$PLIST")" "$HOME/.ds4"
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+$args
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>$LOG</string>
+  <key>StandardErrorPath</key><string>$LOG</string>
+</dict>
+</plist>
+PLIST
+plutil -lint "$PLIST"
+echo "Wrote $PLIST. To enable:"
+echo "  launchctl bootstrap gui/$(id -u) \"$PLIST\""
+echo "To disable:"
+echo "  launchctl bootout gui/$(id -u)/$LABEL && rm \"$PLIST\""

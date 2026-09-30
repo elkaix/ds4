@@ -143,6 +143,7 @@ Environment:
   QWEN_DS4_CORS=0                Disable CORS (default: on)
   QWEN_DS4_TRACE=FILE            Write prompt/tool trace log (default: off)
   QWEN_DS4_KV_DIR=PATH           KV disk-cache directory
+  DS4_KV_CLEAN=0                 Skip scripts/ds4-kv-clean at startup
   QWEN_DS4_KV_MIN_TOKENS=N       Min tokens to save/load (default: 512)
   QWEN_DS4_KV_COLD_MAX_TOKENS=N  Cold first-prompt save cap (default: 131072)
   QWEN_DS4_KV_CONTINUED_INTERVAL=N  Continued frontier interval (default: 20480)
@@ -407,6 +408,16 @@ EOF
 fi
 
 mkdir -p "$KV_DIR"
+
+# Cross-dir KV cleaner: scratch dirs, checkpoints idle > 14 days, orphan dirs,
+# low disk. It runs before this server starts, so KV_DIR is not live yet; dirs of
+# other running ds4-servers are never touched. DS4_KV_CLEAN=0 skips it. The
+# server reads the report for its startup check (dashboard warnings).
+export DS4_KV_CLEAN_REPORT="$HOME/.ds4/kv-clean-last.json"
+if [[ ${DS4_KV_CLEAN:-1} != 0 ]]; then
+    python3 "$ROOT_DIR/scripts/ds4-kv-clean" >&2 ||
+        echo "Warning: KV cleaner reported errors (see ~/.ds4/kv-clean.log); continuing." >&2
+fi
 set +e
 listener=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>&1)
 listener_status=$?
