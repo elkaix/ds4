@@ -24,7 +24,10 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 QWEN_DIR="${QWEN_DS4_DIR:-$ROOT_DIR}"
 SERVER_BIN="$QWEN_DIR/ds4-server"
-MODEL="${QWEN_DS4_MODEL:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-Q4KQ8-NativeBF16Ngrams.gguf}"
+# Router weights in F16 (exact for the BF16 source; -0.128 GB/token read,
+# verify ~-1.8%, NLL unchanged). The F32-router pack it was cloned from stays
+# on disk as the rollback: QWEN_DS4_MODEL=...-Q4KQ8-NativeBF16Ngrams.gguf
+MODEL="${QWEN_DS4_MODEL:-$HOME/models/gguf/Qwen3.8-Flash-Next-Uncensored-Q4KQ8-RouterF16-NativeBF16Ngrams.gguf}"
 HOST="127.0.0.1"
 PORT=8000
 # Full native context. The checkpoint declares 262144 tokens. Default still
@@ -39,7 +42,13 @@ NATIVE_CTX=262144
 # (ds4 then warns, and prompts past 262144 tokens degrade).
 YARN="${QWEN_DS4_YARN:-auto}"
 TOKENS="${QWEN_DS4_TOKENS:-65536}"  # agentic default max output
-KV_DIR="${QWEN_DS4_KV_DIR:-$HOME/.ds4/server-kv/qwen38-flash-next-uncen-q4kq8-native-bf16}"
+# One KV dir per pack: a cache from the F32-router pack must not restore into
+# the F16-router one (same quant recipe, so the quant check cannot tell).
+case "$MODEL" in
+    *RouterF16*) KV_DEFAULT=qwen38-flash-next-uncen-q4kq8-routerf16-native-bf16 ;;
+    *)           KV_DEFAULT=qwen38-flash-next-uncen-q4kq8-native-bf16 ;;
+esac
+KV_DIR="${QWEN_DS4_KV_DIR:-$HOME/.ds4/server-kv/$KV_DEFAULT}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS="${QWEN_DS4_KV_MIN_TOKENS:-512}"  # cache short tool turns
 KV_COLD_MAX_TOKENS="${QWEN_DS4_KV_COLD_MAX_TOKENS:-131072}"  # long agent system+tools prompts

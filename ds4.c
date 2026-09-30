@@ -5604,7 +5604,9 @@ static void weights_validate_qwen4_layout(
             tensor_expect_layout(l->ple_conv, l->ple_conv->type == DS4_TENSOR_F16 ? DS4_TENSOR_F16 : DS4_TENSOR_F32,
                                  2, DS4_N_PLE_CONV, hc_dim, 0);
         }
-        tensor_expect_layout(l->ffn_gate_inp, DS4_TENSOR_F32, 2, DS4_N_EMBD, DS4_N_EXPERT, 0);
+        /* the router source is BF16, so F16 holds it exactly in the normal range */
+        tensor_expect_layout(l->ffn_gate_inp, l->ffn_gate_inp->type == DS4_TENSOR_F16 ? DS4_TENSOR_F16 : DS4_TENSOR_F32,
+                             2, DS4_N_EMBD, DS4_N_EXPERT, 0);
         tensor_expect_qwen4_expert_layout(l->ffn_gate_exps, DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EXPERT);
         tensor_expect_qwen4_expert_layout(l->ffn_up_exps,   DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EXPERT);
         /* Q2_K down rows store 640 logical inputs in three 256-value blocks.
