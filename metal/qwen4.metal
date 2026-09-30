@@ -3573,6 +3573,13 @@ static inline qwen4_raw16 qwen4_load_raw16(device const char *row, uint b, uint 
         r.h.y = blk[g];                            /* scale | min nibbles */
         device const uint *qs = (device const uint *)(blk + 16 + 32u * (g / 8u) + 16u * (g & 1u));
         r.q.x = qs[0]; r.q.y = qs[1]; r.q.z = qs[2]; r.q.w = qs[3];
+    } else if (type == 8) {
+        /* Q8_0: the block's f16 scale and the 16 int8 values of the quarter pair */
+        device const char *blk = row + (uint64_t)b * 34;
+        r.h.x = (uint)*(device const ushort *)blk;
+        device const packed_char4 *q4 = (device const packed_char4 *)(blk + 2 + q0 * 8);   /* 2-byte aligned */
+        r.q.x = as_type<uint>(char4(q4[0])); r.q.y = as_type<uint>(char4(q4[1]));
+        r.q.z = as_type<uint>(char4(q4[2])); r.q.w = as_type<uint>(char4(q4[3]));
     } else if (type == 16) {
         const uint sb = b / 8, ib32 = b % 8;
         device const uchar *blk = (device const uchar *)(row + (uint64_t)sb * 66);
@@ -3615,6 +3622,12 @@ static inline void qwen4_dequant_raw16(qwen4_raw16 r, uint b, uint q0, uint type
             const uint byte = (r.q[i >> 2] >> (8u * (i & 3u))) & 0xFFu;
             dst[i] = (half)(ds * (float)((byte >> shift) & 3u) - dm);
         }
+        return;
+    }
+    if (type == 8) {
+        /* same rounding as the simdgroup tiles: half(d * q) */
+        const float d = (float)as_type<half>((ushort)(r.h.x & 0xFFFFu));
+        for (uint i = 0; i < 16; i++) dst[i] = (half)(d * (float)as_type<char4>(r.q[i >> 2])[i & 3u]);
         return;
     }
     if (type == 16) {

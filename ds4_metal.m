@@ -51472,12 +51472,15 @@ static long qwen4_moe_mm_nax_level(uint32_t type) {
      * 0.20505, Q2 0.30418 vs 0.30346), while it carries the full prefill
      * gain (+48/+51% Q4, +29/+36% Q2).  The compensated level 5 keeps the
      * best absolute NLL and stays one env variable away. */
-    if (!v || !v[0]) return (type == 12u || type == 39u || type == 16u || type == 10u) ? 2 : 0;
+    if (!v || !v[0]) return (type == 12u || type == 39u || type == 16u || type == 10u || type == 8u) ? 2 : 0;
     return strtol(v, NULL, 10);
 }
 static uint32_t qwen4_moe_mm_nax(uint32_t type) {
     if (!ds4_gpu_mpp_available()) return 0;
-    if (!(type == 12u || type == 39u || type == 16u || type == 10u)) return 0;
+    if (!(type == 12u || type == 39u || type == 16u || type == 10u || type == 8u)) return 0;
+    /* Q8_0 experts (the Qwen3.8 Q4KQ8 pack's down projection) take the same
+     * tiles; DS4_QWEN4_NO_Q8_NAX=1 keeps them on the simdgroup tiles. */
+    if (type == 8u && getenv("DS4_QWEN4_NO_Q8_NAX") != NULL) return 0;
     const long n = qwen4_moe_mm_nax_level(type);
     if (n <= 0) return 0;
     return (n == 1 || n == 4 || n == 6) ? 32u : 64u;
