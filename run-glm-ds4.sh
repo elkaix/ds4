@@ -13,7 +13,7 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 GLM_DIR="${GLM_DS4_DIR:-$ROOT_DIR}"
 SERVER_BIN="$GLM_DIR/ds4-server"
-MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf}"
+MODEL="${GLM_DS4_MODEL:-$HOME/models/gguf/GLM-5.3-Flash-UNCEN-d21b-L17-20Q4KExperts-KDAvoQ4K-Q2-imx1158.gguf}"
 HOST="127.0.0.1"
 PORT=8000
 # 512K (512 x 1024) tokens; the model's native limit is 1,048,576.
@@ -21,7 +21,7 @@ CTX="${GLM_DS4_CTX:-524288}"
 TOKENS=32768
 # Clean-engine KV cache, per quant. Checkpoints are only valid for the model
 # that wrote them, so a model change needs a new directory.
-KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm53-m5-clean-l17-23q4k-kdavo}"
+KV_DIR="${GLM_DS4_KV_DIR:-$HOME/.ds4/server-kv/glm53-imx1158-l17-20q4k-kdavo}"
 KV_BUDGET_MB=131072
 KV_MIN_TOKENS=2048
 KV_COLD_MAX_TOKENS=65536
@@ -94,15 +94,15 @@ Usage: ./run-glm-ds4.sh
 
 Starts this checkout's ds4-server (ds4, m5-prod: PR #1090 clean GLM Metal
 engine + #1093 tool-turn checkpoint + dashboard + M5 gate lift) with GLM 5.3
-Flash Uncensored stage 2 (dealignai d21b, Q2 body, KDA v/output and layers
-17-23 experts Q4_K, ctx $CTX) and prints health,
+Flash Uncensored imx1158 (dealignai d21b, imatrix Q2 body, KDA v/output and
+layers 17-20 experts Q4_K, ctx $CTX) and prints health,
 throughput, process memory, KV disk-cache use, and free disk space. Fans follow
 the ThermalForge "$FAN_PROFILE" profile (temperature-driven) while the server
 runs and return to Apple auto when it stops.
 
 Environment:
   MONITOR_INTERVAL_SECONDS=N  Monitoring interval in seconds (default: 15)
-  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-23Q4KExperts-KDAvoQ4K-Q2.gguf)
+  GLM_DS4_MODEL=PATH          Override the GGUF (default: GLM-5.3-Flash-UNCEN-d21b-L17-20Q4KExperts-KDAvoQ4K-Q2-imx1158.gguf)
                               (pair it with GLM_DS4_KV_DIR -- the KV cache is per-quant)
   GLM_DS4_KV_DIR=PATH         Override the KV disk-cache directory
   DS4_KV_CLEAN=0              Skip scripts/ds4-kv-clean at startup
