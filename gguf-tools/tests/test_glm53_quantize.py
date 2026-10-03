@@ -179,6 +179,17 @@ class GLM53QuantizeTests(unittest.TestCase):
             QTYPE_F32,
         )
 
+    def test_q4k_expert_layers_select_q4k_routed_experts(self):
+        import glm53_quantize  # module add_ffn; full_glm has its own
+        plain, chosen = [], []
+        glm53_quantize.add_ffn(plain, FakeFullFFNDB(), 17, "q2", frozenset({18}))
+        glm53_quantize.add_ffn(chosen, FakeFullFFNDB(), 18, "q2", frozenset({18}))
+        self.assertEqual(
+            sorted(item.qtype for item in plain if item.is_expert),
+            sorted((QTYPE_IQ2_XXS, QTYPE_IQ2_XXS, QTYPE_Q2_K)),
+        )
+        self.assertEqual({item.qtype for item in chosen if item.is_expert}, {QTYPE_Q4_K})
+
     def test_full_glm_provisional_uses_q2k_experts(self):
         default = []
         provisional = []

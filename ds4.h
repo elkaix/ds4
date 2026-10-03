@@ -26,7 +26,7 @@ typedef enum {
     DS4_THINK_NONE,
     DS4_THINK_HIGH,
     DS4_THINK_MAX,
-    DS4_THINK_LOW,      /* Qwen3.8 reasoning_effort low/medium; other models render them as HIGH */
+    DS4_THINK_LOW,      /* Qwen3.8 and GLM 5.3 render low; other models render it as HIGH */
     DS4_THINK_MEDIUM,
 } ds4_think_mode;
 /* Explicit numeric effort lives outside the stable named-mode values. */
@@ -322,6 +322,8 @@ bool ds4_think_mode_parse_level(const char *text, ds4_think_mode *out);
 const char *ds4_think_mode_name(ds4_think_mode mode);
 const char *ds4_think_max_prefix(void);
 const char *ds4_glm_reasoning_effort_text(ds4_think_mode mode);
+const char *ds4_glm_reasoning_effort_text_for_template(bool low_effort, ds4_think_mode mode);
+bool ds4_glm_template_has_low_effort(const char *tmpl, size_t len);
 uint32_t ds4_think_max_min_context(void);
 ds4_think_mode ds4_think_mode_for_context(ds4_think_mode mode, int ctx_size);
 /* Uses the active model shape selected by ds4_engine_open(); call after opening
@@ -397,6 +399,9 @@ bool ds4_token_is_stop_for_think_mode(ds4_engine *e,
                                       ds4_think_mode mode);
 int ds4_token_user(ds4_engine *e);
 int ds4_token_assistant(ds4_engine *e);
+/* Turn markers: *prefix is -1 when user/assistant are single marker tokens,
+ * or the token that precedes the role name token (ChatML <|im_start|>). */
+void ds4_chat_role_markers(ds4_engine *e, int *prefix, int *user, int *assistant);
 
 /* Tensor-parallel binding: allocates the GPU gate slab, registers it with
  * the transport and arms the per-layer gate machinery.  Call once, after

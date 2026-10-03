@@ -49,6 +49,25 @@ requires `--ctx >= 393216`; smaller contexts fall back to normal thinking.
 V4.1 and the GLM/Qwen families honor the requested effort at any context.
 `xhigh` maps to normal thinking, not Think Max. Use `think:false`, a disabled
 thinking object, or a non-thinking model alias for direct answers.
+For GLM 5.3 (Flash and Full), `reasoning_effort=low` (or `minimal`) renders
+`Reasoning Effort: Low` as its chat template does; `max` renders Max, with the
+same context requirement, and every other level renders High. ds4 checks the
+GGUF's embedded chat template for low support when it loads the model, so GLM 5.2,
+whose template has no low, keeps rendering low as High.
+
+On `/v1/messages`, a reasoning request whose real decode budget, the smaller of
+`max_tokens` and the context room left after the prompt, is at most
+`--anthropic-thinking-min-budget` (default 1024, Anthropic's minimum thinking
+budget; `0` disables) would spend it all thinking and return no text. Before its
+first sampled token the server appends the model's think-close suffix, the
+difference between its thinking and non-thinking generation prompts, to the
+live KV and decodes a visible answer. The prompt is not re-rendered, so the
+prefilled cache is kept. This applies only when the rendered prompt ends inside
+an open think block; a trailing assistant message whose reasoning is already
+closed is left as is. Models whose non-thinking prompt is not a pure suffix
+of the thinking one are unaffected. An Anthropic prompt that exceeds the
+context returns `prompt is too long: N tokens > M maximum`, the wording
+Anthropic clients retry on with truncated history.
 
 ## Multiple sessions
 

@@ -2340,8 +2340,8 @@ static const gguf_type_info gguf_types[] = {
     [16] = {"iq2_xxs",256,  66},
     [17] = {"iq2_xs", 256,  74},
     [18] = {"iq3_xxs",256,  98},
-    [19] = {"iq1_s",  256, 110},
-    [20] = {"iq4_nl", 256,  50},
+    [19] = {"iq1_s",  256,  50},
+    [20] = {"iq4_nl",  32,  18},
     [21] = {"iq3_s",  256, 110},
     [22] = {"iq2_s",  256,  82},
     [23] = {"iq4_xs", 256, 136},
@@ -2408,6 +2408,7 @@ typedef struct ds4_model {
 
     int ngram_fd;
     const ds4_tensor *ngram_tensor;
+    char *path;
 } ds4_model;
 
 static uint64_t scalar_value_size(uint32_t type) {
@@ -2489,6 +2490,50 @@ static bool tensor_nbytes(uint32_t type, uint64_t elements, uint64_t *bytes) {
     uint64_t blocks = (elements + info->block_elems - 1) / info->block_elems;
     if (blocks > UINT64_MAX / info->block_bytes) return false;
     *bytes = blocks * info->block_bytes;
+    return true;
+}
+
+/* Block geometry of the quantized types, spelled out from ggml's block
+ * structs, so a wrong table entry cannot hide behind the models that never
+ * use the type. */
+bool ds4_test_gguf_type_sizes(void) {
+    static const struct { uint32_t type, elems, bytes; } want[] = {
+        { 2,   32, 2 + 16},                                   /* q4_0 */
+        { 3,   32, 2 + 2 + 16},                               /* q4_1 */
+        { 6,   32, 2 + 4 + 16},                               /* q5_0 */
+        { 7,   32, 2 + 2 + 4 + 16},                           /* q5_1 */
+        { 8,   32, 2 + 32},                                   /* q8_0 */
+        {10, QK_K, 2 + 2 + QK_K/16 + QK_K/4},                 /* q2_k */
+        {11, QK_K, 2 + QK_K/4 + QK_K/8 + 12},                 /* q3_k */
+        {12, QK_K, 2 + 2 + QK_K/2 + 12},                      /* q4_k */
+        {13, QK_K, 2 + 2 + QK_K/2 + QK_K/8 + 12},             /* q5_k */
+        {14, QK_K, 2 + QK_K/2 + QK_K/4 + QK_K/16},            /* q6_k */
+        {15, QK_K, 4 + QK_K + QK_K/8},                        /* q8_k */
+        {16, QK_K, 2 + QK_K/4},                               /* iq2_xxs */
+        {17, QK_K, 2 + QK_K/4 + QK_K/32},                     /* iq2_xs */
+        {18, QK_K, 2 + QK_K/4 + QK_K/8},                      /* iq3_xxs */
+        {19, QK_K, 2 + QK_K/8 + QK_K/16},                     /* iq1_s */
+        {20,   32, 2 + 16},                                   /* iq4_nl */
+        {21, QK_K, 2 + QK_K/4 + QK_K/8 + QK_K/32 + 4},        /* iq3_s */
+        {22, QK_K, 2 + QK_K/4 + QK_K/16},                     /* iq2_s */
+        {23, QK_K, 2 + 2 + QK_K/2 + QK_K/64},                 /* iq4_xs */
+        {29, QK_K, QK_K/8 + QK_K/16 + QK_K/32},               /* iq1_m */
+        {39,   32, 1 + 16},                                   /* mxfp4 */
+    };
+    for (size_t i = 0; i < sizeof(want) / sizeof(want[0]); i++) {
+        const gguf_type_info *info = tensor_type(want[i].type);
+        uint64_t bytes = 0;
+        if (!info || info->block_elems != want[i].elems ||
+            info->block_bytes != want[i].bytes ||
+            !tensor_nbytes(want[i].type, 4ull * want[i].elems, &bytes) ||
+            bytes != 4ull * want[i].bytes)
+        {
+            fprintf(stderr, "gguf type %u (%s): table says %u values in %u bytes, ggml %u in %u\n",
+                    want[i].type, info ? info->name : "?", info ? info->block_elems : 0,
+                    info ? info->block_bytes : 0, want[i].elems, want[i].bytes);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -2634,6 +2679,7 @@ static void model_close(ds4_model *m) {
     if (m->ngram_tensor && m->ngram_fd >= 0) close(m->ngram_fd);
     free(m->kv);
     free(m->tensors);
+    free(m->path);
     if (m->map) munmap((void *)m->map, (size_t)m->size);
     if (m->fd >= 0) close(m->fd);
     memset(m, 0, sizeof(*m));
@@ -2701,6 +2747,13 @@ static void parse_metadata(ds4_model *m, ds4_cursor *c) {
 
 /* Read the tensor directory and convert relative GGUF offsets to absolute
  * mmap offsets.  Tensor bytes are still never copied here. */
+static int tensor_name_cmp(const void *a, const void *b) {
+    const ds4_tensor *ta = *(const ds4_tensor *const *)a;
+    const ds4_tensor *tb = *(const ds4_tensor *const *)b;
+    if (ta->name.len != tb->name.len) return ta->name.len < tb->name.len ? -1 : 1;
+    return memcmp(ta->name.ptr, tb->name.ptr, ta->name.len);
+}
+
 static void parse_tensors(ds4_model *m, ds4_cursor *c) {
     /* As in parse_metadata: each tensor directory entry needs at least one byte
      * in the file, so reject a count larger than the bytes remaining before the
@@ -2736,6 +2789,22 @@ static void parse_tensors(ds4_model *m, ds4_cursor *c) {
                 "ds4: warning: tensor %.*s has unsupported GGUF type %u\n",
                 (int)t->name.len, t->name.ptr, t->type);
         }
+    }
+
+    /* Lookups are first-match, so a repeated name would silently bind one
+     * weight to two roles. Refuse the file instead. */
+    if (m->n_tensors > 1) {
+        const ds4_tensor **sorted = malloc((size_t)m->n_tensors * sizeof(*sorted));
+        if (!sorted) ds4_die("out of memory while checking tensor names");
+        for (uint64_t i = 0; i < m->n_tensors; i++) sorted[i] = &m->tensors[i];
+        qsort(sorted, (size_t)m->n_tensors, sizeof(*sorted), tensor_name_cmp);
+        for (uint64_t i = 1; i < m->n_tensors; i++) {
+            if (tensor_name_cmp(&sorted[i - 1], &sorted[i]) != 0) continue;
+            fprintf(stderr, "ds4: duplicate tensor name in %s: %.*s\n",
+                    m->path, (int)sorted[i]->name.len, sorted[i]->name.ptr);
+            exit(1);
+        }
+        free(sorted);
     }
 
     m->tensor_data_pos = align_up(c->pos, m->alignment);
@@ -2859,6 +2928,7 @@ static void model_open(ds4_model *m, const char *path, bool metal_mapping,
     memset(m, 0, sizeof(*m));
     m->fd = -1;
     m->ngram_fd = -1;
+    m->path = ds4_strdup(path);
 
     int fd = open(path, O_RDONLY);
     if (fd == -1) ds4_die_errno("cannot open model", path);
@@ -4818,7 +4888,8 @@ static bool required_bool(const ds4_model *m, const char *key) {
 static ds4_tensor *required_tensor(const ds4_model *m, const char *name) {
     ds4_tensor *t = model_find_tensor(m, name);
     if (!t) {
-        fprintf(stderr, "ds4: required tensor is missing: %s\n", name);
+        fprintf(stderr, "ds4: required tensor is missing from %s: %s\n",
+                m->path ? m->path : "model", name);
         exit(1);
     }
     return t;
@@ -7151,8 +7222,41 @@ static void config_validate_qwen4_model(const ds4_model *m) {
     }
 }
 
+/* Whether the loaded GLM model's chat template renders a requested low effort
+ * as "Low".  GLM 5.3 (Flash and Full) does; GLM 5.2 folds everything but high
+ * into Max, so ds4 keeps its original mapping for it.  Decided once at load. */
+static bool g_ds4_glm_template_low_effort;
+
+/* The effort line comes from a template statement of the form
+ * `set effective_reasoning_effort = ... in ['low', 'high'] ...`.  Low is
+ * supported when that one statement names 'low'.  A missing or unrecognised
+ * template is not. */
+bool ds4_glm_template_has_low_effort(const char *tmpl, size_t len) {
+    static const char key[] = "set effective_reasoning_effort";
+    if (!tmpl) return false;
+    const size_t klen = sizeof(key) - 1;
+    for (size_t i = 0; i + klen <= len; i++) {
+        if (memcmp(tmpl + i, key, klen) != 0) continue;
+        for (size_t j = i + klen; j + 1 < len && !(tmpl[j] == '%' && tmpl[j + 1] == '}'); j++) {
+            if (j + 5 <= len &&
+                (tmpl[j] == '\'' || tmpl[j] == '"') &&
+                !memcmp(tmpl + j + 1, "low", 3) && tmpl[j + 4] == tmpl[j]) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+static void glm_note_chat_template(const ds4_model *m) {
+    ds4_str tmpl = {0};
+    g_ds4_glm_template_low_effort =
+        model_get_string(m, "tokenizer.chat_template", &tmpl) &&
+        ds4_glm_template_has_low_effort(tmpl.ptr, (size_t)tmpl.len);
+}
+
 static void config_validate_model(const ds4_model *m) {
     g_ds4_flash_vision_exp = false;
+    g_ds4_glm_template_low_effort = false;
     ds4_str arch = {0};
     if (model_get_string(m, "general.architecture", &arch)) {
         if (ds4_streq(arch, "deepseek41")) {
@@ -7161,10 +7265,12 @@ static void config_validate_model(const ds4_model *m) {
         }
         if (ds4_streq(arch, "glm-dsa")) {
             config_validate_glm_dsa_model(m);
+            glm_note_chat_template(m);
             return;
         }
         if (ds4_streq(arch, "glm5-next")) {
             config_validate_glm53_model(m);
+            glm_note_chat_template(m);
             return;
         }
         if (ds4_streq(arch, "qwen4exp")) {
@@ -36772,7 +36878,9 @@ struct ds4_glm_gpu_graph;
 static bool imatrix_collect_glm_one(
         ds4_imatrix_collector      *c,
         struct ds4_glm_gpu_graph   *g,
-        uint32_t                    il);
+        uint32_t                    il,
+        const ds4_gpu_tensor       *ffn_norm,
+        const ds4_gpu_tensor       *ffn_mid);
 
 static bool imatrix_collector_init(ds4_imatrix_collector *c, uint32_t cap_tokens, const char *dataset_path) {
     memset(c, 0, sizeof(*c));
@@ -36811,33 +36919,13 @@ static float *imatrix_down_ptr(ds4_imatrix_collector *c, uint32_t il, uint32_t e
     return c->down_sum2 + ((size_t)il * DS4_N_EXPERT + expert) * DS4_N_FF_EXP;
 }
 
-static bool imatrix_collect_tensor_batch(
+/* Accumulate one layer from the host copies already in c->ffn_norm_buf,
+ * c->routed_mid_buf (or c->routed_mid_f16_buf) and c->selected_buf. */
+static void imatrix_accumulate_host_batch(
         ds4_imatrix_collector *c,
-        ds4_gpu_tensor        *ffn_norm,
-        ds4_gpu_tensor        *routed_mid,
-        ds4_gpu_tensor        *router_selected,
         bool                   routed_mid_is_f16,
         uint32_t               il,
         uint32_t               n_tokens) {
-    if (!c || n_tokens == 0) return true;
-    if (!ffn_norm || !routed_mid || !router_selected ||
-        n_tokens > c->cap_tokens) return false;
-
-    const uint64_t norm_bytes = (uint64_t)n_tokens * DS4_N_EMBD * sizeof(float);
-    const uint64_t mid_elems = (uint64_t)n_tokens * DS4_N_EXPERT_USED * DS4_N_FF_EXP;
-    const uint64_t mid_bytes = mid_elems *
-        (routed_mid_is_f16 ? sizeof(uint16_t) : sizeof(float));
-    const uint64_t sel_bytes = (uint64_t)n_tokens * DS4_N_EXPERT_USED * sizeof(int);
-    void *mid_dst = routed_mid_is_f16
-        ? (void *)c->routed_mid_f16_buf
-        : (void *)c->routed_mid_buf;
-    if (ds4_gpu_tensor_read(ffn_norm, 0, c->ffn_norm_buf, norm_bytes) == 0 ||
-        ds4_gpu_tensor_read(routed_mid, 0, mid_dst, mid_bytes) == 0 ||
-        ds4_gpu_tensor_read(router_selected, 0, c->selected_buf, sel_bytes) == 0)
-    {
-        return false;
-    }
-
     for (uint32_t t = 0; t < n_tokens; t++) {
         const float *x = c->ffn_norm_buf + (size_t)t * DS4_N_EMBD;
         for (uint32_t i = 0; i < DS4_N_EMBD; i++) c->sq_tmp[i] = x[i] * x[i];
@@ -36868,6 +36956,35 @@ static bool imatrix_collect_tensor_batch(
     }
     c->observed_tokens += n_tokens;
     c->chunks++;
+}
+
+static bool imatrix_collect_tensor_batch(
+        ds4_imatrix_collector *c,
+        const ds4_gpu_tensor  *ffn_norm,
+        const ds4_gpu_tensor  *routed_mid,
+        const ds4_gpu_tensor  *router_selected,
+        bool                   routed_mid_is_f16,
+        uint32_t               il,
+        uint32_t               n_tokens) {
+    if (!c || n_tokens == 0) return true;
+    if (!ffn_norm || !routed_mid || !router_selected ||
+        n_tokens > c->cap_tokens) return false;
+
+    const uint64_t norm_bytes = (uint64_t)n_tokens * DS4_N_EMBD * sizeof(float);
+    const uint64_t mid_elems = (uint64_t)n_tokens * DS4_N_EXPERT_USED * DS4_N_FF_EXP;
+    const uint64_t mid_bytes = mid_elems *
+        (routed_mid_is_f16 ? sizeof(uint16_t) : sizeof(float));
+    const uint64_t sel_bytes = (uint64_t)n_tokens * DS4_N_EXPERT_USED * sizeof(int);
+    void *mid_dst = routed_mid_is_f16
+        ? (void *)c->routed_mid_f16_buf
+        : (void *)c->routed_mid_buf;
+    if (ds4_gpu_tensor_read(ffn_norm, 0, c->ffn_norm_buf, norm_bytes) == 0 ||
+        ds4_gpu_tensor_read(routed_mid, 0, mid_dst, mid_bytes) == 0 ||
+        ds4_gpu_tensor_read(router_selected, 0, c->selected_buf, sel_bytes) == 0)
+    {
+        return false;
+    }
+    imatrix_accumulate_host_batch(c, routed_mid_is_f16, il, n_tokens);
     return true;
 }
 
@@ -37010,11 +37127,15 @@ static void imatrix_collector_report_coverage(
     uint32_t max_samples = 0;
     uint32_t under_four = 0;
     uint32_t under_eight = 0;
+    uint64_t min_routes = UINT64_MAX;
+    uint64_t max_routes = 0;
     if (layer_limit > DS4_N_LAYER) layer_limit = DS4_N_LAYER;
     for (uint32_t il = 0; il < layer_limit; il++) {
         if (!weights->layer[il].ffn_gate_exps) continue;
         uint32_t layer_covered = 0;
+        uint64_t layer_routes = 0;
         for (uint32_t expert = 0; expert < DS4_N_EXPERT; expert++) {
+            layer_routes += c->gate_up_count[il][expert];
             uint32_t samples = c->gate_up_count[il][expert];
             if (c->down_count[il][expert] < samples) {
                 samples = c->down_count[il][expert];
@@ -37028,6 +37149,8 @@ static void imatrix_collector_report_coverage(
             if (samples < 8) under_eight++;
         }
         layers++;
+        if (layer_routes < min_routes) min_routes = layer_routes;
+        if (layer_routes > max_routes) max_routes = layer_routes;
         covered += layer_covered;
         possible += DS4_N_EXPERT;
         if (layer_covered < min_layer) min_layer = layer_covered;
@@ -37036,6 +37159,7 @@ static void imatrix_collector_report_coverage(
     if (layers == 0) {
         min_layer = 0;
         min_samples = 0;
+        min_routes = 0;
     }
     fprintf(stderr,
             "ds4: imatrix expert coverage %u/%u (%.2f%%), "
@@ -37050,6 +37174,10 @@ static void imatrix_collector_report_coverage(
             max_samples,
             under_four,
             under_eight);
+    fprintf(stderr,
+            "ds4: imatrix routes per sparse layer min=%llu max=%llu\n",
+            (unsigned long long)min_routes,
+            (unsigned long long)max_routes);
     if (under_eight != 0) {
         uint32_t shown = 0;
         fprintf(stderr, "ds4: imatrix expert slots under 8 samples:");
@@ -43536,15 +43664,21 @@ static void chat_push_bos_sequence(const ds4_vocab *vocab, token_vec *out) {
         token_vec_push(out, vocab->sop_id);
 }
 
-const char *ds4_glm_reasoning_effort_text(ds4_think_mode mode) {
+/* A template that accepts low renders it as such.  Without one (GLM 5.2), low
+ * keeps sharing the high text. */
+const char *ds4_glm_reasoning_effort_text_for_template(bool low_effort, ds4_think_mode mode) {
     switch (mode) {
-    case DS4_THINK_LOW:
+    case DS4_THINK_LOW:  return low_effort ? "Reasoning Effort: Low" : "Reasoning Effort: High";
     case DS4_THINK_MEDIUM:
     case DS4_THINK_HIGH: return "Reasoning Effort: High";
     case DS4_THINK_MAX:  return "Reasoning Effort: Max";
     case DS4_THINK_NONE: return NULL;
     }
     return NULL;
+}
+
+const char *ds4_glm_reasoning_effort_text(ds4_think_mode mode) {
+    return ds4_glm_reasoning_effort_text_for_template(g_ds4_glm_template_low_effort, mode);
 }
 
 const char *ds4_deepseek41_reasoning_effort_text(ds4_think_mode mode) {
@@ -44108,6 +44242,29 @@ int ds4_token_user(ds4_engine *e) {
 
 int ds4_token_assistant(ds4_engine *e) {
     return e->vocab.assistant_id;
+}
+
+static int chat_role_name_token(const ds4_vocab *vocab, const char *role) {
+    token_vec tv = {0};
+    bpe_tokenize_text(vocab, role, &tv);
+    const int id = tv.len == 1 ? tv.v[0] : -1;
+    token_vec_free(&tv);
+    return id;
+}
+
+/* DeepSeek and GLM open a user or assistant turn with one marker token.
+ * ChatML opens it with <|im_start|> followed by the role name, rendered by
+ * qwen4_chat_open(), so for Qwen3.8 *prefix is <|im_start|> and the role
+ * ids are the name tokens that follow it. */
+void ds4_chat_role_markers(ds4_engine *e, int *prefix, int *user, int *assistant) {
+    const ds4_vocab *vocab = &e->vocab;
+    *prefix = -1;
+    *user = vocab->user_id;
+    *assistant = vocab->assistant_id;
+    if (vocab->im_start_id < 0) return;
+    *prefix = vocab->im_start_id;
+    *user = chat_role_name_token(vocab, "user");
+    *assistant = chat_role_name_token(vocab, "assistant");
 }
 
 static inline void argmax_f32_unrolled8_range(
@@ -45355,6 +45512,10 @@ typedef struct ds4_glm_gpu_graph {
     bool generic_routed_moe;
     bool glm53;
     ds4_imatrix_collector *imatrix;
+    /* imatrix: per-layer GPU copies of the routed-MoE inputs, encoded in
+     * stream order and drained on the host once the token has completed. */
+    ds4_gpu_tensor *imatrix_stage;
+    bool imatrix_staged[DS4_MAX_LAYER];
     ds4_gpu_tensor *directional_steering_dirs_by_tier[DS4_MAX_GPUS];
     float directional_steering_attn_scale;
     float directional_steering_ffn_scale;
@@ -45490,15 +45651,65 @@ static bool glm_graph_apply_directional_steering_ffn(
 static bool imatrix_collect_glm_one(
         ds4_imatrix_collector    *c,
         struct ds4_glm_gpu_graph *g,
-        uint32_t                  il) {
-    if (!g || il >= DS4_N_LAYER) return false;
-    return imatrix_collect_tensor_batch(c,
-                                        g->ffn_norm,
-                                        g->ffn_mid,
-                                        g->router_selected,
-                                        false,
-                                        il,
-                                        1);
+        uint32_t                  il,
+        const ds4_gpu_tensor     *ffn_norm,
+        const ds4_gpu_tensor     *ffn_mid) {
+    if (!c || !g || !ffn_norm || !ffn_mid || il >= DS4_N_LAYER) return false;
+    /* The routed dispatch above is only encoded, and ffn_norm, ffn_mid and
+     * router_selected are scratch tensors that every sparse layer reuses.  A
+     * host read here would see stale data (ds4_gpu_tensor_read() does not wait
+     * for queued work), so snapshot them on the GPU in stream order and let
+     * imatrix_collect_glm_token() accumulate after the token completes. */
+    const uint64_t norm_bytes = (uint64_t)DS4_N_EMBD * sizeof(float);
+    const uint64_t mid_bytes = (uint64_t)DS4_N_EXPERT_USED * DS4_N_FF_EXP * sizeof(float);
+    const uint64_t sel_bytes = (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t);
+    const uint64_t stride = norm_bytes + mid_bytes + sel_bytes;
+    if (!g->imatrix_stage) {
+        g->imatrix_stage = ds4_gpu_tensor_alloc((uint64_t)DS4_N_LAYER * stride);
+        if (!g->imatrix_stage) return false;
+    }
+    const uint64_t off = (uint64_t)il * stride;
+    if (!ds4_gpu_commands_active() && ds4_gpu_begin_commands() == 0) return false;
+    if (ds4_gpu_tensor_copy(g->imatrix_stage, off, ffn_norm, 0, norm_bytes) == 0 ||
+        ds4_gpu_tensor_copy(g->imatrix_stage, off + norm_bytes,
+                            ffn_mid, 0, mid_bytes) == 0 ||
+        ds4_gpu_tensor_copy(g->imatrix_stage, off + norm_bytes + mid_bytes,
+                            g->router_selected, 0, sel_bytes) == 0) {
+        return false;
+    }
+    g->imatrix_staged[il] = true;
+    return true;
+}
+
+/* Called after glm_graph_forward_token(): accumulate every layer staged by
+ * imatrix_collect_glm_one() for that token. */
+static bool imatrix_collect_glm_token(
+        ds4_imatrix_collector    *c,
+        struct ds4_glm_gpu_graph *g) {
+    if (!c || !g) return false;
+    if (ds4_gpu_synchronize() == 0) return false;
+    const uint64_t norm_bytes = (uint64_t)DS4_N_EMBD * sizeof(float);
+    const uint64_t mid_bytes = (uint64_t)DS4_N_EXPERT_USED * DS4_N_FF_EXP * sizeof(float);
+    const uint64_t sel_bytes = (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t);
+    const uint64_t stride = norm_bytes + mid_bytes + sel_bytes;
+    bool ok = true;
+    for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
+        if (!g->imatrix_staged[il]) continue;
+        g->imatrix_staged[il] = false;
+        const uint64_t off = (uint64_t)il * stride;
+        if (!ok ||
+            ds4_gpu_tensor_read(g->imatrix_stage, off,
+                                c->ffn_norm_buf, norm_bytes) == 0 ||
+            ds4_gpu_tensor_read(g->imatrix_stage, off + norm_bytes,
+                                c->routed_mid_buf, mid_bytes) == 0 ||
+            ds4_gpu_tensor_read(g->imatrix_stage, off + norm_bytes + mid_bytes,
+                                c->selected_buf, sel_bytes) == 0) {
+            ok = false;
+            continue;
+        }
+        imatrix_accumulate_host_batch(c, false, il, 1);
+    }
+    return ok;
 }
 
 static bool glm_graph_reset_kda_state(ds4_glm_gpu_graph *g) {
@@ -47353,6 +47564,7 @@ static void glm_graph_free(ds4_glm_gpu_graph *g) {
     ds4_gpu_tensor_free(g->output_norm);
     ds4_gpu_tensor_free(g->router_weights);
     ds4_gpu_tensor_free(g->router_selected);
+    ds4_gpu_tensor_free(g->imatrix_stage);
     ds4_gpu_tensor_free(g->router_probs);
     ds4_gpu_tensor_free(g->router_shared_mid);
     ds4_gpu_tensor_free(g->router_completion);
@@ -49969,7 +50181,7 @@ static bool glm_graph_encode_sparse_ffn_one(
     }
     if (ok && g->imatrix &&
         !(glm_decode_ablate_mask() & DS4_GLM_ABLATE_ROUTED)) {
-        ok = imatrix_collect_glm_one(g->imatrix, g, il);
+        ok = imatrix_collect_glm_one(g->imatrix, g, il, ffn_norm, ffn_mid);
     }
     if (ok && tp_split_ffn) {
         ok = ds4_gpu_tp_gate_encode(il, DS4_TP_GATE_FFN) != 0;
@@ -65647,6 +65859,7 @@ static int ds4_engine_collect_sequential_imatrix(
     bool sample_target_reached = false;
     char *cursor = dataset;
     const char *marker_lit = "===== DS4_IMATRIX_PROMPT";
+    const double t_start = now_sec();
     while (ok && *cursor) {
         char *start = cursor;
         char *marker = imatrix_find_marker(dataset, cursor, marker_lit);
@@ -65693,6 +65906,7 @@ static int ds4_engine_collect_sequential_imatrix(
                                                  NULL,
                                                  NULL,
                                                  false);
+                    if (ok && !v41) ok = imatrix_collect_glm_token(&collector, &g);
                     if (ok && ((pos + 1) % 16 == 0 || pos + 1 == prompt.len)) {
                         fprintf(stderr, "ds4: %s imatrix prompt %d: %d/%d tokens\r",
                                 name, prompts_done + 1, pos + 1, prompt.len);
@@ -65732,6 +65946,7 @@ static int ds4_engine_collect_sequential_imatrix(
         if (max_tokens > 0 && tokens_done >= max_tokens) break;
     }
     fputc('\n', stderr);
+    const double elapsed = now_sec() - t_start;
 
     g.imatrix = NULL;
     if (tokens_done == 0) {
@@ -65756,11 +65971,13 @@ static int ds4_engine_collect_sequential_imatrix(
     if (ok) {
         fprintf(stderr,
                 "ds4: wrote %s imatrix %s from %d prompts, %d tokens, "
-                "%llu routes\n",
+                "%llu routes (%.1f s, %.2f tokens/s)\n",
                 name, output_path,
                 prompts_done,
                 tokens_done,
-                (unsigned long long)collector.observed_routes);
+                (unsigned long long)collector.observed_routes,
+                elapsed,
+                elapsed > 0.0 ? (double)tokens_done / elapsed : 0.0);
     }
     imatrix_collector_free(&collector);
     glm_graph_free(&g);
