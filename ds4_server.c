@@ -796,6 +796,13 @@ typedef struct {
     int cap;
 } chat_msgs;
 
+/* Normalized image markers retain their positions so literal text cannot
+ * impersonate an image. Fingerprints are still checked against live KV. */
+typedef struct {
+    size_t count;
+    size_t offsets[16];
+} visible_image_key;
+
 static void tool_memory_attach_to_messages(server *s, chat_msgs *msgs,
                                            tool_replay_stats *stats);
 static bool tool_memory_has_id(server *s, const char *id);
@@ -877,6 +884,26 @@ typedef struct {
     bool anthropic_requires_live_tool_state;
     stop_list anthropic_live_call_ids;
     char *anthropic_live_suffix_text;
+    /* Canonical identity of a tool conversation, rendered before
+     * tool_memory_attach_to_messages() substitutes sampled bytes:
+     *
+     * full_input_key: this request's whole input.  A request that produces a
+     *                 tool-call frontier publishes it, so the next request can
+     *                 prove it replays the input that frontier was generated
+     *                 from.  Left NULL for a results-only continuation, which
+     *                 proves no full-history parent.
+     * tool_parent_key: this request's input without its pending assistant turn
+     *                 and trailing tool results, i.e. what the remembered
+     *                 full_input_key of the frontier that produced that turn
+     *                 must equal for the tool-ID tier to reuse it.
+     * tool_delta_only: the continuation carries only new tool results, so it
+     *                 has no parent to compare.  Classified from message
+     *                 structure; a missing key never implies it. */
+    char *full_input_key;
+    visible_image_key full_input_images;
+    char *tool_parent_key;
+    visible_image_key tool_parent_images;
+    bool tool_delta_only;
     tool_replay_stats tool_replay;
     /* Server-owned think-close suffix, set once this request closed reasoning
      * at the tail: the live KV holds it between prompt_text and the output. */
@@ -1050,6 +1077,8 @@ static void request_free(request *r) {
     stop_list_clear(&r->anthropic_live_call_ids);
     free(r->anthropic_live_call_ids.v);
     free(r->anthropic_live_suffix_text);
+    free(r->full_input_key);
+    free(r->tool_parent_key);
     tool_schema_orders_free(&r->tool_orders);
     memset(r, 0, sizeof(*r));
 }
@@ -4040,14 +4069,93 @@ static bool responses_validate_tool_outputs(server *s, const chat_msgs *msgs,
     return ok;
 }
 
-/* Record the call ids and suffix candidate for a live Responses continuation.
+/* Canonical identity of a replayed tool conversation.
+ *
+ * The tool-ID reuse tier binds a request to the live KV frontier by call id
+ * alone.  That is sound only while the request proves it replays the same
+ * parent input that produced the frontier: a rewritten or compacted history
+ * can keep the pending assistant item and its call ids while replacing
+ * everything the frontier was actually generated from.
+ *
+ * Two keys carry that proof.  The full-input key renders the request's whole
+ * message list; it is published with the frontier.  The parent key renders the
+ * same list without the pending assistant turn and its trailing tool results,
+ * so a replay continuation reproduces the full-input key of the request that
+ * generated that turn.  Both keys end in the renderer's assistant generation
+ * prefix; the newest assistant's reasoning and sampled tool-call bytes are
+ * deliberately outside the comparison.
+ *
+ * Keys are rendered before tool_memory_attach_to_messages() substitutes
+ * remembered sampled bytes for canonical calls, and request-local image
+ * markers are masked with the same \036 normalization as visible_prompt_key()
+ * so keys from different requests compare byte-for-byte. */
+static char *render_tool_flow_key(server_model_syntax syntax,
+                                  const chat_msgs *msgs,
+                                  const char *tool_schemas,
+                                  const tool_schema_orders *tool_orders,
+                                  ds4_think_mode think_mode,
+                                  visible_image_key *image_key) {
+    memset(image_key, 0, sizeof(*image_key));
+    char *key = render_chat_prompt_text_for_syntax(syntax, msgs, tool_schemas,
+                                                   tool_orders, think_mode);
+    if (!key) return NULL;
+    const char *cursor = key;
+    for (int i = 0; i < msgs->len; i++) {
+        const server_image_inputs *images = &msgs->v[i].images;
+        for (size_t j = 0; j < images->len; j++) {
+            const char *marker = images->v[j].marker;
+            const size_t len = strlen(marker);
+            const char *found = len ? strstr(cursor, marker) : NULL;
+            if (!found || image_key->count == 16) {
+                /* Leaving a marker in place would make the key request-local;
+                 * treat that as "no key" and let the gate fall through. */
+                free(key);
+                memset(image_key, 0, sizeof(*image_key));
+                return NULL;
+            }
+            image_key->offsets[image_key->count++] = (size_t)(found - key);
+            memset((char *)found, '\036', len);
+            cursor = found + len;
+        }
+    }
+    return key;
+}
+
+/* Parent view: every message except the pending assistant turn at `anchor` and
+ * its tool results in [tail_start, tail_end).  Shallow: the entries stay owned
+ * by `msgs`.  Keeping the whole view is what makes a compacted or edited
+ * middle history a mismatch instead of an accidental prefix hit. */
+static char *render_tool_parent_key(server_model_syntax syntax,
+                                    const chat_msgs *msgs, int anchor,
+                                    int tail_start, int tail_end,
+                                    const char *tool_schemas,
+                                    const tool_schema_orders *tool_orders,
+                                    ds4_think_mode think_mode,
+                                    visible_image_key *image_key) {
+    if (!msgs || anchor < 0 || anchor >= msgs->len) return NULL;
+    chat_msg *view = xmalloc((size_t)msgs->len * sizeof(view[0]));
+    int n = 0;
+    for (int i = 0; i < msgs->len; i++) {
+        if (i == anchor || (i >= tail_start && i < tail_end)) continue;
+        view[n++] = msgs->v[i];
+    }
+    chat_msgs shallow = { .v = view, .len = n, .cap = n };
+    char *key = render_tool_flow_key(syntax, &shallow, tool_schemas,
+                                     tool_orders, think_mode, image_key);
+    free(view);
+    return key;
+}
+
+/* Record the call ids, suffix candidate, and identity keys for a live
+ * Responses continuation.
  *
  * This only prepares evidence.  generate_job() later checks that the live
  * server state is still exactly at the remembered token frontier before using
  * it.  If another request already replaced the session, normal token/text/disk
  * prefix matching handles the request instead. */
 static void responses_prepare_live_continuation(server *s, request *r,
-                                                const chat_msgs *msgs) {
+                                                const chat_msgs *msgs,
+                                                const char *tool_schemas) {
     if (!r || r->api != API_RESPONSES || !msgs || msgs->len == 0) return;
 
     int tail_start = msgs->len;
@@ -4056,15 +4164,40 @@ static void responses_prepare_live_continuation(server *s, request *r,
         if (strcmp(m->role, "tool") && strcmp(m->role, "function")) break;
         tail_start--;
     }
-    if (tail_start == msgs->len) return;
+    if (tail_start == msgs->len) {
+        /* No tool-output tail: not a continuation, but this request may still
+         * generate the next frontier, so remember its canonical full input. */
+        r->full_input_key = render_tool_flow_key(r->model_syntax, msgs,
+                                                 tool_schemas, &r->tool_orders,
+                                                 r->think_mode, &r->full_input_images);
+        return;
+    }
+
+    int anchor = -1;
+    if (tail_start > 0) {
+        const chat_msg *assistant = &msgs->v[tail_start - 1];
+        if (strcmp(assistant->role, "assistant") || assistant->calls.len == 0)
+            return;
+        anchor = tail_start - 1;
+    }
+    if (anchor >= 0) {
+        r->full_input_key = render_tool_flow_key(r->model_syntax, msgs,
+                                                 tool_schemas, &r->tool_orders,
+                                                 r->think_mode, &r->full_input_images);
+        r->tool_parent_key = render_tool_parent_key(r->model_syntax, msgs,
+                                                    anchor, tail_start, msgs->len,
+                                                    tool_schemas, &r->tool_orders,
+                                                    r->think_mode, &r->tool_parent_images);
+    } else {
+        /* Results-only: nothing in this request proves a full-history parent. */
+        r->tool_delta_only = true;
+    }
 
     stop_list_clear(&r->responses_live_call_ids);
-    if (tail_start > 0) {
-        const int anchor = tail_start - 1;
-        const chat_msg *assistant = &msgs->v[anchor];
-        if (strcmp(assistant->role, "assistant") || assistant->calls.len == 0) return;
-        for (int i = 0; i < assistant->calls.len; i++) {
-            id_list_push_unique(&r->responses_live_call_ids, assistant->calls.v[i].id);
+    if (anchor >= 0) {
+        const tool_calls *calls = &msgs->v[anchor].calls;
+        for (int i = 0; i < calls->len; i++) {
+            id_list_push_unique(&r->responses_live_call_ids, calls->v[i].id);
         }
     } else {
         for (int i = tail_start; i < msgs->len; i++) {
@@ -4165,7 +4298,8 @@ static void anthropic_place_system_prompt(chat_msgs *msgs, chat_msg msg,
  * frontier, generate_job() can skip replay matching entirely and append just
  * EOS + tool_result + next assistant prefix to the real KV. */
 static void anthropic_prepare_live_continuation(server *s, request *r,
-                                                const chat_msgs *msgs) {
+                                                const chat_msgs *msgs,
+                                                const char *tool_schemas) {
     if (!r || r->api != API_ANTHROPIC || !msgs || msgs->len == 0) return;
 
     int tail_end = msgs->len;
@@ -4176,13 +4310,44 @@ static void anthropic_prepare_live_continuation(server *s, request *r,
     {
         tail_start--;
     }
-    if (tail_start == tail_end) return;
+    if (tail_start == tail_end) {
+        /* No tool-result tail: not a continuation, but this request may still
+         * generate the next frontier, so remember its canonical full input. */
+        r->full_input_key = render_tool_flow_key(r->model_syntax, msgs,
+                                                 tool_schemas, &r->tool_orders,
+                                                 r->think_mode, &r->full_input_images);
+        return;
+    }
     /* A system message after the tool results (e.g. a note about a message
      * the user sent while the tool ran) is part of the new tail.  The tail
      * renderers place it where it occurs; the DeepSeek template gathers every
      * system message into the prompt head, so it cannot be appended to the
      * live KV and the request takes the full render path instead. */
     if (tail_end < msgs->len && r->model_syntax == SERVER_MODEL_SYNTAX_DEEPSEEK) return;
+
+    /* The tool results replay the assistant tool_use turn only when that turn
+     * is still present. Without it, only a tail with no preceding conversation
+     * is results-only. The trailing system message stays part of the parent view because the parser
+     * appends it there, exactly as the frontier request carried it. */
+    int anchor = -1;
+    if (tail_start > 0 && !strcmp(msgs->v[tail_start - 1].role, "assistant") &&
+        msgs->v[tail_start - 1].calls.len > 0)
+    {
+        anchor = tail_start - 1;
+    }
+    if (anchor < 0 && tail_start > 0) return;
+    if (anchor >= 0) {
+        r->full_input_key = render_tool_flow_key(r->model_syntax, msgs,
+                                                 tool_schemas, &r->tool_orders,
+                                                 r->think_mode, &r->full_input_images);
+        r->tool_parent_key = render_tool_parent_key(r->model_syntax, msgs,
+                                                    anchor, tail_start, tail_end,
+                                                    tool_schemas, &r->tool_orders,
+                                                    r->think_mode, &r->tool_parent_images);
+    } else {
+        /* Results-only: nothing in this request proves a full-history parent. */
+        r->tool_delta_only = true;
+    }
 
     stop_list_clear(&r->anthropic_live_call_ids);
     for (int i = tail_start; i < msgs->len; i++) {
@@ -4592,9 +4757,11 @@ static bool parse_anthropic_request(ds4_engine *e, server *s, const char *body, 
         return false;
     }
     kv_cache_restore_tool_memory_for_messages(s, &msgs);
-    tool_memory_attach_to_messages(s, &msgs, &r->tool_replay);
-    anthropic_prepare_live_continuation(s, r, &msgs);
     const char *active_tool_schemas = r->has_tools ? tool_schemas : NULL;
+    /* Before attach: the tool-identity keys must describe the client's
+     * canonical calls, not remembered sampled bytes. */
+    anthropic_prepare_live_continuation(s, r, &msgs, active_tool_schemas);
+    tool_memory_attach_to_messages(s, &msgs, &r->tool_replay);
     r->prompt_preserves_reasoning =
         chat_history_uses_tool_context(&msgs, active_tool_schemas);
     r->prompt_text = render_chat_prompt_text_for_syntax(
@@ -5623,10 +5790,12 @@ static bool parse_responses_request(ds4_engine *e, server *s, const char *body, 
         return false;
     }
     kv_cache_restore_tool_memory_for_messages(s, &msgs);
+    /* Before attach: the tool-identity keys must describe the client's
+     * canonical calls, not remembered sampled bytes. */
+    responses_prepare_live_continuation(s, r, &msgs, active_tool_schemas);
     tool_memory_attach_to_messages(s, &msgs, &r->tool_replay);
     r->prompt_preserves_reasoning =
         chat_history_uses_tool_context(&msgs, active_tool_schemas);
-    responses_prepare_live_continuation(s, r, &msgs);
     r->prompt_text = render_chat_prompt_text_for_syntax(
         r->model_syntax, &msgs, active_tool_schemas,
         &r->tool_orders, r->think_mode);
@@ -10282,11 +10451,6 @@ typedef struct {
  * for visible-history matching, and retain their byte offsets so literal text
  * cannot impersonate an image. Full fingerprints are checked against live KV
  * before any prefix is reused. Normalization preserves all byte offsets. */
-typedef struct {
-    size_t count;
-    size_t offsets[16];
-} visible_image_key;
-
 static char *visible_prompt_key(const request *req, const char *text,
                                  visible_image_key *images) {
     memset(images, 0, sizeof(*images));
@@ -10334,6 +10498,12 @@ typedef struct {
      * result for these ids is a direct protocol continuation and should not
      * trigger prompt-prefix matching or checkpoint canonicalization. */
     stop_list call_ids;
+    /* Canonical full-input key of the request that generated this frontier.
+     * A replay continuation must reproduce it to reuse by call id alone;
+     * NULL when the frontier came from delta-only input, where no
+     * full-history parent was ever proven. */
+    char *parent_key;
+    visible_image_key parent_images;
 } live_tool_state;
 
 typedef struct {
@@ -10901,6 +11071,9 @@ static void live_tool_state_clear_locked(live_tool_state *st) {
     free(st->visible_text);
     st->visible_text = NULL;
     st->visible_len = 0;
+    free(st->parent_key);
+    st->parent_key = NULL;
+    memset(&st->parent_images, 0, sizeof(st->parent_images));
     memset(&st->images, 0, sizeof(st->images));
     st->valid = false;
     st->live_tokens = 0;
@@ -10960,6 +11133,12 @@ static void responses_live_remember(server *s, server_slot *slot,
     char *key = visible_prompt_key(req, visible_text, &images);
     pthread_mutex_lock(&s->tool_mu);
     live_tool_state_clear_locked(&slot->responses_live);
+    /* The canonical input this frontier was generated from.  Delta-only input
+     * proves no full-history parent, so it publishes none. */
+    slot->responses_live.parent_key =
+        req && req->full_input_key ? xstrdup(req->full_input_key) : NULL;
+    if (req && req->full_input_key)
+        slot->responses_live.parent_images = req->full_input_images;
     slot->responses_live.visible_text = key;
     slot->responses_live.visible_len = key ? strlen(key) : 0;
     slot->responses_live.images = images;
@@ -10974,10 +11153,14 @@ static void responses_live_remember(server *s, server_slot *slot,
 }
 
 static void anthropic_live_remember(server *s, server_slot *slot,
-                                    const tool_calls *calls) {
+                                    const tool_calls *calls, const request *req) {
     if (!s || !slot || !calls || calls->len == 0) return;
     pthread_mutex_lock(&s->tool_mu);
     live_tool_state_clear_locked(&slot->anthropic_live);
+    slot->anthropic_live.parent_key =
+        req && req->full_input_key ? xstrdup(req->full_input_key) : NULL;
+    if (req && req->full_input_key)
+        slot->anthropic_live.parent_images = req->full_input_images;
     for (int i = 0; i < calls->len; i++) {
         id_list_push_unique(&slot->anthropic_live.call_ids, calls->v[i].id);
     }
@@ -11078,6 +11261,25 @@ static bool anthropic_live_matches_request(server *s, server_slot *slot,
     }
     pthread_mutex_unlock(&s->tool_mu);
     return ok;
+}
+
+/* The tool-ID tier reuses a frontier by call id alone, so it may only run when
+ * the request proves the same parent input.  A results-only continuation has
+ * no replayed parent to compare and keeps its existing behavior; a full replay
+ * must reproduce the canonical input the frontier was generated from.  A
+ * frontier generated from delta-only input has no remembered parent at all, so
+ * a later full replay cannot borrow that continuation's exemption. */
+static bool live_tool_parent_matches(const live_tool_state *live,
+                                     const request *req) {
+    if (!live || !req) return false;
+    if (req->tool_delta_only) return true;
+    return live->parent_key && req->tool_parent_key &&
+           live->parent_images.count <= 16 &&
+           req->tool_parent_images.count <= 16 &&
+           live->parent_images.count == req->tool_parent_images.count &&
+           !memcmp(live->parent_images.offsets, req->tool_parent_images.offsets,
+                   live->parent_images.count * sizeof(live->parent_images.offsets[0])) &&
+           !strcmp(live->parent_key, req->tool_parent_key);
 }
 
 static bool tool_memory_has_id(server *s, const char *id) {
@@ -12371,6 +12573,10 @@ static int responses_live_continuation_prompt(server *s, server_slot *slot,
     if (!responses_live_matches_request(s, slot,
                                         &req->responses_live_call_ids,
                                         live_pos)) return 0;
+    pthread_mutex_lock(&s->tool_mu);
+    const bool parent_ok = live_tool_parent_matches(&slot->responses_live, req);
+    pthread_mutex_unlock(&s->tool_mu);
+    if (!parent_ok) return 0;
 
     const ds4_tokens *live_tokens = ds4_session_tokens(slot->session);
     if (!live_tokens || live_tokens->len != live_pos) return 0;
@@ -12398,6 +12604,10 @@ static int anthropic_live_continuation_prompt(server *s, server_slot *slot,
     if (!anthropic_live_matches_request(s, slot,
                                         &req->anthropic_live_call_ids,
                                         live_pos)) return 0;
+    pthread_mutex_lock(&s->tool_mu);
+    const bool parent_ok = live_tool_parent_matches(&slot->anthropic_live, req);
+    pthread_mutex_unlock(&s->tool_mu);
+    if (!parent_ok) return 0;
 
     const ds4_tokens *live_tokens = ds4_session_tokens(slot->session);
     if (!live_tokens || live_tokens->len != live_pos) return 0;
@@ -15902,7 +16112,7 @@ decode_again:
         if (parsed_calls.len && strcmp(final_finish, "error") &&
             strcmp(final_finish, "length"))
         {
-            anthropic_live_remember(s, slot, &parsed_calls);
+            anthropic_live_remember(s, slot, &parsed_calls, &j->req);
         } else {
             anthropic_live_clear(s, slot);
         }
@@ -22814,9 +23024,16 @@ static void test_anthropic_live_tail_renders_tool_results_only(void) {
     anthropic_place_system_prompt(&msgs, system, r.model_syntax);
     TEST_ASSERT(!strcmp(msgs.v[0].role, "system"));
 
-    anthropic_prepare_live_continuation(NULL, &r, &msgs);
+    anthropic_prepare_live_continuation(NULL, &r, &msgs, NULL);
     TEST_ASSERT(r.anthropic_live_call_ids.len == 1);
     TEST_ASSERT(!strcmp(r.anthropic_live_call_ids.v[0], "toolu_live"));
+    TEST_ASSERT(!r.tool_delta_only);
+    /* The parent view drops the pending assistant turn and its result but
+     * keeps the effective system message the parser appended after them. */
+    TEST_ASSERT(r.tool_parent_key != NULL);
+    TEST_ASSERT(strstr(r.tool_parent_key, "You are terse.") != NULL);
+    TEST_ASSERT(r.full_input_key != NULL);
+    TEST_ASSERT(strstr(r.full_input_key, "tool_result") != NULL);
     TEST_ASSERT(r.anthropic_live_suffix_text != NULL);
     TEST_ASSERT(!strncmp(r.anthropic_live_suffix_text,
                          "<｜end▁of▁sentence｜><｜User｜><tool_result>",
@@ -23050,9 +23267,17 @@ static void test_responses_live_tail_renders_tool_outputs_only(void) {
     tool.content = xstrdup("/tmp");
     chat_msgs_push(&msgs, tool);
 
-    responses_prepare_live_continuation(NULL, &r, &msgs);
+    responses_prepare_live_continuation(NULL, &r, &msgs, NULL);
     TEST_ASSERT(r.responses_live_call_ids.len == 1);
     TEST_ASSERT(!strcmp(r.responses_live_call_ids.v[0], "call_live"));
+    TEST_ASSERT(!r.tool_delta_only);
+    /* The parent view drops the pending assistant turn and its result. */
+    TEST_ASSERT(r.tool_parent_key != NULL);
+    TEST_ASSERT(strstr(r.tool_parent_key, "exec_command") == NULL);
+    TEST_ASSERT(strstr(r.tool_parent_key, "tool_result") == NULL);
+    TEST_ASSERT(r.full_input_key != NULL);
+    TEST_ASSERT(strstr(r.full_input_key, "exec_command") != NULL);
+    TEST_ASSERT(strstr(r.full_input_key, "tool_result") != NULL);
     TEST_ASSERT(r.responses_live_suffix_text != NULL);
     TEST_ASSERT(!strncmp(r.responses_live_suffix_text,
                          "<｜end▁of▁sentence｜><｜User｜><tool_result>",
@@ -26659,6 +26884,47 @@ static void test_visible_image_key(void) {
     free(a);
     TEST_ASSERT(visible_prompt_key(&req, "marker missing", &next) == NULL);
 
+    /* Tool-flow keys must retain marker positions across nonce masking. */
+    chat_msg image_msg = {0};
+    image_msg.role = "user";
+    image_msg.content = "first:XX;second:\036\036";
+    server_image_input image = {0};
+    strcpy(image.marker, "XX");
+    image_msg.images.v = &image;
+    image_msg.images.len = 1;
+    chat_msgs image_msgs = {.v = &image_msg, .len = 1, .cap = 1};
+    tool_schema_orders orders = {0};
+    visible_image_key at_image, at_control;
+    char *image_key = render_tool_flow_key(SERVER_MODEL_SYNTAX_QWEN, &image_msgs,
+                                            NULL, &orders, DS4_THINK_HIGH,
+                                            &at_image);
+    image_msg.content = "first:\036\036;second:YY";
+    image_msg.images.len = 0;
+    image.marker[0] = 'Y'; image.marker[1] = 'Y'; image.marker[2] = '\0';
+    image_msg.images.len = 1;
+    char *control_key = render_tool_flow_key(SERVER_MODEL_SYNTAX_QWEN, &image_msgs,
+                                              NULL, &orders, DS4_THINK_HIGH,
+                                              &at_control);
+    TEST_ASSERT(image_key && control_key && !strcmp(image_key, control_key));
+    TEST_ASSERT(at_image.count == 1 && at_control.count == 1);
+    TEST_ASSERT(at_image.offsets[0] != at_control.offsets[0]);
+    live_tool_state live = {.parent_key = image_key, .parent_images = at_image};
+    request image_replay = {.tool_parent_key = control_key,
+                            .tool_parent_images = at_control};
+    TEST_ASSERT(!live_tool_parent_matches(&live, &image_replay));
+    image_msg.content = "first:ZZ;second:\036\036";
+    image.marker[0] = 'Z'; image.marker[1] = 'Z'; image.marker[2] = '\0';
+    char *nonce_key = render_tool_flow_key(SERVER_MODEL_SYNTAX_QWEN, &image_msgs,
+                                            NULL, &orders, DS4_THINK_HIGH,
+                                            &at_control);
+    image_replay.tool_parent_key = nonce_key;
+    image_replay.tool_parent_images = at_control;
+    TEST_ASSERT(nonce_key && !strcmp(image_key, nonce_key));
+    TEST_ASSERT(live_tool_parent_matches(&live, &image_replay));
+    free(nonce_key);
+    free(control_key);
+    free(image_key);
+
     request glm = {.model_syntax = SERVER_MODEL_SYNTAX_GLM, .think_mode = DS4_THINK_HIGH,
                    .prompt_text = "<|user|>hello<|assistant|><think>"};
     char *visible = build_thinking_visible_text(&glm, " hello ");
@@ -26938,8 +27204,8 @@ static void test_deepseek41_live_result_order(void) {
             "{\"role\":\"tool\",\"tool_call_id\":\"a\",\"content\":\"FIRST\"}]";
         chat_msgs msgs = {0};
         TEST_ASSERT(anthropic ? parse_anthropic_messages(&json, &msgs) : parse_messages(&json, &msgs));
-        if (anthropic) anthropic_prepare_live_continuation(&s, &r, &msgs);
-        else responses_prepare_live_continuation(&s, &r, &msgs);
+        if (anthropic) anthropic_prepare_live_continuation(&s, &r, &msgs, NULL);
+        else responses_prepare_live_continuation(&s, &r, &msgs, NULL);
         const char *tail = anthropic ? r.anthropic_live_suffix_text : r.responses_live_suffix_text;
         TEST_ASSERT(tail && !strcmp(tail,
             "<｜end▁of▁sentence｜><｜User｜><tool_result>FIRST</tool_result>\n\n"
