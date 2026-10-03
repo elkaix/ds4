@@ -27430,6 +27430,85 @@ static void test_kv_startup_check(void) {
     buf_free(&out);
 }
 
+/* #1175 on this tree: the Responses tool-output tier reuses the live frontier
+ * only when the replay reproduces the frontier's parent input.  This tree has
+ * no slot_probe_reuse_locked, so check the two conditions its tier ANDs. */
+static void test_tool_tier_rejects_rewritten_parent(void) {
+    static const char tools[] =
+        "{\"name\":\"bash\",\"description\":\"Run a shell command\","
+        "\"parameters\":{\"type\":\"object\",\"properties\":{"
+        "\"command\":{\"type\":\"string\"}}}}";
+    static const char sys_pi[] =
+        "{\"type\":\"message\",\"role\":\"system\",\"content\":"
+        "[{\"type\":\"input_text\",\"text\":\"You are pi.\"}]}";
+    static const char user_list[] =
+        "{\"type\":\"message\",\"role\":\"user\",\"content\":"
+        "[{\"type\":\"input_text\",\"text\":\"List the files.\"}]}";
+    static const char user_summ[] =
+        "{\"type\":\"message\",\"role\":\"user\",\"content\":"
+        "[{\"type\":\"input_text\",\"text\":\"Summary: we listed files.\"}]}";
+    static const char pending[] =
+        "{\"type\":\"function_call\",\"call_id\":\"call_live\","
+        "\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}";
+    static const char result[] =
+        "{\"type\":\"function_call_output\",\"call_id\":\"call_live\","
+        "\"output\":\"a.c b.c\"}";
+    const char *inputs[3][4] = {
+        {sys_pi, user_list, NULL, NULL},         /* frontier */
+        {sys_pi, user_list, pending, result},    /* exact replay */
+        {sys_pi, user_summ, pending, result},    /* compacted replay */
+    };
+    request r[3];
+    for (int i = 0; i < 3; i++) {
+        buf in = {0};
+        buf_puts(&in, "[");
+        for (int j = 0; j < 4 && inputs[i][j]; j++) {
+            if (j) buf_puts(&in, ",");
+            buf_puts(&in, inputs[i][j]);
+        }
+        buf_puts(&in, "]");
+        request_init(&r[i], REQ_CHAT, 128);
+        r[i].api = API_RESPONSES;
+        r[i].model_syntax = SERVER_MODEL_SYNTAX_QWEN;
+        r[i].think_mode = DS4_THINK_HIGH;
+        tool_schema_orders_add_json(&r[i].tool_orders, tools);
+        const char *p = in.ptr;
+        chat_msgs msgs = {0};
+        TEST_ASSERT(parse_responses_input(&p, &msgs, NULL, &r[i].tool_orders));
+        responses_prepare_live_continuation(NULL, &r[i], &msgs, tools);
+        chat_msgs_free(&msgs);
+        buf_free(&in);
+    }
+    TEST_ASSERT(r[0].full_input_key != NULL);
+
+    server s = {0};
+    pthread_mutex_init(&s.tool_mu, NULL);
+    int ckpt[10];
+    for (int i = 0; i < 10; i++) ckpt[i] = i + 1;
+    server_slot slot = {0};
+    slot.session = ds4_session_new_test_checkpoint(ckpt, 10);
+    tool_calls calls = {0};
+    tool_call tc = {0};
+    tc.id = xstrdup("call_live");
+    tc.name = xstrdup("bash");
+    tc.arguments = xstrdup("{\"command\":\"ls\"}");
+    tool_calls_push(&calls, tc);
+    responses_live_remember(&s, &slot, "qwen visible frontier", &calls, &r[0]);
+
+    for (int i = 1; i < 3; i++) {
+        TEST_ASSERT(!r[i].tool_delta_only);
+        TEST_ASSERT(responses_live_matches_request(&s, &slot,
+                                                   &r[i].responses_live_call_ids, 10));
+        TEST_ASSERT(live_tool_parent_matches(&slot.responses_live, &r[i]) == (i == 1));
+    }
+
+    tool_calls_free(&calls);
+    live_tool_state_free(&slot.responses_live);
+    ds4_session_free_test_checkpoint(slot.session);
+    pthread_mutex_destroy(&s.tool_mu);
+    for (int i = 0; i < 3; i++) request_free(&r[i]);
+}
+
 static void ds4_server_unit_tests_run(void) {
     test_kv_startup_check();
     test_deepseek41_server_stream();
@@ -27549,6 +27628,7 @@ static void ds4_server_unit_tests_run(void) {
     test_anthropic_tool_memory_replays_sampled_dsml();
     test_anthropic_live_tail_renders_tool_results_only();
     test_anthropic_live_tail_keeps_system_note();
+    test_tool_tier_rejects_rewritten_parent();
     test_anthropic_tool_result_id_validation();
     test_anthropic_full_replay_allows_unknown_live_id();
     test_anthropic_tool_use_parses_before_role();
