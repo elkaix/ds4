@@ -12213,7 +12213,7 @@ static void kv_cache_maybe_store_continued(server *s, server_slot *slot) {
     const bool stored = visible
         ? kv_cache_store_live_prefix_text(s, slot, tokens, target, "continued",
                                           visible, KV_EXT_THINKING_VISIBLE,
-                                          "thinking-visible")
+                                          "thinking-visible", NULL)
         : kv_cache_store_live_prefix(s, slot, tokens, target, "continued");
     free(visible);
     if (stored) kv_cache_slot_note_store(slot, target);
