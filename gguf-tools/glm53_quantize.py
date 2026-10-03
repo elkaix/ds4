@@ -512,7 +512,7 @@ def add_dsa_attention(plan, db, layer):
     )
 
 
-def add_ffn(plan, db, layer, artifact):
+def add_ffn(plan, db, layer, artifact, q4k_expert_layers=frozenset()):
     prefix = f"{source_prefix(layer)}.mlp"
     if layer < 3:
         for part in ("gate", "up", "down"):
@@ -528,7 +528,7 @@ def add_ffn(plan, db, layer, artifact):
         QTYPE_F32,
         "router",
     )
-    if artifact == "q4":
+    if artifact == "q4" or layer in q4k_expert_layers:
         routed = {"gate": QTYPE_Q4_K, "up": QTYPE_Q4_K, "down": QTYPE_Q4_K}
     else:
         routed = {"gate": QTYPE_IQ2_XXS, "up": QTYPE_IQ2_XXS, "down": QTYPE_Q2_K}
@@ -640,7 +640,7 @@ def native_fp8_plan(db, plan):
     return native
 
 
-def build_plan(db, artifact, kda_q4k=None):
+def build_plan(db, artifact, kda_q4k=None, q4k_expert_layers=frozenset()):
     plan = []
     embedding_name = "token_embd.weight"
     add_regular(
@@ -668,7 +668,7 @@ def build_plan(db, artifact, kda_q4k=None):
             QTYPE_F32,
             "norm",
         )
-        add_ffn(plan, db, layer, artifact)
+        add_ffn(plan, db, layer, artifact, q4k_expert_layers)
         if layer == 45:
             add_regular(plan, db, "blk.45.nextn.eh_proj.weight", f"{prefix}.eh_proj.weight", QTYPE_BF16, "mtp")
             add_regular(plan, db, "blk.45.nextn.enorm.weight", f"{prefix}.enorm.weight", QTYPE_F32, "mtp")
@@ -1196,7 +1196,26 @@ def parse_args():
         help="comma-separated KDA projections stored as Q4_K instead of Q8_0 "
              f"({','.join(KDA_Q4K_TARGETS)}); default q,k for q2, none for q4",
     )
+    parser.add_argument(
+        "--q4k-expert-layers",
+        help="q2 only: layer IDs/ranges (e.g. 17-20) whose routed experts are Q4_K",
+    )
     args = parser.parse_args()
+    layers = set()
+    for part in (args.q4k_expert_layers or "").split(","):
+        if not part:
+            continue
+        lo, _, hi = part.partition("-")
+        try:
+            lo, hi = int(lo), int(hi or lo)
+        except ValueError:
+            parser.error(f"--q4k-expert-layers: bad layer spec {part!r}")
+        if not 0 <= lo <= hi <= 45:
+            parser.error(f"--q4k-expert-layers: {part!r} is outside layers 0-45")
+        layers.update(range(lo, hi + 1))
+    args.q4k_expert_layers = frozenset(layers)
+    if args.q4k_expert_layers and args.artifact != "q2":
+        parser.error("--q4k-expert-layers applies only to the q2 artifact")
     if args.threads < 1 or args.threads > 64:
         parser.error("--threads must be between 1 and 64")
     if not args.dry_run and not args.out:
@@ -1222,7 +1241,7 @@ def main():
     args = parse_args()
     db = SourceDB(args.hf)
     try:
-        plan = build_plan(db, args.artifact, args.kda_q4k)
+        plan = build_plan(db, args.artifact, args.kda_q4k, args.q4k_expert_layers)
         tokenizer_records, template_tokens = load_tokenizer_records(args.tokenizer_template)
         validate_tokenizer_template(args.hf, template_tokens, 154880)
         kv_records = model_metadata(args.hf, args.source_revision)
