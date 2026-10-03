@@ -18952,8 +18952,8 @@ static void test_anthropic_tail_close(void) {
         id_list_push_unique(&next.req.anthropic_live_call_ids, "toolu-1");
         for (int i = 0; i < 4; i++) ds4_tokens_push(&next.req.prompt, ckpt[i]);
         ds4_tokens_push(&next.req.prompt, 15);
-        TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &next.req).kind ==
-                    REUSE_ANTHROPIC_TOOL_OUTPUT);
+        TEST_ASSERT(anthropic_live_matches_request(&s, &slot,
+                                                   &next.req.anthropic_live_call_ids, 4));
 
         request r;
         request_init(&r, REQ_CHAT, 180);
@@ -18974,7 +18974,8 @@ static void test_anthropic_tail_close(void) {
         TEST_ASSERT(!slot.responses_live.valid);
         TEST_ASSERT(!slot.thinking_live.valid);
         TEST_ASSERT(r.think_mode == DS4_THINK_HIGH);
-        TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &next.req).kind == REUSE_NONE);
+        TEST_ASSERT(!anthropic_live_matches_request(&s, &slot,
+                                                    &next.req.anthropic_live_call_ids, 4));
         tail_close_eval_fail_at = 0;
 
         request_free(&r);
@@ -19073,25 +19074,14 @@ static void test_anthropic_tail_close_tool_checkpoint(void) {
                                                          NULL, &r.tool_orders, DS4_THINK_HIGH);
     TEST_ASSERT(checkpoint && next_text && !strncmp(next_text, checkpoint, strlen(checkpoint)));
 
-    /* The slot's live text, rendered from the live tokens, binds the next
-     * request through the memory-text tier: no cold prefill. */
-    ds4_session_free_test_checkpoint(slot.session);
-    slot.session = ds4_session_new_test_checkpoint(live_tok, 16);
-    slot.live_text = buf_take(&live);
-    slot.live_text_len = strlen(slot.live_text);
-    slot.live_text_pos = 16;
-    job next = {0};
-    next.req.kind = REQ_CHAT;
-    next.req.api = API_ANTHROPIC;
-    next.req.prompt_text = next_text;
-    ds4_tokens_push(&next.req.prompt, 999); /* canonical tokens diverge at the close */
-    slot_reuse pr = slot_probe_reuse_locked(&s, &slot, &next.req);
-    TEST_ASSERT(pr.kind == REUSE_MEMORY_TEXT);
-    TEST_ASSERT(pr.reuse_tokens == 16);
-    TEST_ASSERT(pr.suffix_off == slot.live_text_len);
-
-    request_free(&next.req);
-    free(slot.live_text);
+    /* The text rendered from the live tokens is a byte prefix of the next
+     * request, which is what live_text_prefix_prompt() binds on (this tree
+     * materializes tiers inline; there is no slot_probe_reuse_locked). */
+    char *live_text = buf_take(&live);
+    TEST_ASSERT(live_text && byte_prefix_match(next_text, strlen(next_text),
+                                               live_text, strlen(live_text)));
+    free(live_text);
+    free(next_text);
     ds4_session_free_test_checkpoint(slot.session);
     free(checkpoint);
     tool_calls_free(&calls);
@@ -19254,13 +19244,12 @@ static void test_anthropic_tail_close_pass(void) {
             TEST_ASSERT(ds4_session_pos(slot.session) == 4);
             request retry;
             tail_close_test_request(&retry, API_ANTHROPIC, cases[c].prompt, ckpt, 4, 180);
-            slot_reuse pr = slot_probe_reuse_locked(&s, &slot, &retry);
-            TEST_ASSERT(pr.kind == REUSE_MEMORY_TOKEN && pr.reuse_tokens == 4);
+            TEST_ASSERT(ds4_session_common_prefix(slot.session, &retry.prompt) == 4);
             request_free(&retry);
         } else if (failed) {
             request retry;
             tail_close_test_request(&retry, API_ANTHROPIC, cases[c].prompt, ckpt, 4, 180);
-            TEST_ASSERT(slot_probe_reuse_locked(&s, &slot, &retry).kind == REUSE_NONE);
+            TEST_ASSERT(!ds4_session_checkpoint_valid(slot.session));
             request_free(&retry);
         } else {
             TEST_ASSERT(ds4_session_pos(slot.session) == 4 + tail_close_eval_calls);
@@ -23077,7 +23066,7 @@ static void test_anthropic_live_tail_keeps_system_note(void) {
         top.role = xstrdup("system");
         top.content = xstrdup("You are terse.");
         anthropic_place_system_prompt(&msgs, top, r.model_syntax);
-        anthropic_prepare_live_continuation(&s, &r, &msgs);
+        anthropic_prepare_live_continuation(&s, &r, &msgs, NULL);
         char *full = render_chat_prompt_text_for_syntax(r.model_syntax, &msgs, NULL, NULL,
                                                         r.think_mode);
         const char *tail = r.anthropic_live_suffix_text;
