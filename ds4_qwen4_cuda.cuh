@@ -1795,6 +1795,10 @@ extern "C" int ds4_gpu_qwen4_gdn_prep_tensor(ds4_gpu_tensor *qkv, ds4_gpu_tensor
 
 extern "C" void ds4_gpu_qwen4_set_rows_exact(uint32_t rows) { (void)rows; }
 
+/* Metal-only test hook (exact-rows dispatch counting); stubbed for parity. */
+extern "C" void ds4_gpu_rows_exact_reset_dispatches(void) {}
+extern "C" uint32_t ds4_gpu_rows_exact_dispatches(void) { return 0u; }
+
 extern "C" int ds4_gpu_qwen4_gdn_scan_tensor(ds4_gpu_tensor *out, ds4_gpu_tensor *state,
         const ds4_gpu_tensor *qkv, const ds4_gpu_tensor *a, const ds4_gpu_tensor *b,
         uint32_t T, uint32_t Hk, uint32_t Hv, uint32_t D,

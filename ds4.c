@@ -59486,8 +59486,8 @@ static bool g_qwen4_rows_invariant;
  * of a plain engine never see it and keep their own kernel choices. */
 static uint32_t g_qwen4_rows_exact;
 /* rows one rows-exact Q8/F16 product takes per dispatch: the exact
- * 4-row kernels' width (wider products run them in slices), matching the
- * invariant matvec width this replaces */
+ * rows kernels cover up to eight (wider products run them in slices),
+ * and 32 matches the invariant matvec width this scope replaces */
 enum { QWEN4_ROWS_EXACT_MATVEC_ROWS = 32 };
 
 static void qwen4_rows_exact_scope(uint32_t rows) {
@@ -59515,12 +59515,12 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
 #else
 
     /* Rows-exact scope (speculative verify, rows-invariant forwards): Q8
-     * rows run the exact 4-row kernel blocks (weights once per four rows)
-     * and F16/F32 the plain _4 rows kernel, each row the single-token
-     * dispatch's bits; the other types recurse row by row onto their T = 1
-     * path.  Shapes the fast kernels cannot mirror fall through to the
-     * entries, whose scope routing gives each row its own grid row of the
-     * single-row kernel. */
+     * and F16/F32 rows run the exact rows kernels, each row the
+     * single-token dispatch's bits and the weights read once per up to
+     * eight rows (one dispatch for every verify width); the other types
+     * recurse row by row onto their T = 1 path.  Shapes the fast kernels
+     * cannot mirror fall through to the entries, whose scope routing gives
+     * each row its own grid row of the single-row kernel. */
     if (qwen4_rows_exact_cover(n_tok)) {
         if ((w->type == DS4_TENSOR_Q8_0 || w->type == DS4_TENSOR_F16 || w->type == DS4_TENSOR_F32) &&
             (in_dim % 32u) == 0 && in_dim <= UINT32_MAX && out_dim <= UINT32_MAX) {
@@ -59528,10 +59528,10 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
                 rc = ds4_gpu_qwen4_matmul_rows_exact_tensor(out, m->map, m->size, w->abs_offset,
                                                             in_dim, out_dim, x, n_tok);
             } else {
-                /* 4-row slices, matching the Q8 blocks */
+                /* slices of eight, matching the Q8 blocks */
                 rc = 1;
-                for (uint32_t r0 = 0; rc && r0 < n_tok; r0 += 4u) {
-                    const uint32_t n = n_tok - r0 < 4u ? n_tok - r0 : 4u;
+                for (uint32_t r0 = 0; rc && r0 < n_tok; r0 += 8u) {
+                    const uint32_t n = n_tok - r0 < 8u ? n_tok - r0 : 8u;
                     ds4_gpu_tensor *xr = r0 ? ds4_gpu_tensor_view(x, (uint64_t)r0 * in_dim * sizeof(float),
                                                                   (uint64_t)n * in_dim * sizeof(float)) : (ds4_gpu_tensor *)x;
                     ds4_gpu_tensor *orow = r0 ? ds4_gpu_tensor_view(out, (uint64_t)r0 * out_dim * sizeof(float),

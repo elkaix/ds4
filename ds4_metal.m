@@ -5675,6 +5675,17 @@ void ds4_gpu_qwen4_set_rows_exact(uint32_t rows) {
     g_qwen4_rows_exact = rows;
 }
 
+/* Exact-rows kernel dispatches since the last reset.  Test hook: the rows
+ * kernels cover a verify's whole width, so a 2..8-row product must be one
+ * dispatch, never slices. */
+static uint32_t g_rows_exact_dispatches;
+void ds4_gpu_rows_exact_reset_dispatches(void) {
+    g_rows_exact_dispatches = 0u;
+}
+uint32_t ds4_gpu_rows_exact_dispatches(void) {
+    return g_rows_exact_dispatches;
+}
+
 static int16_t ds4_gpu_mv_ext_nsg(void) {
     return (int16_t)ds4_gpu_env_u64("DS4_METAL_MV_EXT_NSG", 2u, 1u, 8u);
 }
@@ -20042,7 +20053,7 @@ int ds4_gpu_qwen4_matmul_q8_0_tensor(
         ds4_gpu_device_name_contains("M3 Ultra"));
 }
 
-/* Two to four rows (one slice of a rows-exact forward) in one pass over the
+/* Two to eight rows (one slice of a rows-exact forward) in one pass over the
  * weights, each row bit-identical to the single-row decode matvec
  * kernel_mul_mv_q8_0_f32. */
 int ds4_gpu_matmul_q8_0_rows_exact_tensor(
@@ -20054,10 +20065,12 @@ int ds4_gpu_matmul_q8_0_rows_exact_tensor(
         uint64_t              out_dim,
         const ds4_gpu_tensor *x,
         uint32_t              n_rows) {
-    static const char *names[5] = { NULL, NULL, "kernel_mul_mv_q8_0_f32_rows2",
-                                    "kernel_mul_mv_q8_0_f32_rows3", "kernel_mul_mv_q8_0_f32_rows4" };
+    static const char *names[9] = { NULL, NULL, "kernel_mul_mv_q8_0_f32_rows2",
+                                    "kernel_mul_mv_q8_0_f32_rows3", "kernel_mul_mv_q8_0_f32_rows4",
+                                    "kernel_mul_mv_q8_0_f32_rows5", "kernel_mul_mv_q8_0_f32_rows6",
+                                    "kernel_mul_mv_q8_0_f32_rows7", "kernel_mul_mv_q8_0_f32_rows8" };
     if (!g_initialized && !ds4_gpu_init()) return 0;
-    if (!out || !x || !model_map || n_rows < 2u || n_rows > 4u ||
+    if (!out || !x || !model_map || n_rows < 2u || n_rows > 8u ||
         (in_dim & 31u) != 0 || in_dim > UINT32_MAX || out_dim == 0 || out_dim > UINT32_MAX ||
         ds4_gpu_tensor_bytes(x) < (uint64_t)n_rows * in_dim * sizeof(float) ||
         ds4_gpu_tensor_bytes(out) < (uint64_t)n_rows * out_dim * sizeof(float)) {
@@ -20100,12 +20113,15 @@ int ds4_gpu_matmul_q8_0_rows_exact_tensor(
                                               (NSUInteger)dispatch.nr0, 1, 1)
              threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)dispatch.nsg, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
-        return ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 exact rows matvec");
+        const int ok = ds4_gpu_finish_command_buffer(cb, owned, "Q8_0 exact rows matvec");
+        if (ok) g_rows_exact_dispatches++;
+        return ok;
     }
 }
 
-/* Qwen rows inside the rows-exact scope: 4-row blocks of the exact Q8
- * kernel, the weights read once per block; a trailing single row runs the
+/* Qwen rows inside the rows-exact scope: one exact-rows kernel per up to
+ * eight rows (a verify of 2..8 reads the weights once); wider rows-
+ * invariant forwards slice in eights, and a trailing single row runs the
  * plain one-token matvec, which is the reference itself. */
 int ds4_gpu_qwen4_matmul_rows_exact_tensor(
         ds4_gpu_tensor       *out,
@@ -20137,7 +20153,7 @@ int ds4_gpu_qwen4_matmul_rows_exact_tensor(
             r0 += 1u;
             continue;
         }
-        const uint64_t n = left < 4u ? left : 4u;
+        const uint64_t n = left < 8u ? left : 8u;
         ds4_gpu_tensor *xr = r0 ? ds4_gpu_tensor_view(x, r0 * in_dim * sizeof(float), n * in_dim * sizeof(float))
                                 : (ds4_gpu_tensor *)x;
         ds4_gpu_tensor *orow = r0 ? ds4_gpu_tensor_view(out, r0 * out_dim * sizeof(float), n * out_dim * sizeof(float))
@@ -21677,11 +21693,11 @@ int ds4_gpu_matmul_f16_tensor(ds4_gpu_tensor *out,
         g_qwen4_rows_exact && n_tok > 1u && n_tok <= (uint64_t)g_qwen4_rows_exact);
 }
 
-/* One to four F16/F32 rows in one pass over the weights through the plain
+/* One to eight F16/F32 rows in one pass over the weights through the plain
  * _4 matvec's K walk and reduction tree — the form the single-token dispatch
  * takes while in_dim % 4 == 0 and its nr0 is 1 or 2.  A single row is that
  * dispatch itself (one grid row of the unsuffixed kernel), so a wider
- * rows-exact product can slice in fours and hand its tail row here.
+ * rows-exact product can slice in eights and hand its tail row here.
  * Returns 0 for any shape it cannot match exactly, so the caller falls
  * back to one grid row per token (ds4_gpu_matmul_f16_tensor_impl's exact
  * path). */
@@ -21696,7 +21712,7 @@ int ds4_gpu_matmul_plain_rows_exact_tensor(
         const ds4_gpu_tensor *x,
         uint32_t              n_rows) {
     if (!g_initialized && !ds4_gpu_init()) return 0;
-    if (!out || !x || !model_map || n_rows < 1u || n_rows > 4u || in_dim < 32u ||
+    if (!out || !x || !model_map || n_rows < 1u || n_rows > 8u || in_dim < 32u ||
         (in_dim & 3u) != 0 || in_dim > UINT32_MAX || out_dim == 0 || out_dim > UINT32_MAX ||
         ds4_gpu_tensor_bytes(x) < (uint64_t)n_rows * in_dim * sizeof(float) ||
         ds4_gpu_tensor_bytes(out) < (uint64_t)n_rows * out_dim * sizeof(float)) {
@@ -21752,12 +21768,14 @@ int ds4_gpu_matmul_plain_rows_exact_tensor(
         [enc setBuffer:wbuf offset:(NSUInteger)inner_offset atIndex:1];
         [enc setBuffer:xbuf offset:ds4_gpu_tensor_offset(x) atIndex:2];
         [enc setBuffer:outbuf offset:ds4_gpu_tensor_offset(out) atIndex:3];
-        [enc setThreadgroupMemoryLength:single ? dispatch.smem : dispatch.smem * n_rows atIndex:0];
+        [enc setThreadgroupMemoryLength:dispatch.smem * n_rows atIndex:0];
         [enc dispatchThreadgroups:MTLSizeMake(((NSUInteger)out_dim + (NSUInteger)dispatch.nr0 - 1u) /
-                                              (NSUInteger)dispatch.nr0, single ? (NSUInteger)n_rows : 1u, 1)
+                                              (NSUInteger)dispatch.nr0, 1u, 1)
              threadsPerThreadgroup:MTLSizeMake(32, (NSUInteger)dispatch.nsg, 1)];
         ds4_gpu_end_compute_encoder(cb, enc);
-        return ds4_gpu_finish_command_buffer(cb, owned, "plain exact rows matvec");
+        const int ok = ds4_gpu_finish_command_buffer(cb, owned, "plain exact rows matvec");
+        if (ok) g_rows_exact_dispatches++;
+        return ok;
     }
 }
 

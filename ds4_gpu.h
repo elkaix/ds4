@@ -824,8 +824,8 @@ int ds4_gpu_matmul_q8_0_decode_rows_exact_tensor(
         uint64_t              out_dim,
         const ds4_gpu_tensor *x,
         uint32_t              n_rows);
-/* 2..4 rows in one pass over the Q8_0 weights, each row kernel_mul_mv_q8_0_f32's
- * bits; wider products run it in 4-row slices with a plain one-token tail. */
+/* 2..8 rows in one pass over the Q8_0 weights, each row kernel_mul_mv_q8_0_f32's
+ * bits; wider products run it in 8-row slices with a plain one-token tail. */
 int ds4_gpu_matmul_q8_0_rows_exact_tensor(
         ds4_gpu_tensor       *out,
         const void           *model_map,
@@ -844,7 +844,7 @@ int ds4_gpu_qwen4_matmul_rows_exact_tensor(
         uint64_t              out_dim,
         const ds4_gpu_tensor *x,
         uint64_t              n_tok);
-/* 1..4 F16/F32 rows through the plain _4 matvec's arithmetic, the weights
+/* 1..8 F16/F32 rows through the plain _4 matvec's arithmetic, the weights
  * read once (a single row is the plain one-token dispatch itself); 0 for
  * shapes whose single-row dispatch it cannot mirror. */
 int ds4_gpu_matmul_plain_rows_exact_tensor(
@@ -3605,6 +3605,10 @@ int ds4_gpu_qwen4_gdn_scan_tensor(
  * with n_tokens <= rows keeps the plain one-token decode arithmetic
  * (speculative verify rows and rows-invariant batched serving). */
 void ds4_gpu_qwen4_set_rows_exact(uint32_t rows);
+/* Exact-rows kernel dispatches since the last reset (test hook: a 2..8-row
+ * product must take one dispatch now that the rows kernels cover it). */
+void ds4_gpu_rows_exact_reset_dispatches(void);
+uint32_t ds4_gpu_rows_exact_dispatches(void);
 /* Metal: arm up to five extra recurrent-state snapshots (state after token
  * toks[i]) for the next gdn_front, gdn_scan or ple_conv dispatch only; the
  * wide copy verify arms them.  Consumed by that dispatch. */

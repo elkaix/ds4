@@ -2053,7 +2053,8 @@ static void test_mv_ext_groups(arena_t *a) {
 /* Rows-exact scope: while armed (speculative verify rows, rows-invariant
  * forwards), every row of a 2..8-row Q8/F16/F32 product is that row's
  * one-token product bit for bit — through the exact rows kernels and
- * through the scope-routed tensor entries alike. */
+ * through the scope-routed tensor entries alike — and the rows kernels
+ * cover the whole width, so every 2..8-row product is a single dispatch. */
 static void test_rows_exact(arena_t *a) {
     const uint32_t T_list[] = {2u, 3u, 4u, 5u, 6u, 7u, 8u}, rows = 641u, in_dim = 2560u;
     const char *names[3] = {"Q8_0", "F16", "F32"};
@@ -2080,24 +2081,21 @@ static void test_rows_exact(arena_t *a) {
         }
         for (uint32_t it = 0; it < sizeof(T_list) / sizeof(T_list[0]); it++) {
             const uint32_t T = T_list[it];
+            ds4_gpu_rows_exact_reset_dispatches();
             if (wt == 0u) {
                 require_ok(ds4_gpu_qwen4_matmul_rows_exact_tensor(go, a->base, a->size, off, in_dim, rows, gx, T) &&
                            ds4_gpu_tensor_read(go, 0, got, (uint64_t)T * rows * sizeof(float)), "Q8 exact rows");
             } else {
-                int rc = 1;
-                for (uint32_t r0 = 0; rc && r0 < T; r0 += 4u) {
-                    const uint32_t n = T - r0 < 4u ? T - r0 : 4u;
-                    ds4_gpu_tensor *xr = r0 ? ds4_gpu_tensor_view(gx, (uint64_t)r0 * in_dim * sizeof(float),
-                                                                  (uint64_t)n * in_dim * sizeof(float)) : gx;
-                    ds4_gpu_tensor *orow = r0 ? ds4_gpu_tensor_view(go, (uint64_t)r0 * rows * sizeof(float),
-                                                                   (uint64_t)n * rows * sizeof(float)) : go;
-                    rc = xr && orow &&
-                         ds4_gpu_matmul_plain_rows_exact_tensor(orow, a->base, a->size, off, wt == 2u, in_dim, rows,
-                                                                xr, n);
-                    if (r0) { ds4_gpu_tensor_free(orow); ds4_gpu_tensor_free(xr); }
-                }
-                require_ok(rc && ds4_gpu_tensor_read(go, 0, got, (uint64_t)T * rows * sizeof(float)), "plain exact rows");
+                /* the graph hands the whole width to one rows kernel; wider
+                 * rows-invariant forwards slice in eights, out of scope here */
+                require_ok(ds4_gpu_matmul_plain_rows_exact_tensor(go, a->base, a->size, off, wt == 2u, in_dim, rows,
+                                                                  gx, T) &&
+                           ds4_gpu_tensor_read(go, 0, got, (uint64_t)T * rows * sizeof(float)), "plain exact rows");
             }
+            /* the rows kernels now cover T = 5..8: one dispatch over the
+             * weights, not slices that would read them twice */
+            snprintf(what, sizeof(what), "%s rows-exact single dispatch T=%u", names[wt], T);
+            require_ok(ds4_gpu_rows_exact_dispatches() == 1u, what);
             snprintf(what, sizeof(what), "%s rows-exact kernel rows T=%u", names[wt], T);
             check_exact_f32(what, got, one, (uint64_t)T * rows);
             /* the scope-routed entry must land on the same bits */
