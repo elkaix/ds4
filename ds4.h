@@ -577,6 +577,9 @@ int ds4_session_eval_speculative_argmax_ignoring_eos(
         ds4_session *s, int first_token, int max_tokens, int eos_token,
         ds4_think_mode think_mode,
         int *accepted, int accepted_cap, char *err, size_t errlen);
+/* Qwen3.8: logits of every row of the last speculative verify (see
+ * ds4_session_eval_speculative_argmax above), for bit-exact tests. */
+uint32_t ds4_test_qwen4_last_verify_rows(const ds4_session *s, const float **out);
 /* Evaluate one already-sampled target token and speculatively extend it.
  * Positive-temperature DSpark normally commits greedily verified draft
  * tokens; dspark_exact_sampling selects exact stochastic p/q acceptance for

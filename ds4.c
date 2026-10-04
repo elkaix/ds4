@@ -58934,7 +58934,7 @@ typedef struct ds4_qwen4_gpu_graph {
     bool snap_after_first;   /* set by the caller for a 2-token verify: snapshot the state after row 0 */
     bool snap_after_second;  /* 3-token verify: also snapshot the state after row 1 */
     uint32_t snapx_armed;    /* wide copy verify: also snapshot the state after rows 2..2+n-1 */
-    bool verify_rows_exact;  /* 3..8-token verify: split attention into 2/1-row sub-batches */
+    bool verify_rows_exact;  /* speculative verify (2..8 rows): rows keep the one-token arithmetic */
     bool snap_valid;
     /* multimodal: per-position (t, h, w) rope positions, the text counter
      * offset, and the image spans of the prompt being prefilled */
@@ -59443,21 +59443,34 @@ static void qwen4_graph_reset(ds4_qwen4_gpu_graph *g) {
     g->snapx_armed = 0u;
 }
 
-/* engine option qwen4_rows_invariant (one engine per process) */
+/* engine option qwen4_rows_invariant (one engine per process): a policy
+ * switch only — batching eligibility, draft depth and sampling.  Its
+ * arithmetic contract lives in the rows-exact scope below, which every
+ * forward of such an engine arms. */
 static bool g_qwen4_rows_invariant;
-/* set for the duration of a wide copy verify: its dense rows keep the
- * T <= 3 kernels; the value is the verify width (0 = off) */
-static uint32_t g_qwen4_verify_exact_rows;
-/* rows one rows-invariant matvec dispatch takes: the few-row matvec's fixed
- * geometry (ds4_gpu_qwen4_matmul_rows_invariant_tensor rejects more) is
- * per-row exact up to this width, so wider batches run it in slices */
-enum { QWEN4_ROWS_INVARIANT_MATVEC_ROWS = 32 };
-/* > 0 while a multi-session batched forward runs under rows-invariant mode
- * (the value is the batch's row count): every width-thresholded kernel
- * choice below must keep the single-row arithmetic at any batch width, so
- * qwen4_gemv_rows and qwen4_graph_hc_mix consult it; solo decode, verify and
- * prefill forwards never see it and keep their own kernel choices */
-static uint32_t g_qwen4_batch_rows;
+/* The rows-exact scope: while set, every row of a forward with
+ * 2 <= n_tokens <= scope computes exactly what plain one-token decode
+ * computes (the single-arithmetic reference).  Set for the duration of a
+ * speculative verify (2..8 rows), of any multi-row forward of a
+ * rows-invariant engine (batched sessions and drafts, prefill tails capped
+ * at the matvec's slice width), and read by every width-thresholded or
+ * paired-row kernel choice.  Solo decode, plain prefill and prefill tails
+ * of a plain engine never see it and keep their own kernel choices. */
+static uint32_t g_qwen4_rows_exact;
+/* rows one rows-exact Q8/F16 product takes per dispatch: the exact
+ * 4-row kernels' width (wider products run them in slices), matching the
+ * invariant matvec width this replaces */
+enum { QWEN4_ROWS_EXACT_MATVEC_ROWS = 32 };
+
+static void qwen4_rows_exact_scope(uint32_t rows) {
+    g_qwen4_rows_exact = rows;
+    ds4_gpu_qwen4_set_rows_exact(rows);
+}
+
+/* n tokens of the running forward fall inside the rows-exact scope */
+static bool qwen4_rows_exact_cover(uint64_t n_tok) {
+    return g_qwen4_rows_exact && n_tok >= 2u && n_tok <= (uint64_t)g_qwen4_rows_exact;
+}
 
 /* rows > 0 limits the product to a contiguous leading prefix of w. */
 static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_tensor *w,
@@ -59473,35 +59486,40 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
                                            w->type, n_tok, (uint32_t)in_dim, (uint32_t)out_dim);
 #else
 
-    /* Row-invariant decode (engine option): up to
-     * QWEN4_ROWS_INVARIANT_MATVEC_ROWS rows on the few-row matvec's fixed
-     * geometry, so each row's sum is the single-row sum; the other types run
-     * row by row.  A batched forward wider than one matvec dispatch runs it
-     * in slices (the other types row by row), so its rows keep that
-     * arithmetic at every width the server can batch; solo forwards wider
-     * than a dispatch keep their prefill kernels. */
-    if (g_qwen4_rows_invariant) {
-        if ((w->type == DS4_TENSOR_Q8_0 || w->type == DS4_TENSOR_F16) && (in_dim % 128u) == 0) {
-            if (n_tok <= QWEN4_ROWS_INVARIANT_MATVEC_ROWS) {
-                rc = ds4_gpu_qwen4_matmul_rows_invariant_tensor(out, m->map, m->size, w->abs_offset, w->type,
-                                                               in_dim, out_dim, x, n_tok);
-            } else if (g_qwen4_batch_rows) {
+    /* Rows-exact scope (speculative verify, rows-invariant forwards): Q8
+     * rows run the exact 4-row kernel blocks (weights once per four rows)
+     * and F16/F32 the plain _4 rows kernel, each row the single-token
+     * dispatch's bits; the other types recurse row by row onto their T = 1
+     * path.  Shapes the fast kernels cannot mirror fall through to the
+     * entries, whose scope routing gives each row its own grid row of the
+     * single-row kernel. */
+    if (qwen4_rows_exact_cover(n_tok)) {
+        if ((w->type == DS4_TENSOR_Q8_0 || w->type == DS4_TENSOR_F16 || w->type == DS4_TENSOR_F32) &&
+            (in_dim % 32u) == 0 && in_dim <= UINT32_MAX && out_dim <= UINT32_MAX) {
+            if (w->type == DS4_TENSOR_Q8_0) {
+                rc = ds4_gpu_qwen4_matmul_rows_exact_tensor(out, m->map, m->size, w->abs_offset,
+                                                            in_dim, out_dim, x, n_tok);
+            } else {
+                /* 4-row slices, matching the Q8 blocks */
                 rc = 1;
-                for (uint32_t r0 = 0; rc && r0 < n_tok; r0 += QWEN4_ROWS_INVARIANT_MATVEC_ROWS) {
-                    const uint32_t n = n_tok - r0 < QWEN4_ROWS_INVARIANT_MATVEC_ROWS ?
-                        n_tok - r0 : QWEN4_ROWS_INVARIANT_MATVEC_ROWS;
-                    ds4_gpu_tensor *xr = ds4_gpu_tensor_view(x, (uint64_t)r0 * in_dim * sizeof(float),
-                                                             (uint64_t)n * in_dim * sizeof(float));
-                    ds4_gpu_tensor *orow = ds4_gpu_tensor_view(out, (uint64_t)r0 * out_dim * sizeof(float),
-                                                               (uint64_t)n * out_dim * sizeof(float));
+                for (uint32_t r0 = 0; rc && r0 < n_tok; r0 += 4u) {
+                    const uint32_t n = n_tok - r0 < 4u ? n_tok - r0 : 4u;
+                    ds4_gpu_tensor *xr = r0 ? ds4_gpu_tensor_view(x, (uint64_t)r0 * in_dim * sizeof(float),
+                                                                  (uint64_t)n * in_dim * sizeof(float)) : (ds4_gpu_tensor *)x;
+                    ds4_gpu_tensor *orow = r0 ? ds4_gpu_tensor_view(out, (uint64_t)r0 * out_dim * sizeof(float),
+                                                                   (uint64_t)n * out_dim * sizeof(float)) : out;
                     rc = xr && orow &&
-                         ds4_gpu_qwen4_matmul_rows_invariant_tensor(orow, m->map, m->size, w->abs_offset,
-                                                                    w->type, in_dim, out_dim, xr, n);
-                    ds4_gpu_tensor_free(orow); ds4_gpu_tensor_free(xr);
+                         ds4_gpu_matmul_plain_rows_exact_tensor(orow, m->map, m->size, w->abs_offset,
+                                                                w->type == DS4_TENSOR_F32, in_dim, out_dim,
+                                                                xr, n);
+                    if (r0) {
+                        ds4_gpu_tensor_free(orow);
+                        ds4_gpu_tensor_free(xr);
+                    }
                 }
             }
-        } else if (n_tok >= 2u &&
-                   (n_tok <= QWEN4_ROWS_INVARIANT_MATVEC_ROWS || g_qwen4_batch_rows)) {
+            if (rc) return true;
+        } else {
             rc = 1;
             for (uint32_t r = 0; rc && r < n_tok; r++) {
                 ds4_gpu_tensor *xr = ds4_gpu_tensor_view(x, r * in_dim * sizeof(float), in_dim * sizeof(float));
@@ -59509,18 +59527,18 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
                 rc = xr && orow && qwen4_gemv_rows(orow, m, w, xr, 1u, rows);
                 ds4_gpu_tensor_free(orow); ds4_gpu_tensor_free(xr);
             }
+            if (rc) return true;
         }
-        if (rc) return true;
     }
     /* Small F16 batches use float operands. Two/three-row verification and
      * large prefills retain their existing kernels. The legacy switch is an
      * arithmetic/performance control, not a user tuning option. */
     const bool legacy = getenv("DS4_QWEN4_DENSE_MM_LEGACY") != NULL;
     const bool f16_batch = !legacy && n_tok > 3u &&
-        !(g_qwen4_verify_exact_rows && n_tok <= g_qwen4_verify_exact_rows) &&
+        !qwen4_rows_exact_cover(n_tok) &&
         w->type == DS4_TENSOR_F16 &&
         n_tok <= 64u && (out_dim <= 512u || n_tok > 8u);
-    if (((n_tok > 8u && w->type == DS4_TENSOR_F32) || f16_batch) &&
+    if (((n_tok > 8u && w->type == DS4_TENSOR_F32 && !qwen4_rows_exact_cover(n_tok)) || f16_batch) &&
         (in_dim % 32) == 0) {
         rc = ds4_gpu_qwen4_dense_mm_tensor(out, x, m->map, m->size, w->abs_offset, w->type, n_tok,
                                            (uint32_t)in_dim, (uint32_t)out_dim);
@@ -59530,10 +59548,10 @@ static bool qwen4_gemv_rows(ds4_gpu_tensor *out, const ds4_model *m, const ds4_t
      * per-token kernel reads the matrix once per four rows and streams x
      * once per four weight rows; this reads the weights once and x once per
      * 32 rows.  DS4_QWEN4_NO_BATCH_MM=1 keeps the per-token kernel for A/B.
-     * A row-exact verify keeps the per-token kernel: the batched tiles do
-     * not preserve each row's T <= 2 summation order. */
+     * A rows-exact forward keeps the exact kernels: the batched tiles do
+     * not preserve each row's one-token summation order. */
     if (!legacy && w->type == DS4_TENSOR_Q8_0 && n_tok >= 5u && n_tok <= 32u &&
-        !(g_qwen4_verify_exact_rows && n_tok <= g_qwen4_verify_exact_rows) &&
+        !qwen4_rows_exact_cover(n_tok) &&
         (in_dim % 32) == 0 && (out_dim % 32) == 0 && getenv("DS4_QWEN4_NO_BATCH_MM") == NULL &&
         ds4_gpu_tensor_bytes(x) >= 32u * in_dim * sizeof(float) &&
         ds4_gpu_tensor_bytes(out) >= 32u * out_dim * sizeof(float)) {
@@ -59749,38 +59767,20 @@ static bool qwen4_graph_hc_mix(ds4_qwen4_gpu_graph *g, const ds4_model *m,
     }
     ok = ok && qwen4_gemv(g->lo, m, down, g->xn, T);
     /* prefill: the up projection as a GEMM over the activated low-rank rows;
-     * a rows-invariant batched forward keeps the per-row gate/mix kernel
-     * below instead, whose rows keep the single-row arithmetic at any width */
+     * a rows-exact forward (a rows-invariant batch) keeps the per-row
+     * gate/mix kernel below instead, whose rows keep the single-token
+     * arithmetic at any width */
     if (T > 8u &&
         up->type != DS4_TENSOR_Q8_0 &&
-        !g_qwen4_batch_rows) {
+        !qwen4_rows_exact_cover(T)) {
         /* prefill: the up projection as a GEMM over the activated low-rank rows */
         return ok && ds4_gpu_qwen4_hc_lo_act_tensor(g->hc_lo_act, g->lo, T, DS4_N_HC, DS4_N_HC_LOWRANK) &&
                qwen4_gemv(g->hc_u, m, up, g->hc_lo_act, T) &&
                ds4_gpu_qwen4_hc_mix_rows_tensor(g->mixed, g->hc_u, g->xn, T, DS4_N_EMBD, DS4_N_HC);
     }
-    if (T > 2u && T <= QWEN4_VERIFY_ROWS_MAX && g->verify_rows_exact) {
-        /* 3..8-row speculative verify: run the gate/mix as exact 2-row pair
-         * kernels (a trailing 1-row kernel for odd widths), so every row
-         * keeps its T <= 2 rounding */
-        const uint64_t dim = (uint64_t)DS4_N_EMBD * DS4_N_HC;
-        for (uint32_t r0 = 0; r0 < T; r0 += 2u) {
-            const uint32_t subT = T - r0 > 2u ? 2u : T - r0;
-            ds4_gpu_tensor *xn2 = ds4_gpu_tensor_view(g->xn, r0 * dim * sizeof(float), (uint64_t)subT * dim * sizeof(float));
-            ds4_gpu_tensor *lo2 = ds4_gpu_tensor_view(g->lo, (uint64_t)r0 * DS4_N_HC_LOWRANK * sizeof(float),
-                                                      (uint64_t)subT * DS4_N_HC_LOWRANK * sizeof(float));
-            ds4_gpu_tensor *mixed2 = ds4_gpu_tensor_view(g->mixed, (uint64_t)r0 * DS4_N_EMBD * sizeof(float),
-                                                         (uint64_t)subT * DS4_N_EMBD * sizeof(float));
-            const bool ok2 = ok && xn2 && lo2 && mixed2 &&
-                ds4_gpu_qwen4_hc_gate_mix_tensor(mixed2, xn2, lo2, m->map, m->size, up->abs_offset,
-                                                 up->type, subT, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
-            ds4_gpu_tensor_free(mixed2);
-            ds4_gpu_tensor_free(lo2);
-            ds4_gpu_tensor_free(xn2);
-            if (!ok2) return false;
-        }
-        return true;
-    }
+    /* Verify and batch rows run the generic per-row gate/mix kernel (its
+     * two-token pair twin stays off under the scope), which is the kernel
+     * plain one-token decode takes, one grid row per token. */
     return ok && ds4_gpu_qwen4_hc_gate_mix_tensor(g->mixed, g->xn, g->lo, m->map, m->size, up->abs_offset,
                                                   up->type, T, DS4_N_EMBD, DS4_N_HC, DS4_N_HC_LOWRANK);
 }
@@ -59967,12 +59967,14 @@ static bool qwen4_graph_attention_tail(ds4_qwen4_gpu_graph *g, const ds4_model *
                                             DS4_N_ROT, DS4_ROPE_FREQ_BASE, DS4_RMS_EPS)) {
         return false;
     }
-    if ((T > 2u) && g->verify_rows_exact) {
-        /* 3..8-row speculative verify: run the attention core as 2/1-row
-         * sub-batches so every dispatch keeps the exact T <= 2 kernel paths
-         * (prefill tails keep their own kernel selection). */
-        for (uint32_t sub0 = 0; sub0 < T; sub0 += 2u) {
-            const uint32_t subT = T - sub0 > 2u ? 2u : T - sub0;
+    if ((T > 1u) && g->verify_rows_exact) {
+        /* Speculative verify: dense rows one per dispatch, since the split-K
+         * follows the last row's key count; sparse rows attend a fixed
+         * selection width and pair up.  Every row then matches its
+         * one-token decode (prefill tails keep their own kernel selection). */
+        const uint32_t sparse_pos = (g->k_blocks + 1u) * ratio - 1u;
+        for (uint32_t sub0 = 0, subT; sub0 < T; sub0 += subT) {
+            subT = T - sub0 >= 2u && pos0 + sub0 >= sparse_pos ? 2u : 1u;
             ds4_gpu_tensor *q = sub0 ? ds4_gpu_tensor_view(g->q, (uint64_t)sub0 * q_dim * sizeof(float),
                                                             (uint64_t)subT * q_dim * sizeof(float)) : g->q;
             ds4_gpu_tensor *gate = sub0 ? ds4_gpu_tensor_view(g->gate, (uint64_t)sub0 * q_dim * sizeof(float),
@@ -60347,6 +60349,13 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
         return false;
     const double t1 = timing ? now_sec() : 0.0;
     if (!glm_graph_begin_commands_if_needed()) return false;
+    /* A rows-invariant engine keeps every multi-row forward on the
+     * one-token arithmetic up to the exact matvec's slice width; a verify
+     * cycle has already armed its (identical) scope, and solo decode and
+     * plain prefill keep their own kernel choices. */
+    const bool armed_rows_exact = g_qwen4_rows_invariant && T >= 2u && g_qwen4_rows_exact == 0u &&
+        T <= QWEN4_ROWS_EXACT_MATVEC_ROWS;
+    if (armed_rows_exact) qwen4_rows_exact_scope(T);
     bool ok = true;
     /* DS4_QWEN4_TIMING=2 on prefill batches: sync after each stage group and
      * report GPU ms per group (adds sync overhead; diagnostics only) */
@@ -60501,6 +60510,7 @@ static bool qwen4_graph_forward_tokens_impl(ds4_qwen4_gpu_graph *g, const ds4_mo
         }
     }
     if (ok) g->pos += T;
+    if (armed_rows_exact) qwen4_rows_exact_scope(0u);
     if (g->snap_after_first) {
         g->snap_valid = ok;
         g->snap_after_first = false;
@@ -62006,6 +62016,10 @@ struct ds4_session {
     int qwen4_slot;   /* -1 when the session holds private recurrent state */
     bool qwen4_rewound;
     float *qwen4_verify_logits;
+    /* rows the last verify forward computed into qwen4_verify_logits
+     * (0 when the cycle fell back to a plain one-token eval); a test
+     * accessor reads the landed rows back for bit-exact checks */
+    uint32_t qwen4_verify_logits_rows;
     uint64_t qwen4_spec_cycles;
     uint64_t qwen4_spec_accepted;
     uint64_t qwen4_copy_cycles;
@@ -72363,12 +72377,11 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->placement_ctx_hint = opt->placement_ctx_hint;
     e->placement_session_count_hint = opt->placement_session_count_hint;
     e->share_session_prefill_workspace = opt->share_session_prefill_workspace;
-    /* DS4_QWEN4_ROWS_INVARIANT=1 turns it on outside the server (tests, A/B) */
+    /* DS4_QWEN4_ROWS_INVARIANT=1 turns it on outside the server (tests, A/B);
+     * its forwards arm the rows-exact scope themselves (see
+     * qwen4_graph_forward_tokens_impl and the batch encoders) */
     e->qwen4_rows_invariant = opt->qwen4_rows_invariant || getenv("DS4_QWEN4_ROWS_INVARIANT") != NULL;
     g_qwen4_rows_invariant = e->qwen4_rows_invariant;
-#ifdef DS4_HAS_QWEN4_METAL
-    ds4_gpu_qwen4_set_rows_invariant(e->qwen4_rows_invariant);
-#endif
     ds4_acquire_instance_lock();
 
     if (opt->simulate_used_memory_bytes != 0 &&
@@ -76045,6 +76058,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     const ds4_model *m = &e->model;
     const ds4_weights *w = &e->weights;
     if (qwen4_session_replay_if_stale(s, err, errlen) != 0) return -1;
+    s->qwen4_verify_logits_rows = 0u;
     const uint32_t pos = g->pos;
     const uint32_t V = DS4_N_VOCAB;
     /* sampled acceptance draws one row at a time: exact and row-invariant
@@ -76148,9 +76162,9 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     g->snap2_valid = false;
     g->snapx_armed = deepW ? ncopy_v - 2u : 0u;
     for (uint32_t x = 0; x < QWEN4_SNAPX_MAX; x++) g->snapx_valid[x] = false;
-    g->verify_rows_exact = deep;
-    ds4_gpu_qwen4_set_verify_rows_exact(deep ? T : 0u);
-    g_qwen4_verify_exact_rows = deepW ? T : 0u;
+    g->verify_rows_exact = true;
+    qwen4_rows_exact_scope(T);
+    s->qwen4_verify_logits_rows = T;
     const bool wstats = qwen4_copy_stats();
     const double verify_t0 = (e->glm_mtp_timing || wstats) ? now_sec() : 0.0;
     const bool ok = qwen4_graph_forward_tokens(g, m, w, toks, T, rows, true);
@@ -76160,8 +76174,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         s->qwen4_verify_w_cycles[T]++;
         s->qwen4_verify_w_sec[T] += verify_dt;
     }
-    g_qwen4_verify_exact_rows = 0u;
-    ds4_gpu_qwen4_set_verify_rows_exact(0u);
+    qwen4_rows_exact_scope(0u);
     g->verify_rows_exact = false;
     g->snap_after_second = false;
     g->snapx_armed = 0u;
@@ -76341,6 +76354,17 @@ static int ds4_session_qwen4_spec_cycle(ds4_session *s, int first_token, float t
                                                      exact_sampling, accepted, accepted_cap, err, errlen);
     if (s->qwen4_spec_cycles != cycles) s->qwen4_cycle_sec += now_sec() - t0;
     return n;
+}
+
+/* Tests read the logits a speculative cycle computed for every verify row
+ * (tests/test_qwen4_verify_exact.c compares them to plain decoding bit for
+ * bit).  Returns the row count of the last verify forward and leaves *out
+ * pointing at its row-major [rows][vocab] buffer, or returns 0 when the
+ * last cycle ran a plain one-token eval. */
+uint32_t ds4_test_qwen4_last_verify_rows(const ds4_session *s, const float **out) {
+    if (!s || !out) return 0u;
+    *out = s->qwen4_verify_logits;
+    return s->qwen4_verify_logits ? s->qwen4_verify_logits_rows : 0u;
 }
 #endif
 #endif
@@ -80660,10 +80684,10 @@ static bool qwen4_graph_encode_native_session_batch(ds4_decode_item *items, int 
                                                     ds4_qwen4_gpu_graph *g,
                                                     const ds4_model *m, const ds4_weights *w) {
     const uint32_t T = (uint32_t)count;
-    /* rows-invariant mode: mark the batched forward so the width-thresholded
-     * kernel choices keep the single-row arithmetic at this width */
-    const uint32_t saved_batch_rows = g_qwen4_batch_rows;
-    if (g_qwen4_rows_invariant) g_qwen4_batch_rows = T;
+    /* rows-invariant mode: arm the rows-exact scope for the batched forward
+     * (any width; the exact products slice themselves) */
+    const uint32_t saved_rows_exact = g_qwen4_rows_exact;
+    if (g_qwen4_rows_invariant) qwen4_rows_exact_scope(T);
     const uint32_t hc_dim = DS4_N_EMBD * DS4_N_HC;
     const uint32_t n_trunk = DS4_N_LAYER - DS4_N_NEXTN_PREDICT;
 
@@ -80761,7 +80785,7 @@ static bool qwen4_graph_encode_native_session_batch(ds4_decode_item *items, int 
                 1e3 * prof[4], 1e3 * prof[5], 1e3 * prof[6]);
     }
 #undef QWEN4_BATCH_PROF
-    g_qwen4_batch_rows = saved_batch_rows;
+    qwen4_rows_exact_scope(saved_rows_exact);
     qwen4_batch_rows_free(views, count);
     free(views);
     free(rowg);
@@ -80854,9 +80878,10 @@ static bool qwen4_graph_encode_native_session_batch_ragged(const qwen4_batch_mem
                                                            ds4_qwen4_gpu_graph *g, const ds4_model *m,
                                                            const ds4_weights *w) {
     const uint32_t T = N;
-    /* rows-invariant mode: mark the batched forward (see the plain batch) */
-    const uint32_t saved_batch_rows = g_qwen4_batch_rows;
-    if (g_qwen4_rows_invariant) g_qwen4_batch_rows = T;
+    /* rows-invariant mode: arm the rows-exact scope for the batched forward
+     * (any width; the exact products slice themselves) */
+    const uint32_t saved_rows_exact = g_qwen4_rows_exact;
+    if (g_qwen4_rows_invariant) qwen4_rows_exact_scope(T);
     const uint32_t hc_dim = DS4_N_EMBD * DS4_N_HC;
     const uint32_t n_trunk = DS4_N_LAYER - DS4_N_NEXTN_PREDICT;
     qwen4_batch_row *views = xmalloc((size_t)count * sizeof(*views));
@@ -80960,7 +80985,7 @@ static bool qwen4_graph_encode_native_session_batch_ragged(const qwen4_batch_mem
     }
     if (ok) ok = qwen4_graph_hc_mix(g, m, w->output_hc_norm, w->output_hc_down, w->output_hc_up, NULL, T) &&
                  qwen4_gemv(g->batch_logits, m, w->output, g->mixed, T);
-    g_qwen4_batch_rows = saved_batch_rows;
+    qwen4_rows_exact_scope(saved_rows_exact);
     qwen4_batch_rows_free(views, count);
     free(ple_ids);
     free(rowg);
@@ -81008,9 +81033,10 @@ static bool qwen4_batch_mtp_drafts(qwen4_batch_member *mem, int count, const uin
     /* The trunk's MoE scratch is idle here: staged inputs in part, their
      * projection in mid, the predictor residual over the trunk streams. */
     /* rows-invariant mode: mark the batched predictor pass (see the plain
-     * batch); its N * (hc + 1) projection rows exceed one matvec dispatch */
-    const uint32_t saved_batch_rows = g_qwen4_batch_rows;
-    if (g_qwen4_rows_invariant) g_qwen4_batch_rows = N;
+     * batch); its N * (hc + 1) projection rows exceed one exact product, so
+     * the scope carries the projection's own row count */
+    const uint32_t saved_rows_exact = g_qwen4_rows_exact;
+    if (g_qwen4_rows_invariant) qwen4_rows_exact_scope(N * (DS4_N_HC + 1u));
     bool ok = qwen4_mtp_stage(m, w, g->part, g->mtp_next, g->R, N) &&
               qwen4_gemv(g->mid, m, l->nextn_eh_proj, g->part, N * (hc + 1u)) &&
               ds4_gpu_qwen4_mtp_combine_tensor(g->R, g->mid, N, E, hc);
@@ -81047,7 +81073,7 @@ static bool qwen4_batch_mtp_drafts(qwen4_batch_member *mem, int count, const uin
         ds4_gpu_tensor_free(row);
     }
     if (!ds4_gpu_end_commands()) ok = false;
-    g_qwen4_batch_rows = saved_batch_rows;
+    qwen4_rows_exact_scope(saved_rows_exact);
     for (int i = 0; ok && i < count; i++) {
         ds4_qwen4_gpu_graph *sg = &mem[i].session->qwen4_graph;
         int32_t token = -1;
@@ -82082,6 +82108,7 @@ int ds4_sessions_eval_batch_speculative_argmax(ds4_decode_item *items, int count
             ds4_qwen4_gpu_graph *g = &s->qwen4_graph;
             if (!s->qwen4_verify_logits) s->qwen4_verify_logits = xmalloc((QWEN4_SNAP0_ROW + 1u) * (size_t)V * sizeof(float));
             float *rows = s->qwen4_verify_logits;
+            s->qwen4_verify_logits_rows = mem[i].n;
             if (!ds4_gpu_tensor_read(arena->batch_logits, (uint64_t)mem[i].row0 * V * sizeof(float), rows,
                                      (uint64_t)mem[i].n * V * sizeof(float))) {
                 for (int j = 0; j < count; j++) ds4_session_invalidate(items[j].session);

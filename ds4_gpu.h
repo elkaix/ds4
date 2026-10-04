@@ -824,6 +824,39 @@ int ds4_gpu_matmul_q8_0_decode_rows_exact_tensor(
         uint64_t              out_dim,
         const ds4_gpu_tensor *x,
         uint32_t              n_rows);
+/* 2..4 rows in one pass over the Q8_0 weights, each row kernel_mul_mv_q8_0_f32's
+ * bits; wider products run it in 4-row slices with a plain one-token tail. */
+int ds4_gpu_matmul_q8_0_rows_exact_tensor(
+        ds4_gpu_tensor       *out,
+        const void           *model_map,
+        uint64_t              model_size,
+        uint64_t              weight_offset,
+        uint64_t              in_dim,
+        uint64_t              out_dim,
+        const ds4_gpu_tensor *x,
+        uint32_t              n_rows);
+int ds4_gpu_qwen4_matmul_rows_exact_tensor(
+        ds4_gpu_tensor       *out,
+        const void           *model_map,
+        uint64_t              model_size,
+        uint64_t              weight_offset,
+        uint64_t              in_dim,
+        uint64_t              out_dim,
+        const ds4_gpu_tensor *x,
+        uint64_t              n_tok);
+/* 1..4 F16/F32 rows through the plain _4 matvec's arithmetic, the weights
+ * read once (a single row is the plain one-token dispatch itself); 0 for
+ * shapes whose single-row dispatch it cannot mirror. */
+int ds4_gpu_matmul_plain_rows_exact_tensor(
+        ds4_gpu_tensor       *out,
+        const void           *model_map,
+        uint64_t              model_size,
+        uint64_t              weight_offset,
+        int                   f32_weights,
+        uint64_t              in_dim,
+        uint64_t              out_dim,
+        const ds4_gpu_tensor *x,
+        uint32_t              n_rows);
 int ds4_gpu_matmul_q8_0_pair_decode_rows_exact_tensor(
         ds4_gpu_tensor       *out0,
         ds4_gpu_tensor       *out1,
@@ -3562,22 +3595,20 @@ int ds4_gpu_qwen4_gdn_prep_tensor(
  * snap_tok/snap2_tok; two points serve the 3-row MTP verifier.  The extra
  * copy-verify points (state after rows 3..7) are staged per dispatch
  * through ds4_gpu_qwen4_arm_snapshots instead of kernel arguments. */
-void ds4_gpu_qwen4_set_verify_rows_exact(uint32_t rows);
-/* Metal: arm up to five extra recurrent-state snapshots (state after token
- * toks[i]) for the next gdn_front, gdn_scan or ple_conv dispatch only; the
- * wide copy verify arms them.  Consumed by that dispatch. */
-void ds4_gpu_qwen4_arm_snapshots(ds4_gpu_tensor *const *snaps, const uint32_t *toks, uint32_t count);
-void ds4_gpu_qwen4_set_rows_invariant(bool on);
-int ds4_gpu_qwen4_matmul_rows_invariant_tensor(
-        ds4_gpu_tensor *out, const void *model_map, uint64_t model_size,
-        uint64_t weight_offset, uint32_t type, uint64_t in_dim, uint64_t out_dim,
-        const ds4_gpu_tensor *x, uint64_t n_tok);
 int ds4_gpu_qwen4_gdn_scan_tensor(
         ds4_gpu_tensor *out, ds4_gpu_tensor *state, const ds4_gpu_tensor *qkv,
         const ds4_gpu_tensor *a, const ds4_gpu_tensor *b,
         uint32_t n_tokens, uint32_t n_k_head, uint32_t n_v_head, uint32_t head_dim,
         ds4_gpu_tensor *snap_state, uint32_t snap_tok,
         ds4_gpu_tensor *snap2_state, uint32_t snap2_tok);
+/* The rows-exact scope: while rows > 0, every row of a multi-row forward
+ * with n_tokens <= rows keeps the plain one-token decode arithmetic
+ * (speculative verify rows and rows-invariant batched serving). */
+void ds4_gpu_qwen4_set_rows_exact(uint32_t rows);
+/* Metal: arm up to five extra recurrent-state snapshots (state after token
+ * toks[i]) for the next gdn_front, gdn_scan or ple_conv dispatch only; the
+ * wide copy verify arms them.  Consumed by that dispatch. */
+void ds4_gpu_qwen4_arm_snapshots(ds4_gpu_tensor *const *snaps, const uint32_t *toks, uint32_t count);
 int ds4_gpu_qwen4_gdn_out_tensor(
         ds4_gpu_tensor *o, const ds4_gpu_tensor *z,
         const void *model_map, uint64_t model_size, uint64_t weight_offset,

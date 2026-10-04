@@ -42,6 +42,8 @@ default. The 1024-token example above saves memory on smaller Macs.
 
 Use the same model options with `ds4-agent` or `ds4-server`.
 Add `--mtp` for speculative decoding using the built-in MTP weights.
+Its verify rows keep the one-token arithmetic, so temperature-zero output
+equals plain decoding bit for bit.
 `ds4-bench` benchmarks ordinary decoding; it does not accept `--mtp`.
 `--nothink` disables thinking. The server exposes
 `qwen3.8-flash-next`, `qwen3.8-flash-next-chat`, and
@@ -221,7 +223,10 @@ answer keeps the exact disk key; after a client continues without reasoning,
 the next checkpoint uses the visible history key for restart reuse.
 
 The MTP tests cover small prefill buffers, rewinds, reused sessions, and
-truncated checkpoints. The logit-dump test requires NumPy and compares all-row
+truncated checkpoints. `make test-qwen4-verify-exact` (`DS4_TEST_MODEL=<gguf>`)
+checks that MTP logits equal plain decoding bit for bit at draft depth 2 and
+3 and through wide copy verifies, including past the sparse-attention
+boundary. The logit-dump test requires NumPy and compares all-row
 prefill with teacher-forced decode across a chunk boundary. For official
 continuation scoring, use `--rendered-prompt`
 when a fixture already contains the complete model chat template.

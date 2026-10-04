@@ -89,6 +89,7 @@ help:
 	@echo "  make check-mxfp4-half-lut  Verify the checked-in MXFP4 half LUT matches the generator"
 	@echo "  make test-mxfp4-metal  Check the MXFP4 half LUT, then run Metal MXFP4 exactness tests"
 	@echo "  make test-qwen4-kernels  Run the Qwen3.8 Metal kernel tests"
+	@echo "  make test-qwen4-verify-exact  Check Qwen3.8 MTP logits equal plain decoding bit for bit (set DS4_TEST_MODEL)"
 	@echo "  make test-qwen4-q2       Check exact low-bit decode and prefill tile parity"
 	@echo "  make test-qwen4-vision  Compare the Qwen3.8 vision tower with HF (set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ, DS4_QWEN4_IMAGE)"
 	@echo "  make dspark-verify-depth  Run DSpark speculative verification smoke if support GGUF is present"
@@ -864,6 +865,20 @@ endif
 .PHONY: test-qwen4-copy-accept
 test-qwen4-copy-accept: tests/test_qwen4_copy_accept
 	./tests/test_qwen4_copy_accept
+
+tests/test_qwen4_verify_exact.o: tests/test_qwen4_verify_exact.c ds4.h
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+tests/test_qwen4_verify_exact: tests/test_qwen4_verify_exact.o $(CORE_OBJS)
+ifeq ($(UNAME_S),Darwin)
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+else
+	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
+endif
+
+.PHONY: test-qwen4-verify-exact
+test-qwen4-verify-exact: tests/test_qwen4_verify_exact
+	DS4_TEST_MODEL="$(DS4_TEST_MODEL)" ./tests/test_qwen4_verify_exact
 
 tests/test_qwen4_ple_prefetch.o: tests/test_qwen4_ple_prefetch.c ds4.c ds4.h ds4_qwen4_vision.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
