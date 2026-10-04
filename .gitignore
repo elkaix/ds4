@@ -80,6 +80,7 @@ glm53flash_prefill*.md
 /tests/test_qwen4_verify_exact
 /tests/test_qwen4_copy_index
 /tests/test_qwen4_sampled_drafts
+/tests/test_sample_minp_exact
 /tests/test_qwen4_ple_prefetch
 /tests/test_deepseek41_graph
 /tests/test_deepseek41_prefill

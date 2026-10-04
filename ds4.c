@@ -44728,6 +44728,289 @@ static bool sample_fast_top_p(
     return true;
 }
 
+/* ------------------------------------------------------------------ */
+/* Fast exact min-p draw for the top_p >= 1.0 branch of sample_full_vocab.
+ *
+ * DS4_SAMPLE_LEGACY=1 (read once, cached) restores the original
+ * full-vocabulary path at runtime. The cache also lets the exactness test
+ * flip between the two implementations inside one process; writes are
+ * idempotent 0/1 values, so the benign race from concurrent samplers is
+ * harmless. */
+static int g_ds4_sample_legacy_env = -1;   /* -1 unread, 0 fast, 1 legacy */
+
+static int ds4_sample_legacy_env_value(const char *v) {
+    return v != NULL && v[0] == '1' && v[1] == '\0';
+}
+
+static bool ds4_sample_legacy_selected(void) {
+    if (g_ds4_sample_legacy_env < 0) {
+        g_ds4_sample_legacy_env =
+            ds4_sample_legacy_env_value(getenv("DS4_SAMPLE_LEGACY"));
+    }
+    return g_ds4_sample_legacy_env == 1;
+}
+
+/* Bit-level finite test: identical result to the libm helper isfinite()
+ * resolves to (exponent field not all ones), without the out-of-line call
+ * per vocabulary entry. Being an integer test, it also cannot be folded
+ * away under -ffast-math. */
+static inline bool ds4_f32_isfinite_bits(float v) {
+    uint32_t bits;
+    memcpy(&bits, &v, sizeof(bits));
+    return (bits & 0x7f800000u) != 0x7f800000u;
+}
+
+/* First index holding exactly `value` (== comparison, so -0.0 matches
+ * +0.0 and NaN matches nothing), or -1. */
+static DS4_MAYBE_UNUSED int sample_first_equal_f32(
+        const float *logits, uint32_t n_vocab, float value) {
+#if defined(__ARM_NEON)
+    const float32x4_t vtarget = vdupq_n_f32(value);
+    uint32_t i = 0;
+    for (; i + 4u <= n_vocab; i += 4u) {
+        const uint32x4_t eq = vceqq_f32(vld1q_f32(logits + i), vtarget);
+        if (vgetq_lane_u32(eq, 0) != 0) return (int)(i + 0u);
+        if (vgetq_lane_u32(eq, 1) != 0) return (int)(i + 1u);
+        if (vgetq_lane_u32(eq, 2) != 0) return (int)(i + 2u);
+        if (vgetq_lane_u32(eq, 3) != 0) return (int)(i + 3u);
+    }
+    for (; i < n_vocab; i++) {
+        if (logits[i] == value) return (int)i;
+    }
+#else
+    for (uint32_t i = 0; i < n_vocab; i++) {
+        if (logits[i] == value) return (int)i;
+    }
+#endif
+    return -1;
+}
+
+/* max / finite-count scan shared by every sample_full_vocab branch.
+ * Vectorized on NEON with the exact scalar semantics:
+ *   - non-finite entries are skipped for the max and not counted;
+ *   - the -1e30 sentinel participates, so a row whose finite values never
+ *     strictly exceed it keeps max_logit at the sentinel (the scalar loop
+ *     only updates on `v > max_logit`).
+ * Non-finite lanes are replaced by the sentinel before vmaxq, which never
+ * sees a NaN and is therefore deterministic. best (first index of the
+ * final max) is NOT resolved here: sample_scan_best reproduces it on
+ * demand, so the hot fast path does not pay for it. */
+static void sample_scan_max_finite(const float *logits, uint32_t n_vocab,
+                                   float *max_logit_out,
+                                   uint32_t *finite_out) {
+    float max_logit = DS4_NEG_INF;
+    uint32_t finite = 0;
+    uint32_t i = 0;
+#if defined(__ARM_NEON)
+    const uint32x4_t vexp_mask = vdupq_n_u32(0x7f800000u);
+    const float32x4_t vsentinel = vdupq_n_f32(DS4_NEG_INF);
+    float32x4_t m0 = vsentinel, m1 = vsentinel;
+    float32x4_t m2 = vsentinel, m3 = vsentinel;
+    uint32x4_t c0 = vdupq_n_u32(0), c1 = vdupq_n_u32(0);
+    uint32x4_t c2 = vdupq_n_u32(0), c3 = vdupq_n_u32(0);
+    for (; i + 16u <= n_vocab; i += 16u) {
+        {
+            const float32x4_t v = vld1q_f32(logits + i + 0u);
+            const uint32x4_t fin = vcltq_u32(
+                vandq_u32(vreinterpretq_u32_f32(v), vexp_mask), vexp_mask);
+            c0 = vaddq_u32(c0, vshrq_n_u32(fin, 31));
+            m0 = vmaxq_f32(m0, vbslq_f32(fin, v, vsentinel));
+        }
+        {
+            const float32x4_t v = vld1q_f32(logits + i + 4u);
+            const uint32x4_t fin = vcltq_u32(
+                vandq_u32(vreinterpretq_u32_f32(v), vexp_mask), vexp_mask);
+            c1 = vaddq_u32(c1, vshrq_n_u32(fin, 31));
+            m1 = vmaxq_f32(m1, vbslq_f32(fin, v, vsentinel));
+        }
+        {
+            const float32x4_t v = vld1q_f32(logits + i + 8u);
+            const uint32x4_t fin = vcltq_u32(
+                vandq_u32(vreinterpretq_u32_f32(v), vexp_mask), vexp_mask);
+            c2 = vaddq_u32(c2, vshrq_n_u32(fin, 31));
+            m2 = vmaxq_f32(m2, vbslq_f32(fin, v, vsentinel));
+        }
+        {
+            const float32x4_t v = vld1q_f32(logits + i + 12u);
+            const uint32x4_t fin = vcltq_u32(
+                vandq_u32(vreinterpretq_u32_f32(v), vexp_mask), vexp_mask);
+            c3 = vaddq_u32(c3, vshrq_n_u32(fin, 31));
+            m3 = vmaxq_f32(m3, vbslq_f32(fin, v, vsentinel));
+        }
+    }
+    if (i >= 16u) {
+        const float32x4_t m = vmaxq_f32(vmaxq_f32(m0, m1),
+                                        vmaxq_f32(m2, m3));
+        const float32x2_t lohi = vmax_f32(vget_low_f32(m), vget_high_f32(m));
+        max_logit = vget_lane_f32(vpmax_f32(lohi, lohi), 0);
+        const uint32x4_t ct = vaddq_u32(vaddq_u32(c0, c1),
+                                        vaddq_u32(c2, c3));
+        const uint32x2_t cl = vadd_u32(vget_low_u32(ct), vget_high_u32(ct));
+        finite = vget_lane_u32(cl, 0) + vget_lane_u32(cl, 1);
+    }
+#endif
+    for (; i < n_vocab; i++) {
+        const float v = logits[i];
+        if (!ds4_f32_isfinite_bits(v)) continue;
+        finite++;
+        if (v > max_logit) max_logit = v;
+    }
+    *max_logit_out = max_logit;
+    *finite_out = finite;
+}
+
+/* best exactly as the original scalar scan computed it: the first index
+ * holding the final max (the first strict `v > max_logit` update), or 0
+ * when nothing ever exceeded the -1e30 sentinel (entries equal to -1e30
+ * never beat it). */
+static int sample_scan_best(const float *logits, uint32_t n_vocab,
+                            float max_logit) {
+    if (max_logit == DS4_NEG_INF) return 0;
+    const int best = sample_first_equal_f32(logits, n_vocab, max_logit);
+    return best >= 0 ? best : 0;
+}
+
+enum { DS4_SAMPLE_MINP_FAST_CAP = 1024 };
+
+/* Replay of one legacy fill-loop entry. Returns 1 kept, 0 skipped, 2 when
+ * the survivor array is full. The operation sequence (finite test, scaled,
+ * reject boundary, expf, min-p test, ascending-order sum) is exactly the
+ * legacy one, so the compiled arithmetic - including any reciprocal the
+ * optimizer hoists for the division by temperature - matches the legacy
+ * loop compiled in the same translation unit. */
+static inline int ds4_minp_collect_entry(
+        const float *logits, uint32_t j, float temperature,
+        float max_logit, float min_rel,
+        float reject_scaled, bool have_reject_scaled,
+        uint32_t *surv_idx, float *surv_p,
+        uint32_t *n_surv, float *sum) {
+    const float v = logits[j];
+    if (!ds4_f32_isfinite_bits(v)) return 0;
+    const float scaled = (v - max_logit) / temperature;
+    if (have_reject_scaled && scaled <= reject_scaled) return 0;
+    const float p = expf(scaled);
+    if (p < min_rel) return 0;
+    if (*n_surv >= DS4_SAMPLE_MINP_FAST_CAP) return 2;
+    surv_idx[*n_surv] = j;
+    surv_p[*n_surv] = p;
+    (*n_surv)++;
+    *sum += p;
+    return 1;
+}
+
+/* Fast top_p >= 1.0 draw: collect the min-p survivors once (ascending
+ * index) instead of writing prob_scratch for the whole vocabulary and
+ * walking all of it again. The sum accumulation, every expf input, the
+ * single sample_rng_f32 draw and the subtraction walk replay the legacy
+ * path operation-for-operation, so the returned token and the final rng
+ * state are identical for every row. best (the legacy fallback token) is
+ * resolved during collection: an entry equal to max_logit is finite with
+ * d == +/-0, which the lane pre-filter never drops, so a completed pass
+ * always sees the maximum. Returns -1 only when the survivors overflow
+ * the stack array (flat distributions at small min-p, or no rejection
+ * boundary at all): the caller then runs the legacy loop, which stays
+ * the reference. prob_scratch is not touched on this path. */
+static int sample_minp_fast_draw(
+        const float *logits,
+        uint32_t     n_vocab,
+        float        temperature,
+        float        min_rel,
+        float        max_logit,
+        float        reject_scaled,
+        bool         have_reject_scaled,
+        uint64_t    *rng) {
+    /* Without a rejection boundary (min_rel == 0, or the boundary probe
+     * failed) every finite entry survives, so a vocabulary larger than
+     * the array can only be handled by the legacy path. */
+    if (!have_reject_scaled && n_vocab > (uint32_t)DS4_SAMPLE_MINP_FAST_CAP) {
+        return -1;
+    }
+
+    uint32_t surv_idx[DS4_SAMPLE_MINP_FAST_CAP];
+    float    surv_p[DS4_SAMPLE_MINP_FAST_CAP];
+    uint32_t n_surv = 0;
+    float sum = 0.0f;
+    int best = max_logit == DS4_NEG_INF ? 0 : -1;
+    bool overflow = false;
+    uint32_t i = 0;
+
+#if defined(__ARM_NEON)
+    if (have_reject_scaled && temperature > 0.0f) {
+        /* Pre-filter in (v - max_logit) space to avoid a per-lane
+         * division: legacy skips the entry iff scaled <= reject_scaled,
+         * i.e. (for temperature > 0) iff d = v - max_logit is (modulo
+         * rounding) at most reject_scaled * temperature. Correctly
+         * rounded subtraction, multiplication and division are monotone,
+         * so with d_lo set 8 ulp below fl(reject_scaled * temperature),
+         * any lane with d <= d_lo is provably rejected by the legacy
+         * computation whether it divides by temperature or multiplies by
+         * a hoisted reciprocal (those differ by at most a couple of ulp).
+         * Everything else is re-judged entry-by-entry exactly as the
+         * legacy code computes it. NaN temperature never reaches this
+         * fast path guard. */
+        float d_lo = reject_scaled * temperature;
+        for (int k = 0; k < 8; k++) {
+            d_lo = nextafterf(d_lo, -FLT_MAX);
+        }
+        const float32x4_t vdlo = vdupq_n_f32(d_lo);
+        const float32x4_t vmax = vdupq_n_f32(max_logit);
+        const uint32x4_t vexp_mask = vdupq_n_u32(0x7f800000u);
+        for (; i + 4u <= n_vocab; i += 4u) {
+            const float32x4_t v = vld1q_f32(logits + i);
+            const uint32x4_t fin = vcltq_u32(
+                vandq_u32(vreinterpretq_u32_f32(v), vexp_mask), vexp_mask);
+            const float32x4_t d = vsubq_f32(v, vmax);
+            /* non-finite lanes are dropped by fin; d for a finite lane
+             * is finite or +/-inf (overflow), never NaN, and -inf is a
+             * certain reject on both sides */
+            const uint32x4_t keep =
+                vandq_u32(fin, vmvnq_u32(vcleq_f32(d, vdlo)));
+            const uint32x2_t any =
+                vorr_u32(vget_low_u32(keep), vget_high_u32(keep));
+            if (vget_lane_u32(any, 0) == 0 && vget_lane_u32(any, 1) == 0) {
+                continue;
+            }
+            uint32_t keep_bits[4];
+            vst1q_u32(keep_bits, keep);
+            for (uint32_t lane = 0; lane < 4u; lane++) {
+                if (keep_bits[lane] == 0) continue;
+                if (ds4_minp_collect_entry(logits, i + lane, temperature,
+                                           max_logit, min_rel, reject_scaled,
+                                           have_reject_scaled, surv_idx,
+                                           surv_p, &n_surv, &sum) == 2) {
+                    overflow = true;
+                    break;
+                }
+                if (best < 0 && logits[i + lane] == max_logit) {
+                    best = (int)(i + lane);
+                }
+            }
+            if (overflow) break;
+        }
+    }
+#endif
+    for (; i < n_vocab; i++) {
+        if (ds4_minp_collect_entry(logits, i, temperature, max_logit,
+                                   min_rel, reject_scaled,
+                                   have_reject_scaled, surv_idx, surv_p,
+                                   &n_surv, &sum) == 2) {
+            overflow = true;
+            break;
+        }
+        if (best < 0 && logits[i] == max_logit) best = (int)i;
+    }
+    if (overflow) return -1;
+    if (best < 0) best = 0;   /* not reached: a completed pass sees the max */
+
+    if (sum <= 0.0f || !isfinite(sum)) return best;
+    float r = sample_rng_f32(rng) * sum;
+    for (uint32_t k = 0; k < n_surv; k++) {
+        r -= surv_p[k];
+        if (r <= 0.0f) return (int)surv_idx[k];
+    }
+    return best;
+}
+
 static int sample_full_vocab(
         const float *logits,
         uint32_t     n_vocab,
@@ -44737,19 +45020,13 @@ static int sample_full_vocab(
         uint64_t    *rng,
         float       *prob_scratch) {
     float max_logit = DS4_NEG_INF;
-    int best = 0;
     uint32_t finite = 0;
-    for (uint32_t i = 0; i < n_vocab; i++) {
-        const float v = logits[i];
-        if (!isfinite(v)) continue;
-        finite++;
-        if (v > max_logit) {
-            max_logit = v;
-            best = (int)i;
-        }
-    }
+    sample_scan_max_finite(logits, n_vocab, &max_logit, &finite);
     if (finite == 0) return sample_argmax(logits, n_vocab);
 
+    /* first index of the maximum: the fast min-p draw resolves it while it
+     * collects, so only the other paths scan for it */
+    int best = top_p < 1.0f ? sample_scan_best(logits, n_vocab, max_logit) : 0;
     int fast_token = best;
     if (top_p < 1.0f &&
         sample_fast_top_p(logits,
@@ -44768,7 +45045,7 @@ static int sample_full_vocab(
     if (top_p >= 1.0f) {
         float sum = 0.0f;
         const float min_rel = min_p > 0.0f ? min_p : 0.0f;
-        if (min_rel > 1.0f) return best;
+        if (min_rel > 1.0f) return sample_scan_best(logits, n_vocab, max_logit);
 
         /* Find a conservative log-space rejection boundary using the same
          * expf implementation as the probability path. Values below this
@@ -44788,6 +45065,17 @@ static int sample_full_vocab(
                 }
             }
         }
+
+        if (!ds4_sample_legacy_selected()) {
+            const int fast = sample_minp_fast_draw(logits, n_vocab,
+                                                   temperature, min_rel,
+                                                   max_logit, reject_scaled,
+                                                   have_reject_scaled, rng);
+            if (fast >= 0) return fast;
+            /* survivors overflowed the array: the legacy loop below is
+             * the reference and decides */
+        }
+        best = sample_scan_best(logits, n_vocab, max_logit);
 
         for (uint32_t i = 0; i < n_vocab; i++) {
             const float v = logits[i];

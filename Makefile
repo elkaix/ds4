@@ -881,6 +881,24 @@ test-qwen4-sampled-drafts: tests/test_qwen4_sampled_drafts
 	./tests/test_qwen4_sampled_drafts
 	DS4_QWEN4_SAMPLED_DRAFTS=1 ./tests/test_qwen4_sampled_drafts
 
+# Fast min-p sampler exactness gate. Unlike the qwen4 CPU tests above,
+# this one keeps -ffast-math: the exactness contract must hold under the
+# production optimizer (reciprocal division, fp contraction), which is
+# what ds4.o is built with.
+tests/test_sample_minp_exact.o: tests/test_sample_minp_exact.c ds4.c ds4.h
+	$(CC) $(CFLAGS) -Wno-unused-function -I. -c -o $@ $<
+
+tests/test_sample_minp_exact: tests/test_sample_minp_exact.o $(filter-out ds4.o,$(CORE_OBJS))
+ifeq ($(UNAME_S),Darwin)
+	$(CC) $(CFLAGS) -o $@ $^ $(METAL_LDLIBS)
+else
+	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
+endif
+
+.PHONY: test-sample-minp-exact
+test-sample-minp-exact: tests/test_sample_minp_exact
+	./tests/test_sample_minp_exact
+
 tests/test_qwen4_verify_exact.o: tests/test_qwen4_verify_exact.c ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
