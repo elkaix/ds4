@@ -72,8 +72,10 @@ MTP_DRAFT_MAX=16
 # +2.7..5.6% decode with thinking on, identical text (2026-09-29). 0 = full head.
 MTP_DRAFT_ROWS="${QWEN_DS4_MTP_DRAFT_ROWS:-80000}"
 if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAFT_ROWS"; fi
-# Context-copy drafts: when the last 8 tokens repeat earlier text, draft the
-# two tokens that followed it (verify decides, so text is unchanged).
+# Context-copy drafts: when the just-sampled token plus the previous N-1
+# committed tokens (N = COPY_SPEC, default 8) match an earlier transcript
+# position, up to COPY_MAX (default 7) tokens that followed it become drafts
+# (verify decides, so text is unchanged).
 # +3.4% decode on a file-edit prompt, neutral on prose (2026-09-29). 0 = off.
 COPY_SPEC="${QWEN_DS4_COPY_SPEC:-8}"
 if [[ "$COPY_SPEC" != 0 ]]; then export DS4_QWEN4_COPY_SPEC="$COPY_SPEC"; fi

@@ -61995,7 +61995,7 @@ struct ds4_session {
     uint32_t qwen4_depth_window;
     uint32_t qwen4_depth_accepted;
     uint32_t qwen4_depth_cycles;
-    uint32_t qwen4_reject2_streak;   /* consecutive 3-row cycles whose second draft rejected */
+    uint32_t qwen4_reject2_streak;   /* consecutive 3-row cycles whose second draft rejected; cleared when depth 3 disengages */
     bool qwen4_depth3_engaged;
     bool glm_mtp_rollback_valid;
     uint32_t glm_mtp_rollback_pos;
@@ -75917,6 +75917,19 @@ static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, in
     return 0;
 }
 
+/* True when the request's own sampler draws `draft` from `row` (one rng
+ * draw); the draw is rolled back on a miss so the caller then draws that
+ * same token from the same row. */
+static bool qwen4_row_draws_draft(ds4_session *s, const float *row, int draft, float temperature,
+                                 int top_k, float top_p, float min_p, uint64_t *rng) {
+    if (!s->sample_probs) s->sample_probs = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->sample_probs[0]));
+    const uint64_t saved = *rng;
+    if (sample_top_p_min_p(row, DS4_N_VOCAB, temperature, top_k, top_p, min_p, rng, s->sample_probs) == draft)
+        return true;
+    *rng = saved;
+    return false;
+}
+
 /* Draft acceptance.  Greedy decoding and opportunistic sampling keep a draft
  * that is the target's argmax.  A row-invariant engine samples instead: the
  * draft stands when it is the token the request's sampler draws from the
@@ -75927,12 +75940,20 @@ static bool qwen4_draft_accepted(ds4_session *s, const float *row, int draft, fl
                                  int top_k, float top_p, float min_p, uint64_t *rng) {
     if (!s->engine->qwen4_rows_invariant || !rng || temperature <= 0.0f)
         return sample_argmax(row, DS4_N_VOCAB) == draft;
-    if (!s->sample_probs) s->sample_probs = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->sample_probs[0]));
-    const uint64_t saved = *rng;
-    if (sample_top_p_min_p(row, DS4_N_VOCAB, temperature, top_k, top_p, min_p, rng, s->sample_probs) == draft)
-        return true;
-    *rng = saved;
-    return false;
+    return qwen4_row_draws_draft(s, row, draft, temperature, top_k, top_p, min_p, rng);
+}
+
+/* Copied draft rows never take the predictor's opportunistic argmax rule:
+ * at temperature > 0 a copied token commits only when the request's sampler
+ * draws it from that row, so copies reproduce plain sampled decoding exactly
+ * (same committed tokens, same rng stream) instead of biasing repeated text
+ * toward greedy.  Greedy decoding keeps the deterministic argmax rule;
+ * callers still honor qwen4_spec_force_accept(). */
+static bool qwen4_copy_row_accepted(ds4_session *s, const float *row, int draft, float temperature,
+                                    int top_k, float top_p, float min_p, uint64_t *rng) {
+    if (temperature <= 0.0f || !rng)
+        return sample_argmax(row, DS4_N_VOCAB) == draft;
+    return qwen4_row_draws_draft(s, row, draft, temperature, top_k, top_p, min_p, rng);
 }
 
 /* Draft depth policy for the Qwen3.8 cycle: DS4_QWEN4_MTP_DEPTH=2 or =3
@@ -75959,6 +75980,11 @@ static int qwen4_spec_depth(ds4_session *s) {
         }
     } else if (bits < 6u || s->qwen4_reject2_streak >= 2u) {
         s->qwen4_depth3_engaged = false;
+        /* the streak only updates inside deep cycles, so it must clear here
+         * or it would keep depth 3 disengaged for the life of the session
+         * (server slots reuse sessions across requests); re-engagement then
+         * needs a fresh perfect window again */
+        s->qwen4_reject2_streak = 0u;
     }
     return s->qwen4_depth3_engaged ? 3 : 2;
 }
@@ -75992,8 +76018,12 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
                 getenv("DS4_QWEN4_NO_MTP_BATCH") != NULL
         ? 2 : qwen4_spec_depth(s);
     if (s->glm_mtp_have && first_token != s->glm_mtp_parent) s->glm_mtp_have = 0;
-    /* a context copy overrides the MTP guesses (greedy only: sampled
-     * decoding keeps the predictor's point-mass proposals) */
+    /* a context copy overrides the MTP guesses under greedy and opportunistic
+     * sampling alike: every copied row is committed only when it matches the
+     * verify target (greedy) or the request's own sampler draw (temperature
+     * > 0, row by row below), so repeats keep the sampled distribution
+     * instead of collapsing to greedy; exact sampling keeps the predictor's
+     * point-mass proposals */
     bool copied = false;
     /* the batched cycle has no copies, so row-invariant serving drafts
      * from the predictor alone */
@@ -76111,11 +76141,22 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     token_vec_push(&s->checkpoint, first_token);
     s->checkpoint_valid = true;
     s->mtp_draft_valid = false;
-    bool accept = qwen4_draft_accepted(s, rows, d, temperature, top_k, top_p, min_p,
-                                       exact_sampling ? NULL : rng) || qwen4_spec_force_accept();
+    /* copied rows commit only what the verify target (greedy) or the
+     * request's sampler draws (temperature > 0); the predictor's own drafts
+     * keep the opportunistic argmax rule */
+    uint64_t *accept_rng = exact_sampling ? NULL : rng;
+    bool accept = (copied
+                   ? qwen4_copy_row_accepted(s, rows, d, temperature, top_k, top_p, min_p, accept_rng)
+                   : qwen4_draft_accepted(s, rows, d, temperature, top_k, top_p, min_p, accept_rng)) ||
+                  qwen4_spec_force_accept();
     bool accept2 = false;
-    if (deep) {
-        accept2 = accept && (sample_argmax(rows + V, V) == d2 || qwen4_spec_force_accept());
+    /* deepW re-checks row 1 (and the rest) in its own loop below, so the
+     * pre-draw must not run here or that row's rng draw would run twice */
+    if (deep && !deepW) {
+        accept2 = accept && ((copied
+                              ? qwen4_copy_row_accepted(s, rows + V, d2, temperature, top_k, top_p, min_p, accept_rng)
+                              : sample_argmax(rows + V, V) == d2) ||
+                             qwen4_spec_force_accept());
     }
     int replacement = -1;
     if (exact_sampling && temperature > 0.0f) {
@@ -76137,10 +76178,14 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     }
     if (deepW) {
         /* wide copy verify: keep the longest accepted prefix of the copies
-         * and restore the snapshot after its last row */
+         * and restore the snapshot after its last row; each row commits only
+         * on the verify target's argmax (greedy) or the request's sampler
+         * draw (temperature > 0, rolled back on a miss so the caller redraws
+         * that row) */
         uint32_t n_acc = accept ? 1u : 0u;
         while (n_acc < ncopy_v &&
-               (sample_argmax(rows + (size_t)n_acc * V, V) == copies[n_acc] || qwen4_spec_force_accept())) {
+               (qwen4_copy_row_accepted(s, rows + (size_t)n_acc * V, copies[n_acc], temperature,
+                                        top_k, top_p, min_p, accept_rng) || qwen4_spec_force_accept())) {
             n_acc++;
         }
         s->qwen4_copy_accepted += n_acc;
