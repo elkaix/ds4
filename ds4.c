@@ -76221,6 +76221,30 @@ static bool qwen4_copy_row_accepted(ds4_session *s, const float *row, int draft,
     return qwen4_row_draws_draft(s, row, draft, temperature, top_k, top_p, min_p, rng);
 }
 
+/* DS4_QWEN4_SAMPLED_DRAFTS=1: a single session's predictor drafts accept on
+ * the request's own sampler draw, like copied rows, instead of the
+ * opportunistic argmax; unset or 0 keeps today's behaviour bit for bit. */
+static bool qwen4_sampled_drafts(void) {
+    static int v = -1;
+    if (v < 0) {
+        const char *env = getenv("DS4_QWEN4_SAMPLED_DRAFTS");
+        v = env && env[0] ? atoi(env) : 0;
+    }
+    return v != 0;
+}
+
+/* Predictor-draft acceptance for the single-session cycle: the opportunistic
+ * argmax, or — DS4_QWEN4_SAMPLED_DRAFTS=1 — the sampler-draw rule shared with
+ * copied rows, so committed tokens are those of plain sampled decoding.  The
+ * batched multi-session cycle keeps qwen4_draft_accepted: outside the rows
+ * invariant its batch rows are not guaranteed bit-identical to plain decode. */
+static bool qwen4_predictor_row_accepted(ds4_session *s, const float *row, int draft, float temperature,
+                                         int top_k, float top_p, float min_p, uint64_t *rng) {
+    return qwen4_sampled_drafts()
+        ? qwen4_copy_row_accepted(s, row, draft, temperature, top_k, top_p, min_p, rng)
+        : qwen4_draft_accepted(s, row, draft, temperature, top_k, top_p, min_p, rng);
+}
+
 /* Draft depth policy for the Qwen3.8 cycle: DS4_QWEN4_MTP_DEPTH=2 or =3
  * forces a fixed depth (read per cycle so the A/B harnesses can switch it
  * per step); 0/auto, the default, drafts two tokens while the rolling
@@ -76408,11 +76432,12 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     s->mtp_draft_valid = false;
     /* copied rows commit only what the verify target (greedy) or the
      * request's sampler draws (temperature > 0); the predictor's own drafts
-     * keep the opportunistic argmax rule */
+     * keep the opportunistic argmax rule unless DS4_QWEN4_SAMPLED_DRAFTS=1
+     * hands them the same sampler-draw rule */
     uint64_t *accept_rng = exact_sampling ? NULL : rng;
     bool accept = (copied
                    ? qwen4_copy_row_accepted(s, rows, d, temperature, top_k, top_p, min_p, accept_rng)
-                   : qwen4_draft_accepted(s, rows, d, temperature, top_k, top_p, min_p, accept_rng)) ||
+                   : qwen4_predictor_row_accepted(s, rows, d, temperature, top_k, top_p, min_p, accept_rng)) ||
                   qwen4_spec_force_accept();
     bool accept2 = false;
     /* deepW re-checks row 1 (and the rest) in its own loop below, so the
@@ -76420,7 +76445,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     if (deep && !deepW) {
         accept2 = accept && ((copied
                               ? qwen4_copy_row_accepted(s, rows + V, d2, temperature, top_k, top_p, min_p, accept_rng)
-                              : sample_argmax(rows + V, V) == d2) ||
+                              : qwen4_predictor_row_accepted(s, rows + V, d2, temperature, top_k, top_p, min_p, accept_rng)) ||
                              qwen4_spec_force_accept());
     }
     int replacement = -1;

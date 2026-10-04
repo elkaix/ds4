@@ -866,6 +866,21 @@ endif
 test-qwen4-copy-accept: tests/test_qwen4_copy_accept
 	./tests/test_qwen4_copy_accept
 
+tests/test_qwen4_sampled_drafts.o: tests/test_qwen4_sampled_drafts.c ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
+
+tests/test_qwen4_sampled_drafts: tests/test_qwen4_sampled_drafts.o $(filter-out ds4.o,$(CORE_OBJS))
+ifeq ($(UNAME_S),Darwin)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+else
+	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
+endif
+
+.PHONY: test-qwen4-sampled-drafts
+test-qwen4-sampled-drafts: tests/test_qwen4_sampled_drafts
+	./tests/test_qwen4_sampled_drafts
+	DS4_QWEN4_SAMPLED_DRAFTS=1 ./tests/test_qwen4_sampled_drafts
+
 tests/test_qwen4_verify_exact.o: tests/test_qwen4_verify_exact.c ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 

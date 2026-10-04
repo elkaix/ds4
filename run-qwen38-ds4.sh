@@ -72,6 +72,12 @@ MTP_DRAFT_MAX=16
 # +2.7..5.6% decode with thinking on, identical text (2026-09-29). 0 = full head.
 MTP_DRAFT_ROWS="${QWEN_DS4_MTP_DRAFT_ROWS:-80000}"
 if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAFT_ROWS"; fi
+# Predictor drafts normally commit on the target argmax (a single sampled
+# request reads greedier than its temperature). 1 accepts them only on the
+# request's own sampler draw, so sampled output matches plain decode exactly;
+# acceptance rate drops, so the default stays off.
+SAMPLED_DRAFTS="${QWEN_DS4_SAMPLED_DRAFTS:-0}"
+if [[ "$SAMPLED_DRAFTS" == 1 ]]; then export DS4_QWEN4_SAMPLED_DRAFTS=1; fi
 # Context-copy drafts: when the just-sampled token plus the previous N-1
 # committed tokens (N = COPY_SPEC, default 8) match an earlier transcript
 # position, up to COPY_MAX (default 7) tokens that followed it become drafts
@@ -151,6 +157,7 @@ Environment:
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
+  QWEN_DS4_SAMPLED_DRAFTS=1      MTP drafts accept on the sampler draw (exact sampled output)
   QWEN_DS4_COPY_SPEC=N           Context-copy draft min match, 0 = off (default: 8)
   QWEN_DS4_COPY_MAX=N            Max copy drafts per cycle, 3..7 (default: 7)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
