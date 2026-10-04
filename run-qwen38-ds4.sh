@@ -93,6 +93,13 @@ export DS4_QWEN4_COPY_MAX="$COPY_MAX"
 # as their own batch).  8192: +2.2% prefill over 4096 at a 230K prompt for
 # +2.9 GiB peak wired (109.5 GiB, no swap); 4096 is the lower-memory fallback.
 PREFILL_CHUNK="${QWEN_DS4_PREFILL_CHUNK:-8192}"
+# Strict-precision Metal 4 tensor matmul descriptors: 1 exports
+# DS4_METAL_TENSOR_STRICT=1 so the two generic direct-RHS prefill sites
+# (dense f16/q4_0/q4_K/q8_0 + the generic low-rank projection) compile with
+# relaxed_precision=false. Diagnostic A/B against the relaxed default:
+# --metal-tensor-equivalence top-token flips vs prefill cost. 0 = relaxed.
+TENSOR_STRICT="${QWEN_DS4_TENSOR_STRICT:-0}"
+if [[ "$TENSOR_STRICT" == 1 ]]; then export DS4_METAL_TENSOR_STRICT=1; fi
 # Concurrent resident sessions for agentic multi-turn / parallel tool clients.
 # main batches decode-ready sessions when N>1. 1 = single stream.
 BATCHED_SESSION="${QWEN_DS4_BATCHED_SESSION:-1}"
@@ -154,6 +161,7 @@ Environment:
   QWEN_DS4_KV_COLD_MAX_TOKENS=N  Cold first-prompt save cap (default: 131072)
   QWEN_DS4_KV_CONTINUED_INTERVAL=N  Continued frontier interval (default: 20480)
   QWEN_DS4_PREFILL_CHUNK=N       Prefill chunk (default: 8192)
+  QWEN_DS4_TENSOR_STRICT=1       Strict-precision tensor matmul descriptors (default: 0)
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)

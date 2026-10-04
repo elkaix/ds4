@@ -1,5 +1,21 @@
 // DS4 Metal matvec kernels used by generation.
 
+/*
+ * Relaxed-precision selector for the generic TensorOps dense prefill matmul
+ * (the 6th matmul2d_descriptor argument, "sacrifice accuracy for
+ * performance" in the MPP header).  The host library sets
+ * DS4_METAL_TENSOR_STRICT (env DS4_METAL_TENSOR_STRICT=1) to compile the
+ * strict-precision mode for equivalence/cost measurement; the default keeps
+ * the shipped relaxed fast path.  metal/moe.metal re-declares this macro
+ * identically for its own generic tensor site.
+ */
+#undef DS4_TENSOR_MM_RELAXED
+#ifdef DS4_METAL_TENSOR_STRICT
+#define DS4_TENSOR_MM_RELAXED false
+#else
+#define DS4_TENSOR_MM_RELAXED true
+#endif
+
 constant short FC_mul_mv_nsg   [[function_constant(FC_MUL_MV + 0)]];
 constant short FC_mul_mv_nxpsg [[function_constant(FC_MUL_MV + 1)]];
 
@@ -2690,7 +2706,7 @@ kernel void kernel_mul_mm_mpp_direct_rhs(
     auto tB = tensor(ptrB, dextents<int32_t, 2>(K, N), array<int, 2>({1, strideB}));
 
     matmul2d<
-        matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor(NR1, NR0, NK, false, true, DS4_TENSOR_MM_RELAXED,
             matmul2d_descriptor::mode::multiply_accumulate),
         execution_simdgroups<4>> mm;
 

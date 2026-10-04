@@ -16,6 +16,21 @@
 #define N_R0_IQ2_XXS 4
 #define N_R0_MXFP4 2
 
+/*
+ * Relaxed-precision selector for this file's generic TensorOps matmul site
+ * (the 6th matmul2d_descriptor argument).  Kept token-identical to the
+ * definition at the top of metal/dense.metal, which precedes this file in
+ * the concatenated library source; the #undef makes the block order-proof
+ * for env-overridden source files.  DS4_METAL_TENSOR_STRICT comes from the
+ * host env DS4_METAL_TENSOR_STRICT=1; the default keeps the relaxed path.
+ */
+#undef DS4_TENSOR_MM_RELAXED
+#ifdef DS4_METAL_TENSOR_STRICT
+#define DS4_TENSOR_MM_RELAXED false
+#else
+#define DS4_TENSOR_MM_RELAXED true
+#endif
+
 static constant float ds4_metal_mxfp4_values[16] = {
      0.0f,  0.5f,  1.0f,  1.5f,  2.0f,  3.0f,  4.0f,  6.0f,
     -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f,
@@ -8984,7 +8999,7 @@ kernel void kernel_attn_out_low_mpp_direct_rhs(
     auto tB = tensor(ptrB, dextents<int32_t, 2>(K, N), array<int, 2>({1, strideB}));
 
     matmul2d<
-        matmul2d_descriptor(NR1, NR0, NK, false, true, true,
+        matmul2d_descriptor(NR1, NR0, NK, false, true, DS4_TENSOR_MM_RELAXED,
             matmul2d_descriptor::mode::multiply_accumulate),
         execution_simdgroups<4>> mm;
 
