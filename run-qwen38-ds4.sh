@@ -75,8 +75,8 @@ if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAF
 # Predictor drafts normally commit on the target argmax (a single sampled
 # request reads greedier than its temperature). 1 accepts them only on the
 # request's own sampler draw, so sampled output matches plain decode exactly;
-# acceptance rate drops, so the default stays off.
-SAMPLED_DRAFTS="${QWEN_DS4_SAMPLED_DRAFTS:-0}"
+# acceptance drops but measured speed is level (2026-10-04), so the default is on.
+SAMPLED_DRAFTS="${QWEN_DS4_SAMPLED_DRAFTS:-1}"
 if [[ "$SAMPLED_DRAFTS" == 1 ]]; then export DS4_QWEN4_SAMPLED_DRAFTS=1; fi
 # Context-copy drafts: when the just-sampled token plus the previous N-1
 # committed tokens (N = COPY_SPEC, default 8) match an earlier transcript
