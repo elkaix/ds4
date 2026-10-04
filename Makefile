@@ -880,6 +880,20 @@ endif
 test-qwen4-verify-exact: tests/test_qwen4_verify_exact
 	DS4_TEST_MODEL="$(DS4_TEST_MODEL)" ./tests/test_qwen4_verify_exact
 
+tests/test_qwen4_copy_index.o: tests/test_qwen4_copy_index.c ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
+
+tests/test_qwen4_copy_index: tests/test_qwen4_copy_index.o $(filter-out ds4.o,$(CORE_OBJS))
+ifeq ($(UNAME_S),Darwin)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+else
+	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
+endif
+
+.PHONY: test-qwen4-copy-index
+test-qwen4-copy-index: tests/test_qwen4_copy_index
+	./tests/test_qwen4_copy_index
+
 tests/test_qwen4_ple_prefetch.o: tests/test_qwen4_ple_prefetch.c ds4.c ds4.h ds4_qwen4_vision.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
 

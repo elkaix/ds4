@@ -58814,6 +58814,33 @@ static const ds4_vision_span *qwen4_fake_spans(size_t *count) {
  * verify row 2+i, so a width-W verify needs W-3 of them */
 #define QWEN4_SNAPX_MAX (QWEN4_VERIFY_ROWS_MAX - 3u)
 
+/* Prompt-lookup index behind the context-copy proposer: 4-grams (three
+ * committed tokens plus the drafted first token) hash into an open-addressed
+ * table of occurrence positions, each chaining to older occurrences of its
+ * gram.  Every candidate is memcmp'd against the live checkpoint, so an
+ * entry left stale by a rewind or a replaced prefix can only lose a
+ * candidate, never mis-propose one. */
+#define QWEN4_COPY_IDX_GRAM 4u
+#define QWEN4_COPY_IDX_SCAN 64u       /* occurrences scored per query */
+#define QWEN4_COPY_IDX_AGREE_MAX 64u  /* backward agreement counted per one */
+#define QWEN4_COPY_IDX_GUARD 7u       /* tail tokens proving the prefix grew */
+
+/* Session-owned, grown only for tokens appended since the last sync: at
+ * ctx 262144 the table is 2x ctx slots (2 MiB) plus the prev chain (1 MiB),
+ * allocated once on the first copy proposal. */
+typedef struct qwen4_copy_index {
+    uint32_t *pos;     /* open-addressed: continuation start + 1, 0 empty */
+    uint32_t *prev;    /* prev[p]: older occurrence chained at position p */
+    uint32_t mask;     /* table slots - 1 */
+    uint32_t cap;      /* prev slots (ctx tokens + 2) */
+    uint32_t upto;     /* tokens indexed so far */
+    uint32_t live;     /* occupied slots; past 7/8 load the table rehashes */
+    uint32_t guard_len;
+    int guard[QWEN4_COPY_IDX_GUARD];
+} qwen4_copy_index;
+
+static void qwen4_copy_index_free(qwen4_copy_index *ix);
+
 /* Context-copy width knobs (see ds4_session_qwen4_spec_cycle_inner for the
  * copy proposer itself).  DS4_QWEN4_COPY_MAX caps the copied tokens the
  * proposer offers at 3..7 (default 3, values outside clamp to 3);
@@ -62030,6 +62057,13 @@ struct ds4_session {
     uint64_t qwen4_verify_w_cycles[QWEN4_VERIFY_ROWS_MAX + 1u];
     double qwen4_verify_w_sec[QWEN4_VERIFY_ROWS_MAX + 1u];
     double qwen4_verify_sec, qwen4_cycle_sec; /* --mtp-timing, verify cycles only */
+    /* prompt-lookup state for the copy proposer: the incremental index and
+     * the re-anchor alignment carried past a copy block that broke on an
+     * edit (source index + the checkpoint length it was set at) */
+    qwen4_copy_index qwen4_copy_idx;
+    uint32_t qwen4_copy_src;      /* source of the last proposal; UINT32_MAX none */
+    uint32_t qwen4_copy_ra_pos;
+    uint32_t qwen4_copy_ra_len;   /* 0: no alignment carried */
 #endif
     uint32_t glm_dense_cache_len;
     /* GLM MTP speculative state.  parent is the token that conditioned the
@@ -75166,6 +75200,7 @@ void ds4_session_free(ds4_session *s) {
                 }
             }
             free(s->qwen4_verify_logits);
+            qwen4_copy_index_free(&s->qwen4_copy_idx);
             if (s->qwen4_slot >= 0 && s->engine) {
                 s->engine->qwen4_pool_used &= ~(UINT64_C(1) << s->qwen4_slot);
             }
@@ -75913,13 +75948,16 @@ static void qwen4_session_drafts(ds4_session *s, const int *next, uint32_t T, ui
     }
 }
 
-/* Context-copy drafts (DS4_QWEN4_COPY_SPEC=N, N >= 2 the minimum match):
- * when the last N tokens of the transcript plus first_token occurred
- * earlier, propose the two tokens that followed that occurrence.  The
- * verify still decides every token, so greedy output is unchanged; a copy
- * only replaces the MTP guesses when the text repeats (file edits, quoted
- * code).  ponytail: scans the last 64K tokens backwards, a suffix index
- * if long contexts make the scan show up in the cycle time. */
+/* Context-copy drafts (DS4_QWEN4_COPY_SPEC=N, N >= 2 the minimum agreement
+ * length): the proposer looks up the last three committed tokens plus the
+ * drafted first token in a session-owned 4-gram index of the whole
+ * checkpoint, scores every older occurrence by backward agreement, and
+ * copies up to the cap tokens that followed the best one.  N counts the
+ * drafted token itself (first token + the N-1 committed before it); the
+ * 4-gram lookup puts a floor of 4 under N, and agreement is counted up to
+ * 64 tokens, so N > 64 turns copies off.  The verify still decides every
+ * token, so greedy output is unchanged; a copy only replaces the MTP
+ * guesses when the text repeats (file edits, quoted code). */
 static int qwen4_copy_min(void) {
     const char *env = getenv("DS4_QWEN4_COPY_SPEC");
     const int v = env && env[0] ? atoi(env) : 0;
@@ -75943,24 +75981,182 @@ static uint32_t qwen4_copy_cap(void) {
     return qwen4_copy_t4() ? qwen4_verify_row_cap() - 1u : 2u;
 }
 
+static void qwen4_copy_index_free(qwen4_copy_index *ix) {
+    free(ix->pos);
+    free(ix->prev);
+    memset(ix, 0, sizeof(*ix));
+}
+
+static uint32_t qwen4_copy_hash(const int *t) {
+    uint64_t h = 0x9E3779B97F4A7C15ull;
+    for (uint32_t i = 0; i < QWEN4_COPY_IDX_GRAM; i++) {
+        h ^= (uint32_t)t[i];
+        h *= 0xBF58476D1CE4E5B9ull;
+        h ^= h >> 31;
+    }
+    return (uint32_t)(h ^ (h >> 32));
+}
+
+static bool qwen4_copy_index_alloc(qwen4_copy_index *ix, uint32_t tokens) {
+    uint32_t slots = 1024;
+    while (slots < 2u * tokens) slots <<= 1;
+    ix->pos = calloc(slots, sizeof(uint32_t));
+    ix->prev = malloc(((size_t)tokens + 2u) * sizeof(uint32_t));
+    if (!ix->pos || !ix->prev) {
+        qwen4_copy_index_free(ix);
+        return false;
+    }
+    ix->mask = slots - 1u;
+    ix->cap = tokens + 2u;
+    return true;
+}
+
+static void qwen4_copy_index_clear(qwen4_copy_index *ix) {
+    memset(ix->pos, 0, ((size_t)ix->mask + 1u) * sizeof(uint32_t));
+    ix->upto = 0;
+    ix->live = 0;
+    ix->guard_len = 0;
+}
+
+static void qwen4_copy_index_guard(qwen4_copy_index *ix, const int *h, uint32_t n) {
+    ix->guard_len = n < QWEN4_COPY_IDX_GUARD ? n : QWEN4_COPY_IDX_GUARD;
+    if (ix->guard_len) memcpy(ix->guard, h + n - ix->guard_len, (size_t)ix->guard_len * sizeof(int));
+}
+
+/* Index the gram ending just before continuation start p. */
+static void qwen4_copy_index_put(qwen4_copy_index *ix, const int *h, uint32_t p, uint32_t n) {
+    if (p + 1u >= ix->cap) return;   /* cannot chain this far out */
+    const int *g = h + p - QWEN4_COPY_IDX_GRAM;
+    for (uint32_t i = qwen4_copy_hash(g) & ix->mask, step = 0;
+         step < QWEN4_COPY_IDX_SCAN; step++) {
+        const uint32_t v = ix->pos[i];
+        if (v == 0u || v > n) {      /* empty, or stale past a rewind */
+            if (v == 0u) ix->live++;
+            ix->prev[p] = 0u;
+            ix->pos[i] = p + 1u;
+            return;
+        }
+        if (memcmp(h + v - QWEN4_COPY_IDX_GRAM - 1u, g, QWEN4_COPY_IDX_GRAM * sizeof(int)) == 0) {
+            ix->prev[p] = v;         /* chain to the older occurrence */
+            ix->pos[i] = p + 1u;
+            return;
+        }
+        i = (i + 1u) & ix->mask;
+    }
+    /* probe run full: this gram sits this cycle out (recall only) */
+}
+
+/* Bring the index up to the checkpoint: only tokens appended since the
+ * last call are inserted.  A shrink (rewind, slice reset, prompt reset)
+ * truncates to the new length and drops the re-anchor alignment; a
+ * replaced prefix (KV-cache restore, session reuse across requests) fails
+ * the guard tokens and is rebuilt from scratch.  Stale entries a rewind
+ * leaves behind are skipped at query time and reclaimed as the new tokens
+ * are inserted, so no per-cycle rescan of the prefix ever runs. */
+static bool qwen4_copy_index_sync(ds4_session *s) {
+    qwen4_copy_index *ix = &s->qwen4_copy_idx;
+    const int *h = s->checkpoint.v;
+    const uint32_t n = (uint32_t)s->checkpoint.len;
+    if (!ix->pos) {
+        uint32_t tokens = s->ctx_size > (int)n ? (uint32_t)s->ctx_size : n;
+        if (tokens < 1024u) tokens = 1024u;
+        if (!qwen4_copy_index_alloc(ix, tokens)) return false;
+    }
+    if (ix->upto > n) {
+        ix->upto = n;
+        s->qwen4_copy_ra_len = 0;
+        qwen4_copy_index_guard(ix, h, n);
+    }
+    if (ix->upto < n) {
+        if (ix->guard_len &&
+            memcmp(h + ix->upto - ix->guard_len, ix->guard,
+                   (size_t)ix->guard_len * sizeof(int)) != 0) {
+            qwen4_copy_index_clear(ix);   /* the prefix was replaced */
+            s->qwen4_copy_ra_len = 0;
+        }
+        if (ix->live > ix->mask - (ix->mask >> 3))
+            qwen4_copy_index_clear(ix);   /* stale slots raised the load */
+        for (uint32_t p = ix->upto > QWEN4_COPY_IDX_GRAM ? ix->upto : QWEN4_COPY_IDX_GRAM;
+             p < n && p + 1u < ix->cap; p++)
+            qwen4_copy_index_put(ix, h, p, n);
+        ix->upto = n;
+        qwen4_copy_index_guard(ix, h, n);
+    }
+    return true;
+}
+
+/* Copy up to max tokens from source position p, stopping at a generation
+ * stop token or the last committed token. */
+static int qwen4_copy_emit(ds4_session *s, const int *h, uint32_t p, uint32_t n,
+                           int out[QWEN4_COPY_MAX_LIMIT], int max) {
+    int k = 0;
+    while (k < max && p + (uint32_t)k < n) {
+        if (ds4_token_is_stop(s->engine, h[p + (uint32_t)k])) break;
+        out[k] = h[p + (uint32_t)k];
+        k++;
+    }
+    return k;
+}
+
 static int qwen4_copy_propose(ds4_session *s, int first_token, int min_match, int out[QWEN4_COPY_MAX_LIMIT], int max) {
     const int *h = s->checkpoint.v;
-    const int n = s->checkpoint.len;   /* first_token follows h[n-1] */
-    if (n < min_match + 2) return 0;
-    const int floor = n > 65536 ? n - 65536 : 0;
-    /* candidate i: h[i] == first_token and h[i-min_match+1 .. i-1] match the
-     * transcript tail; up to max continuation tokens h[i+1].. follow */
-    for (int i = n - 3; i >= floor + min_match - 1; i--) {
-        if (h[i] != first_token) continue;
-        int k = 1;
-        while (k < min_match && h[i - k] == h[n - k]) k++;
-        if (k < min_match) continue;
-        int c = 0;
-        for (int j = 1; j <= max && i + j < n; j++) {
-            if (ds4_token_is_stop(s->engine, h[i + j])) break;
-            out[c++] = h[i + j];
+    const uint32_t n = (uint32_t)s->checkpoint.len;   /* first_token follows h[n-1] */
+    s->qwen4_copy_src = UINT32_MAX;
+    if (n < 5u || max < 1 || !qwen4_copy_index_sync(s)) return 0;
+    /* the re-anchor alignment ages out with the tokens committed since */
+    if (s->qwen4_copy_ra_len) {
+        const int64_t drift = (int64_t)n - (int64_t)s->qwen4_copy_ra_len;
+        if (drift < 0 || drift > 32) {
+            s->qwen4_copy_ra_len = 0;
+        } else {
+            s->qwen4_copy_ra_pos += (uint32_t)drift;
+            s->qwen4_copy_ra_len = n;
         }
-        return c;
+    }
+    const int q[QWEN4_COPY_IDX_GRAM] = { h[n - 3u], h[n - 2u], h[n - 1u], first_token };
+    const qwen4_copy_index *ix = &s->qwen4_copy_idx;
+    /* every chain hanging off the gram's probe run is walked, and each hop
+     * is validated against the live checkpoint, so a slot left stale or
+     * rewritten by a rewind can only add candidates that fail validation
+     * while still chaining to the older live occurrences */
+    uint32_t best_agree = 0, best = 0;
+    for (uint32_t i = qwen4_copy_hash(q) & ix->mask, step = 0;
+         step < QWEN4_COPY_IDX_SCAN; step++, i = (i + 1u) & ix->mask) {
+        const uint32_t v = ix->pos[i];
+        if (v == 0u) break;   /* open addressing: the run ends here */
+        for (uint32_t c = v, k = 0; c && k < QWEN4_COPY_IDX_SCAN; k++, c = ix->prev[c - 1u]) {
+            if (c > n || memcmp(h + c - QWEN4_COPY_IDX_GRAM - 1u, q, sizeof(q)) != 0) continue;
+            /* backward agreement: source [c-2-t] against the current tail,
+             * position n standing for the drafted first_token */
+            uint32_t agree = 0;
+            for (uint32_t t = 0; t < QWEN4_COPY_IDX_AGREE_MAX && t <= n && t + 2u <= c; t++) {
+                const int cur = t == 0u ? first_token : h[n - t];
+                if (h[c - 2u - t] != cur) break;
+                agree++;
+            }
+            if (agree > best_agree) {   /* ties keep the first walked (newest) */
+                best_agree = agree;
+                best = c - 1u;
+            }
+        }
+    }
+    if (best && best_agree >= (uint32_t)min_match) {
+        s->qwen4_copy_src = best;
+        return qwen4_copy_emit(s, h, best, n, out, max);
+    }
+    /* no qualifying occurrence: after a copy block broke on an edit, the
+     * source alignment may still carry — re-anchor it on the MTP draft
+     * (the model's own guess) found within three tokens of the aligned
+     * index, covering a substitution, an insertion or a deletion */
+    if (s->qwen4_copy_ra_len && s->glm_mtp_have && s->glm_mtp_parent == first_token) {
+        const int draft = s->glm_mtp_draft;
+        for (uint32_t d = 0; d < 7u; d++) {
+            const int64_t j = (int64_t)s->qwen4_copy_ra_pos +
+                              (d % 2u ? -((int64_t)d + 1) / 2 : (int64_t)d / 2);
+            if (j < 0 || j >= (int64_t)n || h[j] != draft) continue;
+            s->qwen4_copy_src = (uint32_t)j;
+            return qwen4_copy_emit(s, h, (uint32_t)j, n, out, max);
+        }
     }
     return 0;
 }
@@ -76253,6 +76449,9 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             return -1;
         }
         for (uint32_t i = 0; i < n_acc; i++) token_vec_push(&s->checkpoint, copies[i]);
+        /* keep the source alignment for a re-anchored follow-up copy */
+        s->qwen4_copy_ra_pos = s->qwen4_copy_src + n_acc;
+        s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
         memcpy(s->logits, rows + (size_t)n_acc * V, (size_t)V * sizeof(float));
         const int parent = sample_argmax(s->logits, V);
         int next_tokens[1u + QWEN4_COPY_MAX_LIMIT];
@@ -76282,6 +76481,10 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     if (accept && (!deep || accept2)) {
         token_vec_push(&s->checkpoint, d);
         if (deep) token_vec_push(&s->checkpoint, d2);
+        if (copied) {   /* keep the source alignment for a follow-up copy */
+            s->qwen4_copy_ra_pos = s->qwen4_copy_src + (deep ? 2u : 1u);
+            s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
+        }
         memcpy(s->logits, rows + (T - 1u) * V, (size_t)V * sizeof(float));
         const int parent = sample_argmax(s->logits, V);
         /* catch the predictor up over every committed row (a deep cycle's
@@ -76304,6 +76507,10 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         }
         s->checkpoint.len = pos + 1;
         token_vec_push(&s->checkpoint, d);
+        if (copied) {   /* first copy accepted: alignment moves one source token */
+            s->qwen4_copy_ra_pos = s->qwen4_copy_src + 1u;
+            s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
+        }
         memcpy(s->logits, rows + V, (size_t)V * sizeof(float));
         const int parent = sample_argmax(s->logits, V);
         const int next_tokens[2] = {d, parent};
@@ -76333,6 +76540,10 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         return 2;
     }
     memcpy(s->logits, rows, (size_t)V * sizeof(float));
+    if (copied) {   /* broke at the first copy: the alignment stands at src */
+        s->qwen4_copy_ra_pos = s->qwen4_copy_src;
+        s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
+    }
     {
         const int parent = sample_argmax(s->logits, V);
         qwen4_session_drafts(s, &parent, 1u, pos, depth);
