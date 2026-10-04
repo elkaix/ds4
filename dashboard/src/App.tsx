@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   DASH, compact, duration, fixed, gib, gibDelta, mb, mbps, ms, msNum, num, pct, pctStr,
@@ -18,7 +18,6 @@ import { Pill } from "./components/Icon";
 
 type Period = "Session" | "All-Time";
 
-const KV_BANNER_MS = 20_000;
 type BottomTab = "cache" | "requests";
 
 const navItems: {
@@ -143,14 +142,6 @@ export function App() {
   const storeAlarm = !!last && last.store_ns > 1e9;
   const kvWarnings = kv?.warnings ?? [];
   const kvWarn = kvWarnings.some((w) => w.level === "warn");
-  // KV startup findings flash as banners for 20 s, then live only under Health & Anomalies.
-  const [kvBannerHidden, setKvBannerHidden] = useState(false);
-  const kvBannerShown = kvWarnings.length > 0 && !kvBannerHidden;
-  useEffect(() => {
-    if (!kvBannerShown) return;
-    const t = setTimeout(() => { setKvBannerHidden(true); }, KV_BANNER_MS);
-    return () => { clearTimeout(t); };
-  }, [kvBannerShown]);
 
   const isHealthy = !error && failures === 0;
   const statusText = error ? "Unreachable" : !stats ? "Connecting" : livePrefill ? "Prefilling" : stats.busy ? "Generating" : "Healthy";
@@ -284,11 +275,6 @@ export function App() {
             </section>
 
             {error && <div className="banner error">Cannot reach /stats: {error} — retrying every second.</div>}
-            {kvBannerShown && kvWarnings.map((w) => (
-              <div key={w.code} className={`banner ${w.level === "warn" ? "warn" : "info"}`} role={w.level === "warn" ? "alert" : "status"}>
-                <strong>KV cache</strong> · {w.message} <code>{w.code}</code>
-              </div>
-            ))}
 
             {/* ── Top Grid (4 Primary Cards) ── */}
             <section className="topGrid" id="sec-performance">
