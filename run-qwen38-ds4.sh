@@ -89,6 +89,14 @@ if [[ "$COPY_SPEC" != 0 ]]; then export DS4_QWEN4_COPY_SPEC="$COPY_SPEC"; fi
 # 12K-token copy task, +1.6% on a file edit, prose neutral (2026-09-30). 3 = old cap.
 COPY_MAX="${QWEN_DS4_COPY_MAX:-7}"
 export DS4_QWEN4_COPY_MAX="$COPY_MAX"
+# Adaptive copy width: the offered width follows recent acceptance (full
+# accept widens by 1, a break narrows to accepted+1), so agent-shaped text
+# stops paying for 8-row verifies that accept 1-2 rows. 0 = fixed cap.
+COPY_ADAPT="${QWEN_DS4_COPY_ADAPT:-1}"
+export DS4_QWEN4_COPY_ADAPT="$COPY_ADAPT"
+# Narrowest copy width the policy settles at (2..COPY_MAX; empty = engine default 3).
+COPY_FLOOR="${QWEN_DS4_COPY_FLOOR:-}"
+if [[ -n "$COPY_FLOOR" ]]; then export DS4_QWEN4_COPY_FLOOR="$COPY_FLOOR"; fi
 # Every chunk size gives bit-identical logits (the dense rows 2048..2050 run
 # as their own batch).  8192: +2.2% prefill over 4096 at a 230K prompt for
 # +2.9 GiB peak wired (109.5 GiB, no swap); 4096 is the lower-memory fallback.
@@ -168,6 +176,8 @@ Environment:
   QWEN_DS4_SAMPLED_DRAFTS=1      MTP drafts accept on the sampler draw (exact sampled output)
   QWEN_DS4_COPY_SPEC=N           Context-copy draft min match, 0 = off (default: 8)
   QWEN_DS4_COPY_MAX=N            Max copy drafts per cycle, 3..7 (default: 7)
+  QWEN_DS4_COPY_ADAPT=0          Fixed copy width at the cap (default: 1 = adaptive)
+  QWEN_DS4_COPY_FLOOR=N          Narrowest adaptive copy width, 2..COPY_MAX (default: 3)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
   FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
 EOF

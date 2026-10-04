@@ -62353,6 +62353,15 @@ struct ds4_session {
     uint32_t qwen4_copy_src;      /* source of the last proposal; UINT32_MAX none */
     uint32_t qwen4_copy_ra_pos;
     uint32_t qwen4_copy_ra_len;   /* 0: no alignment carried */
+    /* Adaptive copy width (DS4_QWEN4_COPY_ADAPT): copies offered per cycle
+     * follow recent acceptance; 0 means "at the cap" (fresh session or
+     * content replaced), so copy-heavy text starts at today's full width */
+    uint32_t qwen4_copy_width;
+    /* copy cycles bucketed by OFFERED copy count 1..QWEN4_COPY_MAX_LIMIT
+     * (DS4_QWEN4_COPY_STATS): the acceptance profile per offered width */
+    uint64_t qwen4_copy_n_cycles[QWEN4_COPY_MAX_LIMIT + 1u];
+    uint64_t qwen4_copy_n_offered[QWEN4_COPY_MAX_LIMIT + 1u];
+    uint64_t qwen4_copy_n_accepted[QWEN4_COPY_MAX_LIMIT + 1u];
 #endif
     uint32_t glm_dense_cache_len;
     /* GLM MTP speculative state.  parent is the token that conditioned the
@@ -75497,6 +75506,16 @@ void ds4_session_free(ds4_session *s) {
                             s->qwen4_copy_offered, s->qwen4_copy_accepted,
                             s->qwen4_copy_offered ?
                                 100.0 * (double)s->qwen4_copy_accepted / (double)s->qwen4_copy_offered : 0.0);
+                    /* copy cycles by OFFERED copy count: the acceptance
+                     * profile per offered width, the instrument the
+                     * adaptive width is tuned against */
+                    fprintf(stderr, "ds4:   copy cycles by offered count (cycles/offered/accepted):");
+                    for (uint32_t k = 1u; k <= QWEN4_COPY_MAX_LIMIT; k++) {
+                        fprintf(stderr, " %u:%" PRIu64 "/%" PRIu64 "/%" PRIu64, k,
+                                s->qwen4_copy_n_cycles[k], s->qwen4_copy_n_offered[k],
+                                s->qwen4_copy_n_accepted[k]);
+                    }
+                    fputc('\n', stderr);
                 }
             }
             free(s->qwen4_verify_logits);
@@ -76282,6 +76301,65 @@ static uint32_t qwen4_copy_cap(void) {
     return qwen4_copy_t4() ? qwen4_verify_row_cap() - 1u : 2u;
 }
 
+/* DS4_QWEN4_COPY_ADAPT=0: fixed-width copy drafts (the proposer is always
+ * asked for the cap and the width never moves), today's behaviour; read
+ * once like qwen4_copy_stats() so the static is resettable in tests. */
+static int qwen4_copy_adapt_env = -1;
+static bool qwen4_copy_adapt(void) {
+    if (qwen4_copy_adapt_env < 0) {
+        const char *env = getenv("DS4_QWEN4_COPY_ADAPT");
+        qwen4_copy_adapt_env = !(env && env[0] == '0');
+    }
+    return qwen4_copy_adapt_env != 0;
+}
+
+/* Copy-width floor: the narrowest offered width the policy settles at
+ * (DS4_QWEN4_COPY_FLOOR, 2..cap; default 3, a 4-row verify).  Values
+ * outside the range fall back to the default like DS4_QWEN4_COPY_MAX,
+ * and the default itself clamps under a narrower cap. */
+static int qwen4_copy_floor_env = -1;
+static uint32_t qwen4_copy_floor(uint32_t cap) {
+    if (qwen4_copy_floor_env < 0) {
+        const char *env = getenv("DS4_QWEN4_COPY_FLOOR");
+        const long v = env && env[0] ? strtol(env, NULL, 10) : 0;
+        qwen4_copy_floor_env = v >= 2 ? (int)v : 0;   /* 0: unset or junk */
+    }
+    long f = qwen4_copy_floor_env >= 2 && qwen4_copy_floor_env <= (long)cap
+        ? qwen4_copy_floor_env : 3;
+    if (f > (long)cap) f = (long)cap;
+    return (uint32_t)f;
+}
+
+/* ponytail: the +1 / a+1 rule ignores context depth and match strength —
+ * it widens one token per perfect cycle and resets to one past the first
+ * rejected row, so a session mixing long exact repeats with sampled prose
+ * oscillates around the prose acceptance rate instead of following either
+ * regime.  The upgrade path is choosing the width from measured per-row
+ * verify cost and per-position acceptance (the offered-count buckets in
+ * DS4_QWEN4_COPY_STATS) rather than the last cycle's break alone. */
+static uint32_t qwen4_copy_width_update(uint32_t width, uint32_t cap, uint32_t floor,
+                                        uint32_t n, uint32_t a) {
+    if (n == 0u) return width;              /* nothing verified: keep it */
+    if (a >= n) return width < cap ? width + 1u : cap;
+    const uint32_t drop = a + 1u;           /* one past the first break */
+    return drop > floor ? drop : floor;
+}
+
+/* Copies the proposer may be asked for this cycle: the session width, or
+ * the cap for a fresh/replaced session (width 0) or past it. */
+static uint32_t qwen4_copy_offer(const ds4_session *s, uint32_t cap) {
+    return s->qwen4_copy_width && s->qwen4_copy_width < cap ? s->qwen4_copy_width : cap;
+}
+
+/* Fold one cycle that verified copies into the session width: n copies
+ * verified, a of them accepted.  DS4_QWEN4_COPY_ADAPT=0 leaves it fixed. */
+static void qwen4_copy_note_verified(ds4_session *s, uint32_t n, uint32_t a) {
+    if (!qwen4_copy_adapt() || n == 0u) return;
+    const uint32_t cap = qwen4_copy_cap();
+    const uint32_t width = s->qwen4_copy_width ? s->qwen4_copy_width : cap;
+    s->qwen4_copy_width = qwen4_copy_width_update(width, cap, qwen4_copy_floor(cap), n, a);
+}
+
 static void qwen4_copy_index_free(qwen4_copy_index *ix) {
     free(ix->pos);
     free(ix->prev);
@@ -76370,6 +76448,7 @@ static bool qwen4_copy_index_sync(ds4_session *s) {
         qwen4_copy_index_clear(ix);   /* the content was replaced under us */
         ix->gen = s->checkpoint_gen;
         s->qwen4_copy_ra_len = 0;
+        s->qwen4_copy_width = 0;      /* widths relearn from the cap */
     }
     if (ix->upto > n) {
         ix->upto = n;
@@ -76626,7 +76705,9 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
     int copies[QWEN4_COPY_MAX_LIMIT];   /* copied tokens: d, d2, then extras */
     int nc = 0;                        /* copies proposed (verified count may be narrower) */
     if (copy_min && s->glm_mtp_have) {
-        nc = qwen4_copy_propose(s, first_token, copy_min, copies, (int)qwen4_copy_cap());
+        const uint32_t copy_cap = qwen4_copy_cap();
+        nc = qwen4_copy_propose(s, first_token, copy_min, copies,
+                                (int)(qwen4_copy_adapt() ? qwen4_copy_offer(s, copy_cap) : copy_cap));
         if (nc >= 2 && depth == 2 && getenv("DS4_QWEN4_NO_MTP_BATCH") == NULL) depth = 3;
         if (nc >= 1 && (copies[0] != s->glm_mtp_draft || (nc >= 2 && depth == 3))) {
             copied = true;
@@ -76635,6 +76716,10 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             if (nc >= 2) s->glm_mtp_draft2 = copies[1];
             s->qwen4_copy_cycles++;
             s->qwen4_copy_offered += (uint64_t)nc;
+            if (nc <= (int)QWEN4_COPY_MAX_LIMIT) {
+                s->qwen4_copy_n_cycles[nc]++;
+                s->qwen4_copy_n_offered[nc] += (uint64_t)nc;
+            }
         } else {
             nc = 0;
         }
@@ -76784,6 +76869,10 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             n_acc++;
         }
         s->qwen4_copy_accepted += n_acc;
+        if (nc >= 1 && nc <= (int)QWEN4_COPY_MAX_LIMIT) {
+            s->qwen4_copy_n_accepted[nc] += n_acc;
+        }
+        qwen4_copy_note_verified(s, ncopy_v, n_acc);
         if (T == 4u) s->qwen4_copy4_cycles++;
         if (qwen4_spec_trace()) {
             fprintf(stderr, "ds4: spec pos %u token %d copy%u accepted %u/%u:", pos, first_token, T, n_acc, ncopy_v);
@@ -76816,7 +76905,13 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         return (int)n_acc + 1;
     }
     if (copied) {
-        s->qwen4_copy_accepted += (uint64_t)accept + (uint64_t)accept2;
+        const uint64_t n_acc = (uint64_t)accept + (uint64_t)accept2;
+        s->qwen4_copy_accepted += n_acc;
+        if (nc >= 1 && nc <= (int)QWEN4_COPY_MAX_LIMIT) {
+            s->qwen4_copy_n_accepted[nc] += n_acc;
+        }
+        /* the narrow paths verified deep ? 2 : 1 copied rows */
+        qwen4_copy_note_verified(s, deep ? 2u : 1u, (uint32_t)n_acc);
     } else {
         /* the depth window tracks the predictor, not the copies */
         qwen4_spec_note_first_draft(s, accept);

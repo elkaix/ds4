@@ -899,6 +899,20 @@ endif
 test-sample-minp-exact: tests/test_sample_minp_exact
 	./tests/test_sample_minp_exact
 
+tests/test_qwen4_copy_width.o: tests/test_qwen4_copy_width.c ds4.c ds4.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
+
+tests/test_qwen4_copy_width: tests/test_qwen4_copy_width.o $(filter-out ds4.o,$(CORE_OBJS))
+ifeq ($(UNAME_S),Darwin)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+else
+	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
+endif
+
+.PHONY: test-qwen4-copy-width
+test-qwen4-copy-width: tests/test_qwen4_copy_width
+	./tests/test_qwen4_copy_width
+
 tests/test_qwen4_verify_exact.o: tests/test_qwen4_verify_exact.c ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
