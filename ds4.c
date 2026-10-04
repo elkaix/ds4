@@ -58835,6 +58835,7 @@ typedef struct qwen4_copy_index {
     uint32_t cap;      /* prev slots (ctx tokens + 2) */
     uint32_t upto;     /* tokens indexed so far */
     uint32_t live;     /* occupied slots; past 7/8 load the table rehashes */
+    uint32_t gen;      /* checkpoint generation the entries describe */
     uint32_t guard_len;
     int guard[QWEN4_COPY_IDX_GUARD];
 } qwen4_copy_index;
@@ -62093,6 +62094,11 @@ struct ds4_session {
     ds4_kv_cache cpu_cache;
     ds4_cpu_decode_scratch cpu_scratch;
     token_vec checkpoint;
+    /* bumped wherever checkpoint tokens below the current length are
+     * replaced (a new prompt in a reused slot, a session or KV restore),
+     * as opposed to appended or truncated away; the Qwen3.8 copy index
+     * keys off it to rebuild instead of trusting a stale prefix */
+    uint32_t checkpoint_gen;
     ds4_vision_identity *checkpoint_images;
     size_t checkpoint_image_count;
     const ds4_vision_span *sync_images;
@@ -63762,6 +63768,7 @@ int ds4_session_load_layer_payload(ds4_session *s, FILE *fp,
             token_vec_free(&s->checkpoint);
             memset(&s->checkpoint, 0, sizeof(s->checkpoint));
             for (uint32_t i = 0; i < n_tokens; i++) token_vec_push(&s->checkpoint, tokens[i]);
+            s->checkpoint_gen++;   /* the shard restore rewrote the transcript */
             s->checkpoint_valid = true;
             s->mtp_draft_valid = false;
             s->glm_dense_cache_len = g->full_kv_cache ? saved_full_live : 0;
@@ -63975,6 +63982,7 @@ int ds4_session_load_layer_payload(ds4_session *s, FILE *fp,
         token_vec_free(&s->checkpoint);
         memset(&s->checkpoint, 0, sizeof(s->checkpoint));
         for (uint32_t i = 0; i < n_tokens; i++) token_vec_push(&s->checkpoint, tokens[i]);
+        s->checkpoint_gen++;   /* the shard restore rewrote the transcript */
         for (uint32_t i = 0; i < n_layers; i++) {
             const uint32_t il = layer_start + i;
             g->layer_n_comp[il] = n_comp[i];
@@ -64706,6 +64714,7 @@ static int qwen4_session_load_payload(ds4_session *s, FILE *fp, const uint32_t *
     g->mtp_tail_valid = false;
     token_vec_free(&s->checkpoint);
     s->checkpoint = new_checkpoint;
+    s->checkpoint_gen++;   /* the loaded payload rewrote the transcript */
     s->checkpoint_valid = true;
     s->qwen4_rewound = false;
     return 0;
@@ -65330,6 +65339,7 @@ int ds4_session_load_payload(ds4_session *s, FILE *fp, uint64_t payload_bytes, c
 
         token_vec_free(&s->checkpoint);
         s->checkpoint = new_checkpoint;
+        s->checkpoint_gen++;   /* the loaded payload rewrote the transcript */
         s->checkpoint_valid = true;
         s->mtp_draft_valid = false;
         s->glm_dense_cache_len = g->full_kv_cache ? saved_full_live : 0;
@@ -65470,6 +65480,7 @@ int ds4_session_load_payload(ds4_session *s, FILE *fp, uint64_t payload_bytes, c
         }
         token_vec_free(&s->checkpoint);
         s->checkpoint = new_checkpoint;
+        s->checkpoint_gen++;   /* the loaded payload rewrote the transcript */
         s->checkpoint_valid = true;
         s->mtp_draft_valid = false;
         ds4_session_dspark_capture_invalidate(s);
@@ -65679,6 +65690,7 @@ int ds4_session_load_payload(ds4_session *s, FILE *fp, uint64_t payload_bytes, c
 
     token_vec_free(&s->checkpoint);
     s->checkpoint = new_checkpoint;
+    s->checkpoint_gen++;   /* the loaded payload rewrote the transcript */
     for (uint32_t il = 0; il < DS4_N_LAYER; il++) {
         g->layer_n_comp[il] = n_comp[il];
         g->layer_n_index_comp[il] = n_index_comp[il];
@@ -75389,6 +75401,7 @@ int ds4_session_layer_slice_reset(ds4_session *s, char *err, size_t errlen) {
 #else
     if (ds4_session_is_glm(s)) {
         s->checkpoint.len = 0;
+        s->checkpoint_gen++;   /* the slice reset re-prefills a new prompt */
         s->checkpoint_valid = false;
         s->mtp_draft_valid = false;
         ds4_session_glm_reset_dense_cache(s);
@@ -76047,12 +76060,14 @@ static void qwen4_copy_index_put(qwen4_copy_index *ix, const int *h, uint32_t p,
 }
 
 /* Bring the index up to the checkpoint: only tokens appended since the
- * last call are inserted.  A shrink (rewind, slice reset, prompt reset)
- * truncates to the new length and drops the re-anchor alignment; a
- * replaced prefix (KV-cache restore, session reuse across requests) fails
- * the guard tokens and is rebuilt from scratch.  Stale entries a rewind
- * leaves behind are skipped at query time and reclaimed as the new tokens
- * are inserted, so no per-cycle rescan of the prefix ever runs. */
+ * last call are inserted.  A checkpoint generation mismatch (a new prompt
+ * in a reused slot, a session or KV restore replaced the content below
+ * the current length) clears and rebuilds from the new tokens; a shrink
+ * with the generation intact (rewind, slice reset, in-cycle rewinds)
+ * truncates to the new length — the prefix below it is unchanged — and
+ * drops the re-anchor alignment.  Stale entries a rewind leaves behind
+ * are skipped at query time and reclaimed as the new tokens are inserted,
+ * so no per-cycle rescan of the prefix ever runs. */
 static bool qwen4_copy_index_sync(ds4_session *s) {
     qwen4_copy_index *ix = &s->qwen4_copy_idx;
     const int *h = s->checkpoint.v;
@@ -76061,6 +76076,12 @@ static bool qwen4_copy_index_sync(ds4_session *s) {
         uint32_t tokens = s->ctx_size > (int)n ? (uint32_t)s->ctx_size : n;
         if (tokens < 1024u) tokens = 1024u;
         if (!qwen4_copy_index_alloc(ix, tokens)) return false;
+        ix->gen = s->checkpoint_gen;
+    }
+    if (ix->gen != s->checkpoint_gen) {
+        qwen4_copy_index_clear(ix);   /* the content was replaced under us */
+        ix->gen = s->checkpoint_gen;
+        s->qwen4_copy_ra_len = 0;
     }
     if (ix->upto > n) {
         ix->upto = n;
@@ -77545,6 +77566,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
         } else {
             qwen4_graph_reset(&s->qwen4_graph);
             s->checkpoint.len = 0;
+            s->checkpoint_gen++;   /* a new prompt replaces the old transcript */
             s->checkpoint_valid = false;
         }
         for (int i = start; i < prompt->len; i++) {
@@ -77691,6 +77713,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
                                 e->directional_steering_attn_scale,
                                 e->directional_steering_ffn_scale);
         ds4_tokens_copy(&s->checkpoint, prompt);
+        s->checkpoint_gen++;   /* the CPU prefill rewrote the transcript */
         s->checkpoint_valid = true;
         s->mtp_draft_valid = false;
         ds4_session_dspark_capture_note_checkpoint(s);
@@ -77719,6 +77742,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
             !ds4_tokens_starts_with(prompt, &s->checkpoint)) {
             ds41_graph_reset(g);
             s->checkpoint.len = 0;
+            s->checkpoint_gen++;   /* a new prompt replaces the old transcript */
             s->checkpoint_valid = false;
         }
         bool pending_logits = false, interrupted = false, decoder_pending = false;
@@ -77838,6 +77862,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
             s->mtp_draft_valid = false;
         } else {
             s->checkpoint.len = 0;
+            s->checkpoint_gen++;   /* a new prompt replaces the old transcript */
             s->checkpoint_valid = false;
             s->mtp_draft_valid = false;
             ds4_session_glm_reset_dense_cache(s);
@@ -78584,6 +78609,8 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
                 s->checkpoint_valid = false;
                 return 1;
             }
+            /* no generation bump: this copy rewrites byte-identical content
+             * (the resumed prefix plus the extension just prefilled) */
             ds4_tokens_copy(&s->checkpoint, prompt);
             s->checkpoint_valid = true;
             ds4_session_dspark_capture_note_checkpoint(s);
@@ -78618,6 +78645,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
     bool ok;
     s->checkpoint_valid = false;
     s->checkpoint.len = 0;
+    s->checkpoint_gen++;   /* a new prompt replaces the old transcript */
     s->mtp_draft_valid = false;
     ds4_session_dspark_capture_invalidate(s);
     if (!metal_graph_reset_prefill_state(&s->graph)) {
@@ -87507,6 +87535,7 @@ void ds4_session_invalidate(ds4_session *s) {
     }
     s->checkpoint_valid = false;
     s->checkpoint.len = 0;
+    s->checkpoint_gen++;   /* slot reuse: the next prompt starts from scratch */
     s->mtp_draft_valid = false;
     free(s->checkpoint_images);
     s->checkpoint_images = NULL;

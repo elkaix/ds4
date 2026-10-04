@@ -110,6 +110,39 @@ static void test_replaced_prefix(void) {
     free_session(s2);
 }
 
+static void test_replaced_shorter_prefix(void) {
+    /* GPU-validated regression: a reused server slot receives a shorter
+     * prompt that replaces the indexed transcript (prose -> edit -> copy
+     * in one slot).  The shrink alone must not be read as a rewind of the
+     * same prefix: the generation bump marks the replacement, the index
+     * rebuilds, and grams that exist only in the new content propose.
+     * Without the bump this returns 0 proposals for the whole request. */
+    ds4_session *s = new_session(4096);
+    int old[240];
+    for (int i = 0; i < 240; i++) old[i] = 500 + (i % 97);
+    push(s, old, 240);
+    int out[QWEN4_COPY_MAX_LIMIT];
+    assert(qwen4_copy_propose(s, 8888, 4, out, 7) == 0);   /* index the transcript */
+    assert(s->qwen4_copy_idx.upto == 240u);
+    assert(s->qwen4_copy_idx.gen == s->checkpoint_gen);
+    /* ds4_session_sync_internal's reset branch for a new, shorter prompt */
+    s->checkpoint.len = 0;
+    s->checkpoint_gen++;
+    push(s, (const int[]){ 7001,7002,7003,7004, 42, 7001,7002,7003 }, 8);
+    check_out(out, qwen4_copy_propose(s, 7004, 4, out, 7), (const int[]){ 42,7001,7002,7003 }, 4);
+    assert(s->qwen4_copy_idx.upto == 8u);
+    /* the public slot-reuse reset bumps the generation itself */
+    ds4_session_invalidate(s);
+    assert(s->checkpoint_gen != s->qwen4_copy_idx.gen);
+    push(s, (const int[]){ 7001,7002,7003,7004, 43, 7001,7002,7003 }, 8);
+    check_out(out, qwen4_copy_propose(s, 7004, 4, out, 7), (const int[]){ 43,7001,7002,7003 }, 4);
+    /* a plain rewind of the new prompt keeps the fast truncate path */
+    s->checkpoint.len = 5;
+    push(s, (const int[]){ 7001,7002,7003 }, 3);
+    check_out(out, qwen4_copy_propose(s, 7004, 4, out, 7), (const int[]){ 43,7001,7002,7003 }, 4);
+    free_session(s);
+}
+
 static void test_reanchor(void) {
     /* a copy block breaks on an edit: the source alignment carries, and
      * the next proposal re-anchors on the MTP draft within +-3 tokens */
@@ -169,6 +202,7 @@ int main(void) {
     test_best_candidate();
     test_rewind_truncation();
     test_replaced_prefix();
+    test_replaced_shorter_prefix();
     test_reanchor();
     test_edges();
     fprintf(stderr, "test_qwen4_copy_index: all tests passed\n");
