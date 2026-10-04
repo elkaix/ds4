@@ -76245,6 +76245,23 @@ static bool qwen4_predictor_row_accepted(ds4_session *s, const float *row, int d
         : qwen4_draft_accepted(s, row, draft, temperature, top_k, top_p, min_p, rng);
 }
 
+/* Parent of the next cycle's draft.  The caller samples the real next token
+ * from s->logits with the same rng the cycle used, so with sampled drafts on
+ * that draw is peeked at with a copy of the rng — left untouched — and the
+ * draft is conditioned on the token that actually comes next instead of the
+ * argmax the sampler often overrules.  Everywhere else the parent stays the
+ * row argmax.  Call it only after s->logits holds the row the caller will
+ * sample from and this cycle's accept/reject draws are done. */
+static int qwen4_next_parent(ds4_session *s, float temperature, int top_k,
+                             float top_p, float min_p, uint64_t *rng, bool exact_sampling) {
+    if (!qwen4_sampled_drafts() || exact_sampling || !rng || temperature <= 0.0f)
+        return sample_argmax(s->logits, DS4_N_VOCAB);
+    if (!s->sample_probs) s->sample_probs = xmalloc((size_t)DS4_N_VOCAB * sizeof(s->sample_probs[0]));
+    uint64_t peek = *rng;
+    return sample_top_p_min_p(s->logits, DS4_N_VOCAB, temperature, top_k,
+                              top_p, min_p, &peek, s->sample_probs);
+}
+
 /* Draft depth policy for the Qwen3.8 cycle: DS4_QWEN4_MTP_DEPTH=2 or =3
  * forces a fixed depth (read per cycle so the A/B harnesses can switch it
  * per step); 0/auto, the default, drafts two tokens while the rolling
@@ -76362,7 +76379,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         const int rc = ds4_session_eval_internal(s, first_token, false, err, errlen);
         s->glm_spec_inside = 0;
         if (rc != 0) return -1;
-        const int parent = sample_argmax(s->logits, V);
+        const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, rng, exact_sampling);
         qwen4_session_drafts(s, &parent, 1u, pos, depth);
         if (qwen4_spec_trace()) {
             fprintf(stderr, "ds4: spec pos %u token %d plain\n", pos, first_token);
@@ -76499,7 +76516,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         s->qwen4_copy_ra_pos = s->qwen4_copy_src + n_acc;
         s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
         memcpy(s->logits, rows + (size_t)n_acc * V, (size_t)V * sizeof(float));
-        const int parent = sample_argmax(s->logits, V);
+        const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, rng, exact_sampling);
         int next_tokens[1u + QWEN4_COPY_MAX_LIMIT];
         for (uint32_t i = 0; i < n_acc; i++) next_tokens[i] = copies[i];
         next_tokens[n_acc] = parent;
@@ -76532,7 +76549,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
         }
         memcpy(s->logits, rows + (T - 1u) * V, (size_t)V * sizeof(float));
-        const int parent = sample_argmax(s->logits, V);
+        const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, rng, exact_sampling);
         /* catch the predictor up over every committed row (a deep cycle's
          * speculative chain row at pos+1 is re-run with the true trunk
          * stream), then draft again */
@@ -76558,7 +76575,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
             s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
         }
         memcpy(s->logits, rows + V, (size_t)V * sizeof(float));
-        const int parent = sample_argmax(s->logits, V);
+        const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, rng, exact_sampling);
         const int next_tokens[2] = {d, parent};
         qwen4_session_drafts(s, next_tokens, 2u, pos, depth);
         s->qwen4_spec_accepted++;
@@ -76591,7 +76608,7 @@ static int ds4_session_qwen4_spec_cycle_inner(ds4_session *s, int first_token, f
         s->qwen4_copy_ra_len = (uint32_t)s->checkpoint.len;
     }
     {
-        const int parent = sample_argmax(s->logits, V);
+        const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, rng, exact_sampling);
         qwen4_session_drafts(s, &parent, 1u, pos, depth);
     }
     accepted[0] = first_token;

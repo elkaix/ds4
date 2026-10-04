@@ -7,7 +7,8 @@
  * through qwen4_copy_row_accepted instead — a draft commits only when the
  * request's own sampler draws it from the row, consuming exactly that one
  * draw, rolled back on a miss so the caller redraws that same token.  Greedy
- * decoding stays argmax in both modes. */
+ * decoding stays argmax in both modes.  qwen4_next_parent follows the same
+ * switch: the next draft's parent is the caller's coming draw, not the argmax. */
 #include "../ds4.c"
 #include <assert.h>
 
@@ -70,6 +71,22 @@ int main(void) {
                         assert(!qwen4_predictor_row_accepted(s, row, drawn, temperature, top_k, top_p, min_p, &rng));
                     assert(rng == plain0);
                 }
+
+                /* parent of the next draft: with the switch on it is the token
+                 * the caller is about to draw from s->logits, peeked without
+                 * advancing the caller's rng; otherwise the row argmax */
+                rng = plain0;
+                s->logits = row;
+                const int parent = qwen4_next_parent(s, temperature, top_k, top_p, min_p, &rng, false);
+                assert(rng == plain0);
+                assert(parent == (sampled ? drawn : am));
+                assert(ds4_session_sample(s, temperature, top_k, top_p, min_p, &rng) == drawn);
+                assert(rng == plain);
+                rng = plain0;
+                assert(qwen4_next_parent(s, temperature, top_k, top_p, min_p, &rng, true) == am);
+                assert(qwen4_next_parent(s, temperature, top_k, top_p, min_p, NULL, false) == am);
+                assert(qwen4_next_parent(s, 0.0f, top_k, top_p, min_p, &rng, false) == am);
+                assert(rng == plain0);
 
                 /* greedy: deterministic argmax rule, rng untouched, both modes */
                 rng = plain0;
