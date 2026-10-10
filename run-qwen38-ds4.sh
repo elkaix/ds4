@@ -126,7 +126,7 @@ FAN_APP_OWNED=false
 if pgrep -xq ThermalForgeApp; then FAN_APP_OWNED=true; fi
 FAN_COMMAND_TIMEOUT_SECONDS=5
 FAN_RESTORE_TIMEOUT_SECONDS=5
-FAN_PROFILE="${FAN_PROFILE:-performance}"  # agentic sustained load; override silent|balanced|max
+FAN_PROFILE="${FAN_PROFILE:-auto}"  # auto = Apple control (quiet); or silent|balanced|performance|max
 FAN_WATCH_INTERVAL_SECONDS=2
 fan_max_owned=false
 fan_watch_pid=""
@@ -179,7 +179,7 @@ Environment:
   QWEN_DS4_COPY_ADAPT=0          Fixed copy width at the cap (default: 1 = adaptive)
   QWEN_DS4_COPY_FLOOR=N          Narrowest adaptive copy width, 2..COPY_MAX (default: 3)
   QWEN_DS4_MTP_TIMING=1          MTP timing logs
-  FAN_PROFILE=name               silent|balanced|performance|max (default: performance)
+  FAN_PROFILE=name               auto|silent|balanced|performance|max (default: auto = Apple control)
 EOF
 }
 
@@ -942,6 +942,8 @@ server_pid=$!
 start_monitor "$server_pid"
 if [[ $FAN_APP_OWNED == true ]]; then
     echo "Fans managed by ThermalForge.app; leaving them as they are."
+elif [[ $FAN_PROFILE == auto ]]; then
+    echo "Fans left on Apple automatic control."
 elif ! set_fans_max; then
     echo "ThermalForge fan profile could not be started; stopping ds4-server." >&2
     exit 1
