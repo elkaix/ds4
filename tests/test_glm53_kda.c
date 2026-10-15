@@ -190,6 +190,82 @@ static void check_bf16_matmul(const uint8_t *model, size_t model_bytes,
 }
 
 #ifdef __APPLE__
+/* The GLM-5.3 prefill router converts F32 weights once into a BF16 slab and
+ * runs the BF16 matmul on it.  The reference rounds each weight the same way
+ * (RNE) and accumulates in double, so a wrong slab offset, a truncating
+ * conversion, or a stale slot shows up as a miss.  The refusals are what make
+ * the caller fall back to the F32 matmul. */
+static void check_router_bf16(uint8_t *model, size_t model_bytes,
+                              uint64_t offset, uint32_t in_dim,
+                              uint32_t out_dim, uint32_t rows) {
+    float *w = (float *)(void *)(model + offset);
+    for (uint32_t o = 0; o < out_dim; o++)
+        for (uint32_t i = 0; i < in_dim; i++)
+            w[(size_t)o * in_dim + i] = 0.0123f * (float)((int)(o % 7u) - 3) +
+                                        0.000917f * (float)((int)(i % 19u) - 9);
+    const size_t x_bytes   = (size_t)rows * in_dim * sizeof(float);
+    const size_t out_bytes = (size_t)rows * out_dim * sizeof(float);
+    /* n_rows <= 8 runs mul_mv on F32 activations; larger batches run mul_mm,
+     * which stages activations as half, so that path gets its own reference. */
+    float *x = malloc(x_bytes), *expected = malloc(out_bytes),
+          *expected_h = malloc(out_bytes), *actual = malloc(out_bytes);
+    require_ok(x && expected && expected_h && actual, "router BF16 host allocation");
+    for (uint32_t r = 0; r < rows; r++) {
+        for (uint32_t i = 0; i < in_dim; i++)
+            x[(size_t)r * in_dim + i] = 0.02f * (float)((int)(i % 17u) - 8) + 0.005f * (float)r;
+        for (uint32_t o = 0; o < out_dim; o++) {
+            double sum = 0.0, sum_h = 0.0;
+            for (uint32_t i = 0; i < in_dim; i++) {
+                const double wv = bf16_to_f32(f32_to_bf16(w[(size_t)o * in_dim + i]));
+                sum   += wv * (double)x[(size_t)r * in_dim + i];
+                sum_h += wv * (double)(_Float16)x[(size_t)r * in_dim + i];
+            }
+            expected[(size_t)r * out_dim + o]   = (float)sum;
+            expected_h[(size_t)r * out_dim + o] = (float)sum_h;
+        }
+    }
+    ds4_gpu_tensor *gx = ds4_gpu_tensor_alloc(x_bytes), *gout = ds4_gpu_tensor_alloc(out_bytes);
+    require_ok(gx && gout, "router BF16 tensor allocation");
+    require_ok(ds4_gpu_tensor_write(gx, 0, x, x_bytes), "router BF16 input write");
+    const uint64_t elems = (uint64_t)in_dim * out_dim;
+
+    require_ok(!ds4_gpu_glm53_router_matmul_bf16_prepared(gout, 3, in_dim, out_dim, gx, rows),
+               "router BF16 refuses an unprepared slot");
+    setenv("DS4_METAL_DISABLE_GLM53_PREFILL_ROUTER_TENSOR", "1", 1);
+    require_ok(!ds4_gpu_glm53_router_weights_bf16_prepare(3, model, model_bytes, offset, elems),
+               "router BF16 prepare honours the disable env");
+    unsetenv("DS4_METAL_DISABLE_GLM53_PREFILL_ROUTER_TENSOR");
+    require_ok(ds4_gpu_glm53_router_weights_bf16_prepare(3, model, model_bytes, offset, elems),
+               "router BF16 prepare");
+    require_ok(ds4_gpu_glm53_router_weights_bf16_prepare(3, model, model_bytes, offset, elems),
+               "router BF16 prepare is idempotent");
+    setenv("DS4_METAL_DISABLE_GLM53_PREFILL_ROUTER_TENSOR", "1", 1);
+    require_ok(!ds4_gpu_glm53_router_matmul_bf16_prepared(gout, 3, in_dim, out_dim, gx, rows),
+               "router BF16 matmul honours the disable env");
+    unsetenv("DS4_METAL_DISABLE_GLM53_PREFILL_ROUTER_TENSOR");
+
+    const uint32_t row_counts[2] = { 1u, rows };
+    for (int k = 0; k < 2; k++) {
+        const uint32_t n = row_counts[k];
+        require_ok(ds4_gpu_glm53_router_matmul_bf16_prepared(gout, 3, in_dim, out_dim, gx, n),
+                   "router BF16 matmul");
+        require_ok(ds4_gpu_tensor_read(gout, 0, actual, (size_t)n * out_dim * sizeof(float)),
+                   "router BF16 output read");
+        const float *ref = n <= 8u ? expected : expected_h;
+        for (uint32_t i = 0; i < n * out_dim; i++)
+            require_close("router BF16 matmul", actual[i], ref[i],
+                          2e-5f * (fabsf(ref[i]) + 1.0f));
+    }
+    ds4_gpu_tensor_free(gx);
+    ds4_gpu_tensor_free(gout);
+    free(x);
+    free(expected);
+    free(expected_h);
+    free(actual);
+}
+#endif
+
+#ifdef __APPLE__
 /*
  * Split-versus-generic indexed decode attention.
  *
@@ -1814,6 +1890,7 @@ int main(void) {
         WIDE512_OFFSET = 65536,   WIDE512_IN = 512,   WIDE512_OUT = 4,
         WIDE1024_OFFSET = 73728,  WIDE1024_IN = 1024, WIDE1024_OUT = 4,
         WIDE4096_OFFSET = 90112,  WIDE4096_IN = 4096, WIDE4096_OUT = 2,
+        ROUTER_F32_OFFSET = 106496,  /* 512 * 8 * 4 = 16384, ends 122880 */
         WIDE_ROWS = 3,
         /* Compare each compound HC producer against its unfused projection. */
         HC_N = 16384, HC_MIX = 24, HC_EMBD = 4096, HC_HC = 4,
@@ -1940,6 +2017,10 @@ int main(void) {
                       WIDE1024_OUT, WIDE_ROWS, "BF16 matmul in_dim=1024");
     check_bf16_matmul(model, MODEL_BYTES, WIDE4096_OFFSET, WIDE4096_IN,
                       WIDE4096_OUT, WIDE_ROWS, "BF16 matmul in_dim=4096");
+#ifdef __APPLE__
+    /* F32 512x8 router fits in the gap below HC_F16W_OFFSET. */
+    check_router_bf16(model, MODEL_BYTES, ROUTER_F32_OFFSET, 512, 8, 40);
+#endif
 
 #ifdef __APPLE__
     /*
