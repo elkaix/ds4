@@ -14904,6 +14904,43 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             prompt_for_sync = &effective_prompt;
         }
     }
+    if (live_ok && cached == 0 && live_vision_match && !multimodal &&
+        ds4_engine_is_glm53(s->engine) && common > 0 && common < old_pos &&
+        j->req.prompt.len > 1)
+    {
+        /* GLM-5.3 cannot truncate its KDA recurrence: a prompt that diverges
+         * below the live frontier (client compaction, pruned tool results)
+         * resumes from the newest prefill snapshot at or below the shared
+         * prefix and re-reads only the tail (#1205).  The target stays below
+         * the prompt so the final token is re-read for fresh logits. */
+        const int target = common == j->req.prompt.len ? common - 1 : common;
+        pthread_mutex_lock(&s->inference_mu);
+        const int snap = ds4_session_rewind_floor(slot->session, target);
+        pthread_mutex_unlock(&s->inference_mu);
+        if (snap > 0) {
+            if (s->kv.enabled && old_pos >= s->kv.opt.min_tokens)
+                kv_cache_store_current(s, slot, "evict", j->req.prompt_text);
+            pthread_mutex_lock(&s->inference_mu);
+            const bool restored =
+                ds4_session_rewind_snapshot(slot->session, snap) &&
+                ds4_session_common_prefix(slot->session, &j->req.prompt) == snap;
+            pthread_mutex_unlock(&s->inference_mu);
+            if (restored) {
+                cached = snap;
+                cache_source = "memory-rewind";
+                cache_diag.rewind_to = snap;
+                if (slot->continued_last_store_tokens > snap)
+                    slot->continued_last_store_tokens = 0;
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: GLM snapshot rewind from %d to %d (common=%d); %d suffix tokens will be evaluated",
+                           old_pos, snap, common, j->req.prompt.len - snap);
+            } else {
+                server_log(DS4_LOG_KVCACHE,
+                           "ds4-server: GLM snapshot rewind from %d to %d refused; rebuilding",
+                           old_pos, snap);
+            }
+        }
+    }
     if (cached == 0 && old_pos > 0) {
         server_log(DS4_LOG_WARNING,
                    "ds4-server: live kv cache miss%s live=%d prompt=%d common=%d vision=%s reason=%s",
