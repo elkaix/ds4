@@ -72724,7 +72724,9 @@ static int ds4_engine_open_internal(ds4_engine **out,
      * its forwards arm the rows-exact scope themselves (see
      * qwen4_graph_forward_tokens_impl and the batch encoders) */
     e->qwen4_rows_invariant = opt->qwen4_rows_invariant || getenv("DS4_QWEN4_ROWS_INVARIANT") != NULL;
+#ifdef DS4_HAS_QWEN4_GPU
     g_qwen4_rows_invariant = e->qwen4_rows_invariant;
+#endif
     ds4_acquire_instance_lock();
 
     if (opt->simulate_used_memory_bytes != 0 &&
