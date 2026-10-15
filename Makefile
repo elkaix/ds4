@@ -1068,6 +1068,12 @@ tests/test_session_state.o: tests/test_session_state.c ds4.c ds4.h ds4_gpu.h ds4
 tests/test_session_state: tests/test_session_state.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+tests/test_tokenizer.o: tests/test_tokenizer.c ds4.c ds4.h ds4_gpu.h ds4_image.h ds4_tp.h
+	$(CC) $(CFLAGS) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
+
+tests/test_tokenizer: tests/test_tokenizer.o $(filter-out ds4_cpu.o,$(CPU_CORE_OBJS))
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
 tests/test_session_state_gpu.o: tests/test_session_state.c ds4.c ds4.h ds4_gpu.h ds4_image.h ds4_tp.h
 	$(CC) $(CFLAGS) -Wno-unused-function -I. -c -o $@ $<
 
@@ -1103,17 +1109,12 @@ tests/test_tp_tcp: tests/test_tp_tcp.o $(filter-out ds4_tp.o,$(CPU_CORE_OBJS))
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 .PHONY: test-session-state
-test-session-state: tests/test_session_state tests/test_tp_commands tests/test_tp_rdma tests/test_tp_tcp
+test-session-state: tests/test_session_state tests/test_tokenizer tests/test_tp_commands tests/test_tp_rdma tests/test_tp_tcp
 	./tests/test_session_state
+	./tests/test_tokenizer
 	./tests/test_tp_commands
 	./tests/test_tp_rdma
 	./tests/test_tp_tcp
-
-tests/test_tokenizer.o: tests/test_tokenizer.c ds4.h
-	$(CC) $(CFLAGS) -DDS4_TEST_HOOKS -I. -c -o $@ $<
-
-tests/test_tokenizer: tests/test_tokenizer.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 ifneq ($(UNAME_S),Darwin)
 tests/test_gpu_xdev.o: tests/test_gpu_xdev.c ds4_gpu.h ds4_gpu_mgpu.h
@@ -1278,7 +1279,7 @@ test-quality-api: tests/test_quality_api.c gguf-tools/quality-testing/score_offi
 ds4.o ds4_cpu.o ds4_agent.o ds4_agent_cpu.o ds4_server.o ds4_server_cpu.o \
 ds4_test.o ds4_agent_test.o \
 ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o tests/test_session_state.o \
-tests/test_session_state_gpu.o: ds4_tool_text.h
+tests/test_session_state_gpu.o tests/test_tokenizer.o: ds4_tool_text.h
 
 clean:
 	rm -f tests/test_deepseek41_fusions tests/test_deepseek41_topk
@@ -1313,7 +1314,7 @@ clean:
 	rm -f tests/test_linux_memory tests/test_rocm_memory
 	rm -f tests/test_glm_attention tests/test_glm_attention_rocm
 	rm -f tests/test_ssd_cache tests/test_engram
-	rm -f tests/test_session_state tests/test_session_state_gpu tests/test_tp_commands
+	rm -f tests/test_session_state tests/test_session_state_gpu tests/test_tokenizer tests/test_tp_commands
 	rm -f tests/test_tp_rdma tests/test_tp_link tests/test_tp_tcp
 	rm -f tests/test_metal_tp_spec
 	rm -f tests/test_metal_tp_cancel
