@@ -858,6 +858,7 @@ typedef struct {
     ds4_think_mode think_mode;
     bool has_tools;
     bool prompt_preserves_reasoning;
+    bool qwen_chat_replays_reasoning;
     /* For /v1/responses: emit reasoning_summary_* events / fields only when the
      * client opted in via reasoning.summary. Other APIs leave this false; the
      * field is ignored on those code paths. */
@@ -3151,6 +3152,20 @@ static bool chat_history_uses_tool_context(const chat_msgs *msgs,
     return false;
 }
 
+/* Nonblank reasoning on the latest submitted assistant, before tool-memory
+ * substitution: the client echoes reasoning, so the next request renders the
+ * sampled think block and only the exact token-text key can match it. */
+static bool chat_last_assistant_replays_reasoning(const chat_msgs *msgs) {
+    for (int i = msgs->len - 1; i >= 0; i--) {
+        const chat_msg *m = &msgs->v[i];
+        if (strcmp(m->role, "assistant")) continue;
+        const char *p = m->reasoning;
+        while (p && isspace((unsigned char)*p)) p++;
+        return p && *p;
+    }
+    return false;
+}
+
 static char *render_deepseek_chat_prompt_text(const chat_msgs *msgs, const char *tool_schemas,
                                               const tool_schema_orders *tool_orders,
                                               ds4_think_mode think_mode) {
@@ -4536,6 +4551,9 @@ static bool parse_chat_request(ds4_engine *e, server *s, const char *body, int d
     if (!got_thinking && model_alias_enables_thinking(r->model)) thinking_enabled = true;
     r->think_mode = ds4_think_mode_for_context(
         think_mode_from_enabled(thinking_enabled, reasoning_effort), ctx_size);
+    r->qwen_chat_replays_reasoning =
+        r->model_syntax == SERVER_MODEL_SYNTAX_QWEN &&
+        chat_last_assistant_replays_reasoning(&msgs);
     kv_cache_restore_tool_memory_for_messages(s, &msgs);
     tool_memory_attach_to_messages(s, &msgs, &r->tool_replay);
     const char *active_tool_schemas = r->has_tools ? tool_schemas : NULL;
@@ -14155,6 +14173,11 @@ static bool tool_turn_live_tail_matches(const char *live, size_t live_len,
            memcmp(live + live_len - raw_len, raw, raw_len) == 0;
 }
 
+static bool tool_turn_keeps_token_text_disk_key(const request *r,
+                                                bool visible_continuation) {
+    return r->qwen_chat_replays_reasoning && !visible_continuation;
+}
+
 /* The one remember path for tool-call turns of every family: the visible key
  * when the frontier is aligned with it, otherwise no live checkpoint at all
  * (evict/shutdown then store the exact token text). */
@@ -14162,7 +14185,8 @@ static void remember_tool_turn_visible(server *s, server_slot *slot,
                                        const job *j, const char *ctx,
                                        const char *finish, bool inside_thinking,
                                        const char *content,
-                                       const tool_calls *calls) {
+                                       const tool_calls *calls,
+                                       bool visible_continuation) {
     char *visible = build_tool_turn_visible_text(&j->req, finish, inside_thinking,
                                                  content, calls);
     if (!visible) {
@@ -14191,6 +14215,14 @@ static void remember_tool_turn_visible(server *s, server_slot *slot,
         return;
     }
     thinking_live_remember(s, slot, visible, &j->req);
+    /* A Qwen chat client that echoed reasoning on its latest assistant turn
+     * will echo this turn's sampled reasoning too: keep the exact token-text
+     * disk key unless this request already continued from a visible key.  A
+     * first tool turn has no echo evidence and keeps the visible default. */
+    pthread_mutex_lock(&s->tool_mu);
+    slot->thinking_live.token_text_disk_key =
+        tool_turn_keeps_token_text_disk_key(&j->req, visible_continuation);
+    pthread_mutex_unlock(&s->tool_mu);
     server_log(DS4_LOG_KVCACHE,
                "ds4-server: tool-turn visible checkpoint remembered ctx=%s live=%d visible=%zu",
                ctx, ds4_session_pos(slot->session), strlen(visible));
@@ -16173,7 +16205,9 @@ decode_again:
                                      parsed_reasoning, &parsed_calls);
     } else if (parsed_calls.len) {
         remember_tool_turn_visible(s, slot, j, ctx_span, finish,
-                                   thinking.inside, parsed_content, &parsed_calls);
+                                   thinking.inside, parsed_content, &parsed_calls,
+                                   thinking_live_continuation ||
+                                   (disk_cache_ext_flags & KV_EXT_THINKING_VISIBLE));
     } else if (!parsed_calls.len &&
                (should_remember_thinking_checkpoint(&j->req, &thinking, final_finish) ||
                 glm_stop_thinking_checkpoint_eligible(&j->req, final_finish))) {
@@ -25293,6 +25327,51 @@ static void test_kv_cache_lookup_logs_diverging_longer_entry(void) {
     rmdir(dir);
 }
 
+static bool test_last_assistant_replays(const char *json) {
+    const char *p = json;
+    chat_msgs msgs = {0};
+    bool parsed = parse_messages(&p, &msgs);
+    TEST_ASSERT(parsed);
+    bool replays = parsed && chat_last_assistant_replays_reasoning(&msgs);
+    chat_msgs_free(&msgs);
+    return replays;
+}
+
+/* #1211: a Qwen chat client that echoes reasoning on its latest assistant
+ * turn must keep the exact token-text disk key for the next tool turn. */
+static void test_qwen_tool_turn_reasoning_echo_disk_key(void) {
+#define ECHO_ROOT "{\"role\":\"system\",\"content\":\"Stable parent\"}," \
+                  "{\"role\":\"user\",\"content\":\"Run it\"}"
+#define ECHO_TURN(reasoning) "{\"role\":\"assistant\",\"content\":\"Running.\"," reasoning \
+    "\"tool_calls\":[{\"id\":\"call_test\",\"type\":\"function\",\"function\":" \
+    "{\"name\":\"bash\",\"arguments\":\"{}\"}}]}," \
+    "{\"role\":\"tool\",\"tool_call_id\":\"call_test\",\"content\":\"ok\"}"
+    TEST_ASSERT(test_last_assistant_replays(
+        "[" ECHO_ROOT "," ECHO_TURN("\"reasoning_content\":\"previous echo\",") "]"));
+    TEST_ASSERT(!test_last_assistant_replays("[" ECHO_ROOT "]"));
+    TEST_ASSERT(!test_last_assistant_replays(
+        "[" ECHO_ROOT "," ECHO_TURN("\"reasoning_content\":\"older echo\",") ","
+        ECHO_TURN("") "]"));
+    TEST_ASSERT(!test_last_assistant_replays(
+        "[" ECHO_ROOT "," ECHO_TURN("\"reasoning_content\":null,") "]"));
+    TEST_ASSERT(!test_last_assistant_replays(
+        "[" ECHO_ROOT "," ECHO_TURN("\"reasoning_content\":\"\",") "]"));
+    TEST_ASSERT(!test_last_assistant_replays(
+        "[" ECHO_ROOT "," ECHO_TURN("\"reasoning_content\":\" \\t\\r\\n\",") "]"));
+    TEST_ASSERT(!test_last_assistant_replays(
+        "[{\"role\":\"system\",\"content\":\"Stable parent\",\"reasoning_content\":\"not assistant\"},"
+        "{\"role\":\"user\",\"content\":\"Run it\",\"reasoning_content\":\"not assistant\"}]"));
+#undef ECHO_TURN
+#undef ECHO_ROOT
+
+    request r = {0};
+    r.qwen_chat_replays_reasoning = true;
+    TEST_ASSERT(tool_turn_keeps_token_text_disk_key(&r, false));
+    TEST_ASSERT(!tool_turn_keeps_token_text_disk_key(&r, true));
+    r.qwen_chat_replays_reasoning = false;
+    TEST_ASSERT(!tool_turn_keeps_token_text_disk_key(&r, false));
+}
+
 static void test_kv_cache_lookup_uses_longest_text_prefix(void) {
     char tmpl[] = "/tmp/ds4-kv-text-prefix-test.XXXXXX";
     char *dir = mkdtemp(tmpl);
@@ -27739,6 +27818,7 @@ static void ds4_server_unit_tests_run(void) {
     test_kv_cache_file_size_must_fit_budget();
     test_sha1_bytes_hex_matches_known_vector();
     test_kv_cache_lookup_uses_longest_text_prefix();
+    test_qwen_tool_turn_reasoning_echo_disk_key();
     test_kv_cache_lookup_logs_diverging_longer_entry();
     test_kv_cache_lookup_rejects_wrong_model();
     test_kv_cache_lookup_rejects_stale_payload_abi();
