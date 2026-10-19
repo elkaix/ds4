@@ -76,6 +76,11 @@ if [[ "$MTP_DRAFT_ROWS" != 0 ]]; then export DS4_QWEN4_MTP_DRAFT_ROWS="$MTP_DRAF
 # request reads greedier than its temperature). 1 accepts them only on the
 # request's own sampler draw, so sampled output matches plain decode exactly;
 # acceptance drops but measured speed is level (2026-10-04), so the default is on.
+# Model card sampling (generation_config.json: temperature 1.0, top_p 0.95,
+# top_k 20; Qwen min_p 0). Applies only to knobs a request omits; pi sends none.
+TOP_P="${QWEN_DS4_TOP_P:-0.95}"
+TOP_K="${QWEN_DS4_TOP_K:-20}"
+MIN_P="${QWEN_DS4_MIN_P:-0}"
 SAMPLED_DRAFTS="${QWEN_DS4_SAMPLED_DRAFTS:-1}"
 if [[ "$SAMPLED_DRAFTS" == 1 ]]; then export DS4_QWEN4_SAMPLED_DRAFTS=1; fi
 # Context-copy drafts: when the just-sampled token plus the previous N-1
@@ -173,6 +178,7 @@ Environment:
   QWEN_DS4_YARN=F                YaRN factor auto|0|N (default: auto)
   QWEN_DS4_MTP=0                 Disable MTP
   QWEN_DS4_MTP_DRAFT_ROWS=N      MTP draft head rows, 0 = full vocab (default: 80000)
+  QWEN_DS4_TOP_P/TOP_K/MIN_P     Default sampling when a request omits it (default: 0.95/20/0)
   QWEN_DS4_SAMPLED_DRAFTS=1      MTP drafts accept on the sampler draw (exact sampled output)
   QWEN_DS4_COPY_SPEC=N           Context-copy draft min match, 0 = off (default: 8)
   QWEN_DS4_COPY_MAX=N            Max copy drafts per cycle, 3..7 (default: 7)
@@ -910,6 +916,7 @@ if (( BATCHED_SESSION > 1 )); then
     AGENT_ARGS+=(--batched-session "$BATCHED_SESSION")
 fi
 AGENT_ARGS+=(--tool-memory-max-ids "$TOOL_MEMORY_MAX_IDS")
+AGENT_ARGS+=(--top-p "$TOP_P" --top-k "$TOP_K" --min-p "$MIN_P")
 if [[ $CORS != 0 ]]; then
     AGENT_ARGS+=(--cors)
 fi
