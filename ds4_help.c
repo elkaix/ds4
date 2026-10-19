@@ -347,6 +347,13 @@ static void print_server_api(FILE *fp, const help_colors *c) {
     opt(fp, c, "--host HOST", "Bind address. Default: 127.0.0.1");
     opt(fp, c, "--port N", "Bind port. Default: 8000");
     opt(fp, c, "--cors", "Add Access-Control-Allow-* headers for browser JS clients.");
+    opt(fp, c, "--temp F", "Default sampling temperature (0..100) when a request omits it.");
+    opt(fp, c, "--top-p F", "Default nucleus probability (0..1) when a request omits it.");
+    opt(fp, c, "--top-k N", "Default top-k (>= 0, 0 = off) when a request omits it.");
+    opt(fp, c, "--min-p F", "Default min-p (0..1) when a request omits it.");
+    opt(fp, c, "--reasoning-effort LEVEL", "Default reasoning effort (none|low|medium|high|max or 1..100).");
+    opt(fp, c, "--thinking BOOL", "Default thinking mode (true|false). Default: true.");
+    opt(fp, c, "--preserved-thinking BOOL", "Qwen: default for preserve_thinking (false keeps reasoning only after the last user query). Default: true.");
     opt(fp, c, "--trace FILE", "Write prompts, cache decisions, output, and tool calls.");
     opt(fp, c, "--batched-session N", "Keep N resident sessions and batch decode-ready requests.");
     opt(fp, c, "--mixed-prefill-quantum N", "Prefill chunk while generations are active. Default: 128; GLM-5.3 minimum: 1024");

@@ -4574,6 +4574,10 @@ static void note_client_control_tokens(request *r, const chat_msgs *msgs) {
     r->client_marker_note = buf_take(&note);
 }
 
+static void server_apply_request_defaults(const server *s, request *r,
+                                          bool *thinking_enabled,
+                                          ds4_think_mode *reasoning_effort);
+
 static bool parse_chat_request(ds4_engine *e, server *s, const char *body, int def_tokens,
                                int ctx_size, request *r, char *err, size_t errlen) {
     request_init(r, REQ_CHAT, def_tokens);
@@ -4585,6 +4589,7 @@ static bool parse_chat_request(ds4_engine *e, server *s, const char *body, int d
     bool thinking_enabled = true;
     bool got_preserve_alias = false;
     ds4_think_mode reasoning_effort = DS4_THINK_HIGH;
+    server_apply_request_defaults(s, r, &thinking_enabled, &reasoning_effort);
     chat_msgs msgs = {0};
     char *tool_schemas = NULL;
 
@@ -4803,6 +4808,7 @@ static bool parse_anthropic_request(ds4_engine *e, server *s, const char *body, 
     bool got_thinking = false;
     bool thinking_enabled = true;
     ds4_think_mode reasoning_effort = DS4_THINK_HIGH;
+    server_apply_request_defaults(s, r, &thinking_enabled, &reasoning_effort);
     chat_msgs msgs = {0};
     char *system = NULL;
     char *tool_schemas = NULL;
@@ -5788,6 +5794,7 @@ static bool parse_responses_request(ds4_engine *e, server *s, const char *body, 
     bool got_thinking = false;
     bool thinking_enabled = true;
     ds4_think_mode reasoning_effort = DS4_THINK_HIGH;
+    server_apply_request_defaults(s, r, &thinking_enabled, &reasoning_effort);
     chat_msgs msgs = {0};
     buf loaded_tool_schemas = {0};
     char *instructions = NULL;
@@ -6085,7 +6092,7 @@ static bool parse_prompt(const char **p, char **out) {
     return true;
 }
 
-static bool parse_completion_request(ds4_engine *e, const char *body, int def_tokens,
+static bool parse_completion_request(ds4_engine *e, server *s, const char *body, int def_tokens,
                                      int ctx_size, request *r, char *err, size_t errlen) {
     request_init(r, REQ_COMPLETION, def_tokens);
     r->model_syntax = server_model_syntax_for_engine(e);
@@ -6094,6 +6101,7 @@ static bool parse_completion_request(ds4_engine *e, const char *body, int def_to
     bool got_thinking = false;
     bool thinking_enabled = true;
     ds4_think_mode reasoning_effort = DS4_THINK_HIGH;
+    server_apply_request_defaults(s, r, &thinking_enabled, &reasoning_effort);
 
     json_ws(&p);
     if (*p != '{') goto bad;
@@ -11118,6 +11126,18 @@ typedef struct {
     int n_warn;
 } kv_startup_check;
 
+/* ds4-server startup defaults (PR #1104): each applies only when the request
+ * leaves that knob out. */
+typedef struct {
+    bool thinking_set, thinking;
+    bool effort_set;
+    ds4_think_mode effort;
+    bool preserve_thinking_set, preserve_thinking;
+    bool temperature_set, top_p_set, top_k_set, min_p_set;
+    float temperature, top_p, min_p;
+    int top_k;
+} server_defaults;
+
 struct server {
     ds4_engine *engine;
     ds4_tp *tp_leader;
@@ -11134,6 +11154,7 @@ struct server {
     server_image_cache image_cache; /* Protected by inference_mu. */
     bool disable_exact_dsml_tool_replay;
     bool enable_cors;
+    server_defaults defaults;
     int anthropic_thinking_min_budget;
     ds4_tokens tail_close_tokens; /* empty: tail-close disabled for this model */
     char *tail_close_text;
@@ -11167,6 +11188,20 @@ struct server {
     pthread_mutex_t trace_mu;
     uint64_t trace_seq;
 };
+
+static void server_apply_request_defaults(const server *s, request *r,
+                                          bool *thinking_enabled,
+                                          ds4_think_mode *reasoning_effort) {
+    if (!s) return;
+    const server_defaults *d = &s->defaults;
+    if (d->thinking_set) *thinking_enabled = d->thinking;
+    if (d->effort_set) *reasoning_effort = d->effort;
+    if (d->preserve_thinking_set) r->preserve_thinking = d->preserve_thinking;
+    if (d->temperature_set) r->temperature = d->temperature;
+    if (d->top_p_set) r->top_p = d->top_p;
+    if (d->top_k_set) r->top_k = d->top_k;
+    if (d->min_p_set) r->min_p = d->min_p;
+}
 
 static void server_inference_lock(server *s) {
     pthread_mutex_lock(&s->inference_mu);
@@ -15787,10 +15822,11 @@ decode_again:
              * only for knobs the client left out: an explicit request value
              * (e.g. temperature 0 from a benchmark harness) must win, or the
              * same greedy request returns different text on every call. */
-            if (!j->req.temperature_set) temperature = DS4_DEFAULT_TEMPERATURE;
-            if (!j->req.top_k_set) top_k = 0;
-            if (!j->req.top_p_set) top_p = DS4_DEFAULT_TOP_P;
-            if (!j->req.min_p_set) min_p = DS4_DEFAULT_MIN_P;
+            const server_defaults *d = &s->defaults;
+            if (!j->req.temperature_set && !d->temperature_set) temperature = DS4_DEFAULT_TEMPERATURE;
+            if (!j->req.top_k_set && !d->top_k_set) top_k = 0;
+            if (!j->req.top_p_set && !d->top_p_set) top_p = DS4_DEFAULT_TOP_P;
+            if (!j->req.min_p_set && !d->min_p_set) min_p = DS4_DEFAULT_MIN_P;
         }
         const bool greedy_tool_syntax = !thinking.inside && in_tool_call &&
             !dsml_decode_state_uses_payload_sampling(dsml_state);
@@ -17854,7 +17890,7 @@ static void *client_main(void *arg) {
         ok = parse_responses_request(s->engine, s, hr.body, s->default_tokens,
                                      ctx_size, &req, err, sizeof(err));
     } else if (!strcmp(hr.method, "POST") && !strcmp(hr.path, "/v1/completions")) {
-        ok = parse_completion_request(s->engine, hr.body, s->default_tokens,
+        ok = parse_completion_request(s->engine, s, hr.body, s->default_tokens,
                                       ctx_size, &req, err, sizeof(err));
     } else {
         http_error(fd, s->enable_cors, 404, "unknown endpoint");
@@ -17963,6 +17999,7 @@ typedef struct {
     bool disable_exact_dsml_tool_replay;
     int tool_memory_max_ids;
     bool enable_cors;
+    server_defaults defaults;
     int batched_sessions;
     int mixed_prefill_quantum;
     int anthropic_thinking_min_budget;
@@ -17996,6 +18033,13 @@ static float parse_float_arg(const char *s, const char *opt, float minv, float m
         exit(2);
     }
     return v;
+}
+
+static bool parse_bool_arg(const char *s, const char *opt) {
+    if (!strcmp(s, "1") || !strcasecmp(s, "true") || !strcasecmp(s, "yes")) return true;
+    if (!strcmp(s, "0") || !strcasecmp(s, "false") || !strcasecmp(s, "no")) return false;
+    server_log(DS4_LOG_DEFAULT, "ds4-server: invalid boolean value for %s: %s (expected true/false, 1/0)", opt, s);
+    exit(2);
 }
 
 static const char *need_arg(int *i, int argc, char **argv, const char *opt) {
@@ -18252,6 +18296,34 @@ static server_config parse_options(int argc, char **argv) {
             c.port = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--cors")) {
             c.enable_cors = true;
+        } else if (!strcmp(arg, "--preserve-thinking") || !strcmp(arg, "--preserved-thinking")) {
+            c.defaults.preserve_thinking = parse_bool_arg(need_arg(&i, argc, argv, arg), arg);
+            c.defaults.preserve_thinking_set = true;
+        } else if (!strcmp(arg, "--reasoning-effort")) {
+            const char *val = need_arg(&i, argc, argv, arg);
+            if (!parse_reasoning_effort_name(val, &c.defaults.effort) &&
+                !ds4_think_mode_parse_level(val, &c.defaults.effort)) {
+                server_log(DS4_LOG_DEFAULT,
+                           "ds4-server: invalid value for %s: %s (expected none/low/medium/high/max or 1..100)",
+                           arg, val);
+                exit(2);
+            }
+            c.defaults.effort_set = true;
+        } else if (!strcmp(arg, "--thinking")) {
+            c.defaults.thinking = parse_bool_arg(need_arg(&i, argc, argv, arg), arg);
+            c.defaults.thinking_set = true;
+        } else if (!strcmp(arg, "--temp")) {
+            c.defaults.temperature = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 100.0f);
+            c.defaults.temperature_set = true;
+        } else if (!strcmp(arg, "--top-p")) {
+            c.defaults.top_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
+            c.defaults.top_p_set = true;
+        } else if (!strcmp(arg, "--top-k")) {
+            c.defaults.top_k = parse_nonneg_int_arg(need_arg(&i, argc, argv, arg), arg);
+            c.defaults.top_k_set = true;
+        } else if (!strcmp(arg, "--min-p")) {
+            c.defaults.min_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
+            c.defaults.min_p_set = true;
         } else if (!strcmp(arg, "--trace")) {
             c.trace_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--batched-session")) {
@@ -18535,6 +18607,7 @@ int main(int argc, char **argv) {
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
     s.tool_mem.max_entries = cfg.tool_memory_max_ids;
     s.enable_cors = cfg.enable_cors;
+    s.defaults = cfg.defaults;
     /* LOCAL PATCH */
     s.started_at = now_sec();
     s.model_path = cfg.engine.model_path;
@@ -19419,6 +19492,42 @@ static void test_anthropic_tail_close(void) {
     TEST_ASSERT(parse_options(1, default_argv).anthropic_thinking_min_budget == 1024);
     char *off_argv[] = {"ds4-server", "--anthropic-thinking-min-budget", "0"};
     TEST_ASSERT(parse_options(3, off_argv).anthropic_thinking_min_budget == 0);
+
+    /* Startup sampling/thinking defaults fill only what a request omits. */
+    char *def_argv[] = {"ds4-server", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20",
+                        "--min-p", "0", "--reasoning-effort", "low", "--thinking", "false",
+                        "--preserved-thinking", "no"};
+    server_config dc = parse_options(15, def_argv);
+    TEST_ASSERT(dc.defaults.temperature_set && fabsf(dc.defaults.temperature - 0.6f) < 1e-6f);
+    TEST_ASSERT(dc.defaults.top_p_set && dc.defaults.top_k_set && dc.defaults.top_k == 20);
+    TEST_ASSERT(dc.defaults.min_p_set && dc.defaults.min_p == 0.0f);
+    TEST_ASSERT(dc.defaults.effort_set && dc.defaults.effort == DS4_THINK_LOW);
+    TEST_ASSERT(dc.defaults.thinking_set && !dc.defaults.thinking);
+    TEST_ASSERT(dc.defaults.preserve_thinking_set && !dc.defaults.preserve_thinking);
+    TEST_ASSERT(!parse_options(1, default_argv).defaults.temperature_set);
+    {
+        /* Each parser calls this before reading the body, so any knob the
+         * request sends overwrites the default afterwards. */
+        server ds = {0};
+        ds.defaults = dc.defaults;
+        request dr;
+        request_init(&dr, REQ_CHAT, 1);
+        bool think = true;
+        ds4_think_mode effort = DS4_THINK_HIGH;
+        server_apply_request_defaults(&ds, &dr, &think, &effort);
+        TEST_ASSERT(!think && effort == DS4_THINK_LOW && !dr.preserve_thinking);
+        TEST_ASSERT(fabsf(dr.temperature - 0.6f) < 1e-6f && fabsf(dr.top_p - 0.95f) < 1e-6f);
+        TEST_ASSERT(dr.top_k == 20 && dr.min_p == 0.0f);
+        TEST_ASSERT(!dr.temperature_set && !dr.top_k_set);
+        request_free(&dr);
+        request_init(&dr, REQ_CHAT, 1);
+        think = true;
+        effort = DS4_THINK_HIGH;
+        server_apply_request_defaults(NULL, &dr, &think, &effort);
+        TEST_ASSERT(think && effort == DS4_THINK_HIGH && dr.preserve_thinking);
+        TEST_ASSERT(dr.temperature == DS4_DEFAULT_TEMPERATURE && dr.top_k == 0);
+        request_free(&dr);
+    }
 
     ds4_tokens_free(&s.tail_close_tokens);
     free(qwen);
@@ -24601,7 +24710,7 @@ static void test_request_parsers_reject_malformed_duplicate_owned_fields(void) {
     TEST_ASSERT(!ok);
     if (ok) request_free(&r);
 
-    ok = parse_completion_request(NULL,
+    ok = parse_completion_request(NULL, NULL,
         "{\"prompt\":\"hello\",\"prompt\":\"bad\\q\",\"max_tokens\":1}",
         1, 100, &r, err, sizeof(err));
     TEST_ASSERT(!ok);
