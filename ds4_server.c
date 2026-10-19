@@ -21478,7 +21478,7 @@ static void test_presence_penalty_request_parsing(void) {
                 ok = parse_responses_request(NULL, NULL, body, 128, 32768, &r,
                                              err, sizeof(err));
             } else if (cases[i].completion) {
-                ok = parse_completion_request(NULL, body, 128, 32768, &r,
+                ok = parse_completion_request(NULL, NULL, body, 128, 32768, &r,
                                               err, sizeof(err));
             } else {
                 ok = parse_chat_request(NULL, NULL, body, 128, 32768, &r,
