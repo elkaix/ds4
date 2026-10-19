@@ -25211,6 +25211,18 @@ static void test_kv_cache_cold_target_preserves_only_bounded_chat_anchor(void) {
     kc.opt.boundary_align_tokens = 0;
     kc.opt.boundary_trim_tokens = 0;
     TEST_ASSERT(kv_cache_cold_store_target(&kc, &prompt, -1, user, assistant) == 30000);
+
+    /* ChatML (Qwen): a marker is <|im_start|> followed by the role token. */
+    const int im_start = 9000;
+    kc.opt = kv_cache_default_options();
+    for (int i = 0; i < prompt.len; i++) prompt.v[i] = 1;
+    prompt.v[11999] = im_start;
+    prompt.v[12000] = user;
+    prompt.v[32999] = im_start;
+    prompt.v[33000] = assistant;
+    prompt.v[20000] = user;  /* bare role word without the prefix: not a marker */
+    TEST_ASSERT(kv_cache_cold_store_target(&kc, &prompt, im_start, user, assistant) == 11999);
+    TEST_ASSERT(kv_cache_cold_store_target(&kc, &prompt, -1, user, assistant) == 20000);
     ds4_tokens_free(&prompt);
 }
 
