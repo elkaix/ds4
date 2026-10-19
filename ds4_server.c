@@ -807,6 +807,7 @@ static void tool_memory_attach_to_messages(server *s, chat_msgs *msgs,
                                            tool_replay_stats *stats);
 static bool tool_memory_has_id(server *s, const char *id);
 static void kv_cache_restore_tool_memory_for_messages(server *s, const chat_msgs *msgs);
+static int kv_cache_tool_map_load_cb(void *ud, FILE *fp, const void *wanted);
 
 typedef struct {
     char **v;
@@ -11854,7 +11855,9 @@ static void kv_cache_restore_tool_memory_for_messages(server *s, const chat_msgs
             skip <= (uint64_t)INT64_MAX &&
             fseeko(fp, (off_t)skip, SEEK_CUR) == 0)
         {
-            kv_tool_map_load_from_pos(s, fp, &wanted);
+            /* The callback skips the tokenizer fingerprint section that
+             * leads the trailer of stamped files. */
+            kv_cache_tool_map_load_cb(s, fp, &wanted);
         }
         fclose(fp);
     }
@@ -25789,7 +25792,7 @@ static void test_glm_kv_tool_map_adversarial_scan_is_bounded(void) {
     pthread_mutex_destroy(&dst.tool_mu);
 }
 
-static void test_kv_tool_map_restores_before_prompt_render(void) {
+static void kv_tool_map_restore_case(bool stamped) {
     char tmpl[] = "/tmp/ds4-kv-tool-map-test.XXXXXX";
     char *dir = mkdtemp(tmpl);
     TEST_ASSERT(dir != NULL);
@@ -25815,14 +25818,18 @@ static void test_kv_tool_map_restores_before_prompt_render(void) {
     TEST_ASSERT(fp != NULL);
     if (fp) {
         uint8_t h[KV_CACHE_FIXED_HEADER];
-        kv_fill_header(h, 2, KV_REASON_CONTINUED, KV_EXT_TOOL_MAP, 512, 0, 32768, 100, 100, 0);
+        kv_fill_header(h, 2, KV_REASON_CONTINUED,
+                       stamped ? (uint8_t)(KV_EXT_TOKFP | KV_EXT_TOOL_MAP) : KV_EXT_TOOL_MAP,
+                       512, 0, 32768, 100, 100, 0);
         uint8_t text_len[4];
         le_put32(text_len, (uint32_t)strlen(text));
         TEST_ASSERT(fwrite(h, 1, sizeof(h), fp) == sizeof(h));
         TEST_ASSERT(fwrite(text_len, 1, sizeof(text_len), fp) == sizeof(text_len));
         TEST_ASSERT(fwrite(text, 1, strlen(text), fp) == strlen(text));
         uint64_t ignored = 0;
-        TEST_ASSERT(kv_tool_map_write(&src, fp, dsml, &ignored));
+        /* Stamped files lead the trailer with the tokenizer fingerprint. */
+        TEST_ASSERT(stamped ? kv_cache_tool_map_write_cb(&src, fp, dsml, &ignored)
+                            : kv_tool_map_write(&src, fp, dsml, &ignored));
         TEST_ASSERT(fclose(fp) == 0);
     }
 
@@ -25862,6 +25869,11 @@ static void test_kv_tool_map_restores_before_prompt_render(void) {
     unlink(path);
     free(path);
     rmdir(dir);
+}
+
+static void test_kv_tool_map_restores_before_prompt_render(void) {
+    kv_tool_map_restore_case(false);
+    kv_tool_map_restore_case(true);
 }
 
 static void test_kv_cache_eviction_values_fresh_snapshots(void) {

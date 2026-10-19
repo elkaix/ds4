@@ -64613,19 +64613,18 @@ uint64_t ds4_engine_tokenizer_fingerprint(ds4_engine *e) {
             h = tokenizer_fp_hash_bytes(h, e->vocab.token[ti].ptr,
                                         (size_t)e->vocab.token[ti].len);
         }
-        /* Merge ranks: the open-addressed slot order is a deterministic
+        /* Merges: the open-addressed slot order is a deterministic
          * function of the GGUF merge list, so hashing slots in index order
-         * (key bytes + rank) is stable across processes. */
-        h = tokenizer_fp_hash_bytes(h, &e->vocab.merge_rank.used,
-                                    sizeof(e->vocab.merge_rank.used));
-        h = tokenizer_fp_hash_bytes(h, &e->vocab.merge_rank.cap,
-                                    sizeof(e->vocab.merge_rank.cap));
-        for (uint64_t mi = 0; mi < e->vocab.merge_rank.cap; mi++) {
-            str_i32_entry *en = &e->vocab.merge_rank.entry[mi];
-            if (!en->used) continue;
-            h = tokenizer_fp_hash_bytes(h, &en->key.len, sizeof(en->key.len));
-            h = tokenizer_fp_hash_bytes(h, en->key.ptr, (size_t)en->key.len);
-            h = tokenizer_fp_hash_bytes(h, &en->value, sizeof(en->value));
+         * (pair key + rank + merged id, all plain integers) is stable
+         * across processes. */
+        h = tokenizer_fp_hash_bytes(h, &e->vocab.merges.cap,
+                                    sizeof(e->vocab.merges.cap));
+        for (uint64_t mi = 0; mi < e->vocab.merges.cap; mi++) {
+            const bpe_merge_entry *en = &e->vocab.merges.entry[mi];
+            if (!en->key) continue;
+            h = tokenizer_fp_hash_bytes(h, &en->key, sizeof(en->key));
+            h = tokenizer_fp_hash_bytes(h, &en->rank, sizeof(en->rank));
+            h = tokenizer_fp_hash_bytes(h, &en->id, sizeof(en->id));
         }
         for (size_t pi = 0; pi < sizeof(DS4_TOKENIZER_FP_PROBES) /
                                    sizeof(DS4_TOKENIZER_FP_PROBES[0]); pi++) {
