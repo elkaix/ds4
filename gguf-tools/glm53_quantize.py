@@ -90,13 +90,14 @@ def qtype_nbytes(qtype, shape):
 
 
 KDA_Q4K_TARGETS = ("q", "k", "v", "output")
+KDA_BF16_TARGETS = ("f_a", "f_b", "g_a", "g_b", "beta")
 
 
 def default_kda_q4k(artifact):
     return frozenset(("q", "k")) if artifact == "q2" else frozenset()
 
 
-def regular_qtype(artifact, role, name, source_qtype, kda_q4k=None):
+def regular_qtype(artifact, role, name, source_qtype, kda_q4k=None, kda_bf16=frozenset()):
     if artifact not in ("q2", "q4") or source_qtype != QTYPE_BF16:
         return source_qtype
     if role in ("embedding", "output"):
@@ -106,6 +107,8 @@ def regular_qtype(artifact, role, name, source_qtype, kda_q4k=None):
             kda_q4k = default_kda_q4k(artifact)
         if any(name.endswith(f".kda_{target}.weight") for target in kda_q4k):
             return QTYPE_Q4_K
+        if any(name.endswith(f".kda_{target}.weight") for target in kda_bf16):
+            return QTYPE_BF16
         return QTYPE_Q8_0
     return source_qtype
 
@@ -434,7 +437,7 @@ def add_mhc(plan, db, layer):
         add_regular(plan, db, f"blk.{layer}.hc_{site}_scale.weight", f"{prefix}.hc_{site}_scale", QTYPE_F32, "mhc")
 
 
-def add_linear_attention(plan, db, layer, artifact, kda_q4k):
+def add_linear_attention(plan, db, layer, artifact, kda_q4k, kda_bf16=frozenset()):
     prefix = f"{source_prefix(layer)}.self_attn"
     mapping = (
         ("q", "q_proj.weight", QTYPE_BF16),
@@ -460,7 +463,7 @@ def add_linear_attention(plan, db, layer, artifact, kda_q4k):
             db,
             name,
             f"{prefix}.{source}",
-            regular_qtype(artifact, "linear_attention", name, qtype, kda_q4k),
+            regular_qtype(artifact, "linear_attention", name, qtype, kda_q4k, kda_bf16),
             "linear_attention",
         )
 
@@ -640,7 +643,7 @@ def native_fp8_plan(db, plan):
     return native
 
 
-def build_plan(db, artifact, kda_q4k=None, q4k_expert_layers=frozenset()):
+def build_plan(db, artifact, kda_q4k=None, q4k_expert_layers=frozenset(), kda_bf16=frozenset()):
     plan = []
     embedding_name = "token_embd.weight"
     add_regular(
@@ -657,7 +660,7 @@ def build_plan(db, artifact, kda_q4k=None, q4k_expert_layers=frozenset()):
             add_mhc(plan, db, layer)
         add_regular(plan, db, f"blk.{layer}.attn_norm.weight", f"{prefix}.input_layernorm.weight", QTYPE_F32, "norm")
         if layer < 45 and layer % 4 != 3:
-            add_linear_attention(plan, db, layer, artifact, kda_q4k)
+            add_linear_attention(plan, db, layer, artifact, kda_q4k, kda_bf16)
         else:
             add_dsa_attention(plan, db, layer)
         add_regular(
@@ -1197,6 +1200,11 @@ def parse_args():
              f"({','.join(KDA_Q4K_TARGETS)}); default q,k for q2, none for q4",
     )
     parser.add_argument(
+        "--kda-bf16",
+        help="comma-separated KDA low-rank/beta projections kept BF16 instead of Q8_0 "
+             f"({','.join(KDA_BF16_TARGETS)}); BF16 enables the Metal pair/trio gate fusions",
+    )
+    parser.add_argument(
         "--q4k-expert-layers",
         help="q2 only: layer IDs/ranges (e.g. 17-20) whose routed experts are Q4_K",
     )
@@ -1230,6 +1238,13 @@ def parse_args():
         if unknown:
             parser.error(f"--kda-q4k: unknown projection(s) {','.join(unknown)}")
         args.kda_q4k = frozenset(targets)
+    targets = [target for target in (args.kda_bf16 or "").split(",") if target]
+    unknown = sorted(set(targets) - set(KDA_BF16_TARGETS))
+    if unknown:
+        parser.error(f"--kda-bf16: unknown projection(s) {','.join(unknown)}")
+    if targets and args.artifact == "fp8":
+        parser.error("--kda-bf16 does not apply to the lossless FP8 artifact")
+    args.kda_bf16 = frozenset(targets)
     if args.artifact == "q4" and args.imatrix:
         print("glm53-quantize: using the imatrix for Q4_K expert scale selection", file=sys.stderr)
     if args.artifact == "fp8" and args.imatrix:
@@ -1241,7 +1256,7 @@ def main():
     args = parse_args()
     db = SourceDB(args.hf)
     try:
-        plan = build_plan(db, args.artifact, args.kda_q4k, args.q4k_expert_layers)
+        plan = build_plan(db, args.artifact, args.kda_q4k, args.q4k_expert_layers, args.kda_bf16)
         tokenizer_records, template_tokens = load_tokenizer_records(args.tokenizer_template)
         validate_tokenizer_template(args.hf, template_tokens, 154880)
         kv_records = model_metadata(args.hf, args.source_revision)
