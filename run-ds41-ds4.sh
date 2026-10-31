@@ -19,7 +19,7 @@ SERVER_BIN="$DS4_DIR/ds4-server"
 # AtomicChat refusal-direction bake of antirez's 1017 IQ2_XXS/Q2_K imatrix Q2.
 # 341 GiB on disk: 152 GiB main weights (more than 128 GB RAM, so experts stream
 # from SSD) + 189 GiB Engram tables that are always read from disk.
-MODEL="${DS41_DS4_MODEL:-$HOME/models/gguf/DeepSeek-V4.1-Flash-1017-Uncensored-IQ2_XXS-Q2_K-imatrix.gguf}"
+MODEL="${DS41_DS4_MODEL:-$HOME/models/gguf/DeepSeek-V4.1-Flash-1017-Uncensored-DwarfStar/DeepSeek-V4.1-Flash-1017-Uncensored-IQ2_XXS-Q2_K-imatrix.gguf}"
 # Optional 1017 vision encoder (V4 Flash encoders do not work with V4.1).
 VISION="${DS41_DS4_VISION:-}"
 # Optional V4.1 1017 DSpark support GGUF (~8 GiB, stays resident). Upstream
