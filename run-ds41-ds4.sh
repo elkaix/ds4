@@ -117,6 +117,7 @@ Environment:
   DS41_DS4_VISION=PATH        Matching V4.1 1017 vision encoder GGUF (default: none)
   DS41_DS4_DSPARK=PATH        Matching V4.1 1017 DSpark support GGUF (default: off)
   DS41_DS4_DIR=PATH           ds4 checkout to run (default: ../ds4-v41)
+  DS41_DS4_STREAMING=0|1      SSD streaming (default: 1; 0 for resident Q1 builds)
   DS41_DS4_TRACE=path         Write ds4-server request/cache trace to path
 EOF
 }
@@ -849,6 +850,11 @@ VISION_ARGS=()
 if [[ -n $VISION ]]; then
     VISION_ARGS+=(--vision "$VISION")
 fi
+# Q1 builds (#1237) fit resident and are refused under --ssd-streaming.
+STREAM_ARGS=(--ssd-streaming)
+if [[ ${DS41_DS4_STREAMING:-1} == 0 ]]; then
+    STREAM_ARGS=()
+fi
 DSPARK_ARGS=()
 if [[ -n $DSPARK ]]; then
     DSPARK_ARGS+=(--dspark --mtp-model "$DSPARK")
@@ -906,6 +912,7 @@ Starting monitored ds4-server (DeepSeek V4.1 Flash 1017 Uncensored Q2, SSD strea
   model file: $model_stamp
   vision:     ${VISION:-off}
   DSpark:     ${DSPARK:-off}
+  streaming:  $(if (( ${#STREAM_ARGS[@]} )); then echo on; else echo off; fi)
   trace:      ${TRACE_PATH:-off}
   monitor:    every ${MONITOR_INTERVAL_SECONDS}s
   fans:       ThermalForge '$FAN_PROFILE' profile (temperature-driven); Apple auto on stop
@@ -923,7 +930,7 @@ os.chdir(sys.argv[1])
 os.execv(sys.argv[2], sys.argv[2:])
 ' "$DS4_DIR" "$SERVER_BIN" --metal \
     --model "$MODEL" \
-    --ssd-streaming \
+    ${STREAM_ARGS[@]+"${STREAM_ARGS[@]}"} \
     ${VISION_ARGS[@]+"${VISION_ARGS[@]}"} \
     ${DSPARK_ARGS[@]+"${DSPARK_ARGS[@]}"} \
     ${TRACE_ARGS[@]+"${TRACE_ARGS[@]}"} \
