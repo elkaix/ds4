@@ -100,7 +100,7 @@ struct ds4_metal_args_mul_mv_ext {
     int16_t r3;
 };
 
-template<short NR0, bool ROUND = false>
+template<short NR0, bool ROUND = false, bool COHERENT_STORE = false>
 static inline void helper_mv_reduce_and_write(
         device float * dst_f32,
         float sumf[NR0],
@@ -137,7 +137,14 @@ static inline void helper_mv_reduce_and_write(
         float tot = simd_sum(shmem_f32[row][tiisg]);
 
         if (tiisg == 0 && sgitg == 0) {
-            dst_f32[r0 + row] = ROUND ? ds4_bf16_round(tot) : tot;
+            const float out = ROUND ? ds4_bf16_round(tot) : tot;
+            if (COHERENT_STORE) {
+                /* m5-prod GLM router: published to other threadgroups */
+                atomic_store_explicit((device atomic_uint *)(dst_f32 + r0 + row),
+                                      as_type<uint>(out), memory_order_relaxed);
+            } else {
+                dst_f32[r0 + row] = out;
+            }
         }
     }
 }
@@ -2354,7 +2361,7 @@ typedef decltype(kernel_mul_mv_t_t<half, half>) mul_mv_t_t;
 template [[host_name("kernel_mul_mv_f32_f32")]] kernel mul_mv_t_t kernel_mul_mv_t_t<float, float>;
 template [[host_name("kernel_mul_mv_f16_f32")]] kernel mul_mv_t_t kernel_mul_mv_t_t<half,  float>;
 
-template<typename T0, typename T04, typename T1, typename T14, short NR0, typename args_t, bool ROUND = false>
+template<typename T0, typename T04, typename T1, typename T14, short NR0, typename args_t, bool ROUND = false, bool COHERENT_STORE = false>
 void kernel_mul_mv_t_t_4_impl(
         args_t args,
         device const char * src0,
@@ -2432,7 +2439,7 @@ void kernel_mul_mv_t_t_4_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    helper_mv_reduce_and_write<NR0, ROUND>(dst_f32, sumf, r0, args.ne01, tiisg, sgitg, shmem);
+    helper_mv_reduce_and_write<NR0, ROUND, COHERENT_STORE>(dst_f32, sumf, r0, args.ne01, tiisg, sgitg, shmem);
 }
 
 template<typename T0, typename T04, typename T1, typename T14, typename args_t, bool ROUND = false>
