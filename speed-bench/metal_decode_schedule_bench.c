@@ -37,6 +37,7 @@ typedef struct {
     int measured;
     bool include_selection;
     bool reverse_order;
+    bool ssd_streaming;
     decode_schedule control;
     decode_schedule candidate;
 } bench_config;
@@ -57,7 +58,8 @@ static void usage(FILE *fp, const char *argv0) {
             "  --candidate-second N   candidate second split (default: 32; control with --candidate-env)\n"
             "  --candidate-env NAME   unset NAME for control, set NAME=1 for candidate; repeatable (max 8)\n"
             "  --reverse-order        invert variant order/pairing to check token-parity bias\n"
-            "  --include-selection    include one non-EOS argmax in each timed step\n",
+            "  --include-selection    include one non-EOS argmax in each timed step\n"
+            "  --ssd-streaming        enable SSD streaming with the automatic expert cache\n",
             argv0);
 }
 
@@ -123,6 +125,8 @@ static bench_config parse_options(int argc, char **argv) {
                 }
             }
             cfg.candidate_envs[cfg.n_candidate_envs++] = name;
+        } else if (!strcmp(arg, "--ssd-streaming")) {
+            cfg.ssd_streaming = true;
         } else if (!strcmp(arg, "--include-selection")) {
             cfg.include_selection = true;
         } else if (!strcmp(arg, "--reverse-order")) {
@@ -388,6 +392,7 @@ int main(int argc, char **argv) {
         .backend = DS4_BACKEND_METAL,
         .context_size = cfg.ctx,
         .power_percent = 100,
+        .ssd_streaming = cfg.ssd_streaming,
         .warm_weights = true,
     };
     ds4_engine *engine = NULL;

@@ -46,7 +46,8 @@ To build weights rather than download them, see [GGUF tools](../gguf-tools/READM
 ## DeepSeek V4.1 Flash
 
 V4.1 Flash text and vision inference work on Metal. CUDA supports text with
-Q2 SSD streaming on one Spark or resident shards across two Sparks. It needs its own
+Q2 SSD streaming on one Spark or resident shards across two Sparks. ROCm
+supports single-host text inference with SSD streaming. It needs its own
 GGUF, tokenizer and inference graph; V4 Flash weights and DSpark support files
 are not interchangeable with it.
 
@@ -54,16 +55,19 @@ are not interchangeable with it.
 | --- | ---: | ---: |
 | `ds41f-q2` | 341 GiB | 152 GiB |
 | `ds41f-q4` | 483 GiB | 294 GiB |
+| `ds41f-mxfp4` | 467 GiB | 278 GiB |
 
-Both use imatrix-calibrated routed experts and include 189 GiB of Engram
-tables. Engram rows are read directly from the file as needed in every mode,
-never loaded as a resident table. Keep the GGUF on a fast local SSD.
+Q2 and Q4 use imatrix-calibrated routed experts; MXFP4 uses OCP MXFP4 routed
+experts with higher-precision attention, shared experts and output weights.
+All include 189 GiB of Engram tables. Engram rows are read directly from the
+file as needed in every mode, never loaded as a resident table. Keep the GGUF
+on a fast local SSD.
 
 On one 128 GB Mac, use SSD streaming. Leave the expert cache budget automatic:
 
 ```sh
 ./download_model.sh ds41f-q2
-./ds4 -m gguf/DeepSeek-V4.1-Flash-Q2.gguf \
+./ds4 -m gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf \
   --ssd-streaming --ctx 32768
 ```
 
@@ -90,6 +94,23 @@ For the M3 Ultra Q4 optimizations and their diagnostic rollback controls, see
 the [initial campaign's retained implementation and scope](../speed-bench/ds41f-m3ultra-perf/README.md#retained-implementation-and-scope)
 and the [fusion/indexer follow-up](../speed-bench/ds41f-m3ultra-perf/glm-transfer/README.md).
 
+For the 1017 MXFP4 build, run:
+
+```sh
+./download_model.sh ds41f-mxfp4
+```
+
+The target downloads all nine standard GGUF shards, verifies each size and
+SHA-256, and merges them into `gguf/DeepSeek-V4.1-Flash-1017-MXFP4-experts.gguf`.
+DwarfStar's V4.1 loader needs this single file with page-aligned Engram tables;
+the script restores the original 16 KiB alignment and verifies the original
+whole-file checksum before updating `ds4flash.gguf`. The shard files are kept,
+so allow about **935 GiB** for shards plus the merged output. Free space is
+checked before downloading. Rerun the same command to resume downloads or an
+interrupted merge; existing files and the previous default model are preserved
+if verification fails. Q2 and MXFP4 use the 1017 checkpoint; Q4 remains the
+previous release.
+
 Large SSD prefills process layers in wide batches. Metal overlaps computation
 with the next layer's reads; CUDA stages experts into its bounded device cache.
 Short appends keep using the expert cache.
@@ -98,8 +119,10 @@ Resident and TP inference also batch continued prefills automatically.
 For concurrent serving, see [session batching](SERVER.md#multiple-sessions).
 Each slot needs its own context memory; start with `--ctx 4096` before
 increasing both context and slot count. CUDA Q2 SSD mode batches up to eight
-decode rows; CUDA network TP currently serves sessions in order. DSpark,
-pipeline execution and ROCm are not implemented for V4.1; vision requires Metal.
+decode rows; CUDA network TP currently serves sessions in order.
+[DSpark](SPECULATIVE_DECODING.md#deepseek-v41-flash-dspark) uses a
+separate V4.1 support GGUF and currently requires one host. Pipeline execution
+is not implemented for V4.1; vision requires Metal.
 
 Scalar, batched and tensor-parallel execution are not numerically identical.
 Q4 batched prefill shows a small probability-score loss on the short official
@@ -111,7 +134,7 @@ For images, download the matching encoder and add it to the same command:
 
 ```sh
 ./download_model.sh ds41f-vision
-./ds4-agent -m gguf/DeepSeek-V4.1-Flash-Q2.gguf \
+./ds4-agent -m gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf \
   --ssd-streaming --vision gguf/DeepSeek-V4.1-Flash-Vision.gguf
 ```
 

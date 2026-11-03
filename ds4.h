@@ -469,6 +469,13 @@ bool ds4_session_vision_prefix_matches(const ds4_session *s,
 bool ds4_session_vision_state_matches(const ds4_session *s,
                                       const ds4_vision_span *images,
                                       size_t image_count);
+/* Fingerprint-only image prefix: every historical image matches by row count
+ * and fingerprint, ignoring token positions (which rebase repairs) and
+ * allowing appended request images.  Lets the server routing probe admit
+ * image-append continuations while still rejecting pixel mismatches. */
+bool ds4_session_vision_fingerprint_prefix_matches(const ds4_session *s,
+                                                   const ds4_vision_span *images,
+                                                   size_t image_count);
 /* Restore image positions from an independently authenticated live continuation
  * (for example, matching tool-call IDs). Checks every fingerprint and row count;
  * on failure, leaves spans unchanged. This does not verify the text history. */
@@ -484,8 +491,8 @@ ds4_session_rewrite_result ds4_session_rewrite_from_common(
 int ds4_session_common_prefix(ds4_session *s, const ds4_tokens *prompt);
 bool ds4_session_checkpoint_valid(const ds4_session *s);
 /* Test helpers (ds4-test): allocate a session shell holding only the given
- * checkpoint tokens, for server-side routing unit tests.  Not usable for
- * inference; free with ds4_session_free_test_checkpoint(). */
+ * checkpoint tokens, for server-side routing/probe unit tests.  Not usable
+ * for inference; free with ds4_session_free_test_checkpoint(). */
 ds4_session *ds4_session_new_test_checkpoint(const int *tokens, int n);
 /* Test hook: server logic runs as if a GLM-5.3 model were loaded (on=1) until
  * restored (on=0), so the GLM rewind tiers are probeable without one. */
@@ -496,6 +503,10 @@ void ds4_session_set_test_rewind_floor(ds4_session *s, int pos);
 void ds4_session_free_test_checkpoint(ds4_session *s);
 /* Make a test checkpoint report ds4_session_prefix_reusable() == false. */
 void ds4_session_set_test_backend_stale(ds4_session *s, bool stale);
+/* Attach synthetic image identities to a test checkpoint (copies
+ * token_start/row-count/fingerprint per span).  Not usable for inference. */
+void ds4_session_set_test_images(ds4_session *s,
+                                 const ds4_vision_span *images, size_t n);
 int ds4_session_argmax(ds4_session *s);
 int ds4_session_argmax_excluding(ds4_session *s, int excluded_id);
 int ds4_session_argmax_ignoring_eos(ds4_session *s,
@@ -510,6 +521,9 @@ int ds4_session_sample(ds4_session *s, float temperature, int top_k, float top_p
  * checkpoint, so the prompt is never penalised; call it once per request. */
 void ds4_session_set_presence_penalty(ds4_session *s, float penalty);
 #ifdef DS4_TEST_HOOKS
+/* Teacher-force a V4.1 verification block, returning logits after each token. */
+int ds4_test_ds41_verify_tokens(ds4_session *s, const int *tokens, int count,
+                                float *logits, char *err, size_t errlen);
 int ds4_test_sample_logits(const float *logits, uint32_t n_vocab,
                            float temperature, int top_k,
                            float top_p, float min_p, uint64_t *rng,
@@ -616,14 +630,28 @@ int ds4_session_eval_speculative(ds4_session *s, int first_token,
                                  char *err, size_t errlen);
 /* TP worker side of a mirrored speculative-verify block: run its half of the
  * batch verify for KV side effects, then obey the leader's commit frame
- * (keep, or roll back and replay). Only called from ds4_tp_worker_run. */
+ * (keep, or roll back and replay). flags are the VERIFY frame's
+ * DS4_TP_VERIFY_* bits. Only called from ds4_tp_worker_run. */
 int ds4_session_tp_spec_cycle(ds4_session *s, const int *drafts, int draft_n,
-                              char *err, size_t errlen);
+                              uint32_t flags, char *err, size_t errlen);
 int ds4_session_glm_tp_spec_cycle(ds4_session *s, int token, int limit,
                                  char *err, size_t errlen);
+/* TP worker side of a lockstep DSpark DRAFT/MAINTAIN frame (mode is a
+ * DS4_TP_DSPARK_* value).  Only called from ds4_tp_worker_run. */
+int ds4_session_tp_dspark_draft(ds4_session *s, int token, int pos,
+                                uint32_t mode, char *err, size_t errlen);
+/* Internal TP restore: no collectives and no logits exchange. Return 0 after
+ * restoring a recent verifier prefix, 1 if unavailable, -1 on copy failure.
+ * Logits are valid only at the block start; otherwise replay before sampling. */
+int ds4_session_restore_speculative_prefix(ds4_session *s, int pos);
 void ds4_session_invalidate(ds4_session *s);
-/* Keep the token prefix, restoring recurrent state where possible. Otherwise
- * the checkpoint becomes invalid: sync the retained prefix before eval.
+/* Try a recent speculative rewind, including valid next-token logits. False
+ * means the caller must use ordinary rewind/sync before continuing; a failed
+ * restore may have invalidated the checkpoint. */
+bool ds4_session_rewind_speculative(ds4_session *s, int pos);
+/* Keep the token prefix, restoring recurrent state where possible. This may
+ * copy GPU state and replay a bounded speculative suffix on both TP ranks.
+ * Otherwise the checkpoint becomes invalid: sync the retained prefix before eval.
  * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
 bool ds4_session_rewind_keeps_state(ds4_session *s, int pos);
