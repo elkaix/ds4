@@ -156,7 +156,7 @@ Profiles:
   ./run-qwen38-ds4.sh
 
   # Parallel agents: start conservatively (do NOT pair C4 with 262K unmeasured)
-  QWEN_DS4_CTX=32768 QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh
+  QWEN_DS4_CTX=16384 QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh
 
 
 Environment:
@@ -222,6 +222,16 @@ if [[ ! $TOKENS =~ ^[1-9][0-9]*$ ]]; then
 fi
 if [[ ! $BATCHED_SESSION =~ ^[1-9][0-9]*$ ]] || (( BATCHED_SESSION > 64 )); then
     echo "QWEN_DS4_BATCHED_SESSION must be 1..64; got: $BATCHED_SESSION" >&2
+    exit 2
+fi
+# Every batched session reserves KV and buffers for the full ctx, and ds4-server
+# does not refuse an overcommit: 4 x 262144 wired ~123 GiB and the watchdog
+# panicked the Mac (2026-11-03). Keep sessions x ctx within the single-session
+# 262144 that fits. ponytail: token budget, not a memory estimate; set
+# QWEN_DS4_ALLOW_OVERCOMMIT=1 after measuring a larger layout.
+if (( BATCHED_SESSION * CTX > 262144 )) && [[ ${QWEN_DS4_ALLOW_OVERCOMMIT:-0} != 1 ]]; then
+    echo "QWEN_DS4_BATCHED_SESSION=$BATCHED_SESSION x QWEN_DS4_CTX=$CTX exceeds 262144 tokens and can hang the Mac." >&2
+    echo "Lower QWEN_DS4_CTX (e.g. $((262144 / BATCHED_SESSION))), or set QWEN_DS4_ALLOW_OVERCOMMIT=1." >&2
     exit 2
 fi
 if [[ ! $TOOL_MEMORY_MAX_IDS =~ ^[1-9][0-9]*$ ]]; then
