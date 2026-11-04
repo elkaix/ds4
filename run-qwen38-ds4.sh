@@ -7,7 +7,7 @@
 #   ./run-qwen38-ds4.sh                 # full 262k ctx, agentic defaults
 #   MONITOR_INTERVAL_SECONDS=30 ./run-qwen38-ds4.sh
 #   QWEN_DS4_CTX=8192 ./run-qwen38-ds4.sh          # safer first smoke
-#   QWEN_DS4_BATCHED_SESSION=4 ./run-qwen38-ds4.sh # more concurrent agent sessions
+#   QWEN_DS4_BATCHED_SESSION=4 QWEN_DS4_CTX=16384 ./run-qwen38-ds4.sh  # 4 sessions; at ctx 262144 this wires ~123 GiB and hangs the Mac
 # Fans follow the ThermalForge profile while ds4-server runs, then return to Apple auto.
 #
 # This launcher targets CURRENT main: one self-contained qwen4exp GGUF with
