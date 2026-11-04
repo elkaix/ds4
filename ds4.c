@@ -92687,6 +92687,14 @@ int ds4_session_pos(ds4_session *s) {
     return s->checkpoint.len;
 }
 
+/* Test hook: forget the last loaded model's process-wide settings (shape,
+ * GLM template effort mapping) so model-free unit tests see the defaults even
+ * after a model-backed test ran in the same process. */
+void ds4_test_reset_model_globals(void) {
+    g_ds4_shape = DS4_SHAPE_FLASH;
+    g_ds4_glm_template_low_effort = false;
+}
+
 void ds4_test_use_glm53_shape(int on) {
     static ds4_shape saved;
     static bool active;

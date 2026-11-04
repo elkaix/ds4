@@ -7215,6 +7215,7 @@ static void test_dspark_verify_depth(void) {
 #endif
 
 static void test_server_unit_group(void) {
+    ds4_test_reset_model_globals();
     ds4_server_unit_tests_run();
 }
 
